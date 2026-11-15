@@ -34,8 +34,8 @@ if (! defined('ABSPATH')) {
  *  3. The key-name heuristic, for every option nobody registered: a key
  *     inside an option array named like *api_key*, *secret*, *password*,
  *     *token* or *license_key* is masked, unless the wpmcp_secret_key_allowlist
- *     filter lists the key name. The heuristic skips booleans and empty
- *     values (a "require_password" flag is not a credential). The allowlist
+ *     filter lists the key name. The heuristic masks string values only
+ *     (a "require_password" flag or "max_tokens" number is not a credential). The allowlist
  *     never unmasks a registered credential.
  *
  * The mask is Gateway_Secrets::MASK, and an empty credential stays empty so
@@ -338,7 +338,9 @@ final class Secret_Options
                 return true;
             }
         }
-        return ! is_bool($item) && 1 === preg_match(self::KEY_PATTERN, $key) && ! in_array($folded, $allow, true);
+        // Only a string can be a credential: a number or flag under a name like
+        // max_tokens or password_min_length is a setting the caller needs to see.
+        return is_string($item) && 1 === preg_match(self::KEY_PATTERN, $key) && ! in_array($folded, $allow, true);
     }
 
     /**
@@ -356,14 +358,36 @@ final class Secret_Options
                 $data[ $key ] = Gateway_Secrets::mask($item);
             } elseif (is_array($item)) {
                 $data[ $key ] = self::mask_tree($item, $spec, $allow, $path);
+            } elseif (is_string($item) && self::looks_encoded($item)) {
+                // JSON text or a serialized string inside the array: masked in the same form.
+                $decoded = Gateway_Secrets::decode($item);
+                if (null !== $decoded) {
+                    $inner = self::mask_tree($decoded[0], $spec, $allow, $path);
+                    if ($inner !== $decoded[0]) {
+                        $data[ $key ] = Gateway_Secrets::encode($inner, $decoded[1]);
+                    }
+                }
             }
         }
         return $data;
     }
 
+    /** Whether a string could be JSON text or serialized data worth decoding. */
+    private static function looks_encoded(string $value): bool
+    {
+        $trimmed = ltrim($value);
+        return '' !== $trimmed && (in_array($trimmed[0], [ '{', '[' ], true) || is_serialized($value));
+    }
+
     /**
      * $data with every credential that reads as the mask put back to its
      * stored value at the same path (or dropped when nothing is stored there).
+     *
+     * A list (numeric keys 0..n-1) has no stable identity per entry, so a
+     * mask inside one is restored only when the stored list has the same
+     * length and each entry's identity field (id, key, name, slug, uuid,
+     * label), when it has one, is unchanged. Otherwise the write is refused
+     * rather than putting one entry's credential into another.
      *
      * @param array<mixed>       $data
      * @param array<mixed>       $stored
@@ -371,11 +395,16 @@ final class Secret_Options
      * @param array<int, string> $allow
      * @param array<int, string> $trail
      * @return array<mixed>
+     * @throws \RuntimeException When a mask sits in a list whose entries changed.
      */
     private static function restore_tree(array $data, array $stored, array $spec, array $allow, array $trail): array
     {
+        $is_list = [] !== $data && array_is_list($data);
         foreach ($data as $key => $item) {
             $path = array_merge($trail, [ (string) $key ]);
+            if ($is_list && is_array($item) && self::holds_mask($item)) {
+                self::assert_list_entry_matches($data, $stored, (int) $key, $item);
+            }
             if (Gateway_Secrets::is_masked($item) && self::is_secret_key((string) $key, $item, $spec, $allow, $path)) {
                 if (array_key_exists($key, $stored)) {
                     $data[ $key ] = $stored[ $key ];
@@ -385,9 +414,131 @@ final class Secret_Options
             } elseif (is_array($item)) {
                 $child        = isset($stored[ $key ]) && is_array($stored[ $key ]) ? $stored[ $key ] : [];
                 $data[ $key ] = self::restore_tree($item, $child, $spec, $allow, $path);
+            } elseif (is_string($item) && self::looks_encoded($item) && false !== strpos($item, self::MASK)) {
+                $decoded = Gateway_Secrets::decode($item);
+                $old     = isset($stored[ $key ]) && is_string($stored[ $key ]) ? Gateway_Secrets::decode($stored[ $key ]) : null;
+                if (null !== $decoded) {
+                    $inner = self::restore_tree($decoded[0], null === $old ? [] : $old[0], $spec, $allow, $path);
+                    if ($inner !== $decoded[0]) {
+                        $data[ $key ] = Gateway_Secrets::encode($inner, $decoded[1]);
+                    }
+                }
             }
         }
         return $data;
+    }
+
+    /** Whether an array has the mask anywhere inside it. */
+    private static function holds_mask(array $data): bool
+    {
+        foreach ($data as $item) {
+            if (Gateway_Secrets::is_masked($item) || (is_array($item) && self::holds_mask($item))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Refuses a restore into list entry $index unless the stored list is the
+     * same length and the entry's identity field is unchanged.
+     *
+     * @param array<mixed> $data
+     * @param array<mixed> $stored
+     * @param array<mixed> $entry
+     */
+    private static function assert_list_entry_matches(array $data, array $stored, int $index, array $entry): void
+    {
+        $same = array_is_list($stored) && count($stored) === count($data) && isset($stored[ $index ]) && is_array($stored[ $index ]);
+        if ($same) {
+            foreach ([ 'id', 'key', 'name', 'slug', 'uuid', 'label' ] as $field) {
+                if (array_key_exists($field, $entry) && array_key_exists($field, $stored[ $index ]) && $entry[ $field ] !== $stored[ $index ][ $field ]) {
+                    $same = false;
+                    break;
+                }
+            }
+        }
+        if (! $same) {
+            throw new \RuntimeException('Refusing to write: a masked credential sits in a list whose entries changed, so it cannot be matched to the stored one. Send the real credential for that entry, or leave the list as read.');
+        }
+    }
+
+    /**
+     * A REST response body with credentials masked. Under /wp/v2/settings the
+     * body is a map of option name to value, so every entry goes through the
+     * registry and heuristic by its option name; on any other route only a
+     * key that is itself a registered option name is masked.
+     *
+     * @param mixed $body
+     * @return mixed
+     */
+    public static function mask_rest_body(string $route, $body)
+    {
+        if (! is_array($body)) {
+            return $body;
+        }
+        $exact   = [];
+        $regexes = [];
+        foreach (array_keys(self::registry()) as $entry) {
+            $entry = (string) $entry;
+            if ('' !== $entry && '/' === $entry[0]) {
+                $regexes[] = $entry;
+            } else {
+                $exact[ strtolower(trim($entry)) ] = true;
+            }
+        }
+        return self::mask_rest_walk($body, self::is_settings_route($route), $exact, $regexes);
+    }
+
+    /**
+     * @param array<mixed>        $body
+     * @param array<string, true> $exact
+     * @param array<int, string>  $regexes
+     * @return array<mixed>
+     */
+    private static function mask_rest_walk(array $body, bool $settings, array $exact, array $regexes): array
+    {
+        foreach ($body as $key => $item) {
+            if (is_string($key) && $settings) {
+                $body[ $key ] = self::mask_registered($key, $item);
+                continue;
+            }
+            $registered = is_string($key) && isset($exact[ strtolower(trim($key)) ]);
+            foreach ($regexes as $regex) {
+                $registered = $registered || (is_string($key) && 1 === preg_match($regex, trim($key)));
+            }
+            if ($registered) {
+                $body[ $key ] = self::mask_registered((string) $key, $item);
+            } elseif (is_array($item)) {
+                $body[ $key ] = self::mask_rest_walk($item, false, $exact, $regexes);
+            }
+        }
+        return $body;
+    }
+
+    /**
+     * REST write params with every masked credential put back to the stored
+     * value, on the settings route (names are option names).
+     *
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>
+     */
+    public static function unmask_rest_params(string $route, array $params): array
+    {
+        if (! self::is_settings_route($route)) {
+            return $params;
+        }
+        foreach ($params as $key => $value) {
+            if (is_string($key)) {
+                $params[ $key ] = self::unmask_option($key, $value);
+            }
+        }
+        return $params;
+    }
+
+    private static function is_settings_route(string $route): bool
+    {
+        return 1 === preg_match('#^/wp/v\d+/settings/?$#i', $route);
     }
 
     /** @param mixed $value */
