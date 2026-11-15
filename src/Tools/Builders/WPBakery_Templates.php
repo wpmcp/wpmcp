@@ -113,10 +113,10 @@ final class WPBakery_Templates
     }
 
     /**
-     * WPBakery's own gate for saving and deleting a template
-     * (Vc_Templates_Panel_Editor::save() and delete()): the Role Manager's
-     * templates part must be on or never configured. True when WPBakery is
-     * not loaded, since there is no Role Manager to ask.
+     * WPBakery's Role Manager can switch the templates part off for a role
+     * (state false). Only that explicit denial refuses here: edit_theme_options
+     * is the gate, so a "custom" or unset state never refuses a user who has
+     * it. True when WPBakery is not loaded, since there is no Role Manager.
      */
     private static function role_manager_allows(): bool
     {
@@ -124,7 +124,7 @@ final class WPBakery_Templates
             return true;
         }
 
-        return (bool) vc_user_access()->part('templates')->checkStateAny(true, null)->get();
+        return false !== vc_user_access()->part('templates')->getState();
     }
 
     /**

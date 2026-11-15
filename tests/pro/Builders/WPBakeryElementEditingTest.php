@@ -395,6 +395,40 @@ class WPBakeryElementEditingTest extends \WP_UnitTestCase
         $this->assertSame($before, get_option(self::TEMPLATES));
     }
 
+    /** Stands in for WPBakery's vc_user_access(), reading the Role Manager state a test sets. */
+    private function fake_role_manager(): void
+    {
+        if (! function_exists('vc_user_access')) {
+            eval('function vc_user_access() { return new class { public function part($p) { return $this; } public function getState() { return $GLOBALS["wpmcp_test_vc_templates_state"] ?? null; } }; }'); // phpcs:ignore Squiz.PHP.Eval.Discouraged
+        }
+    }
+
+    public function test_the_role_manager_only_refuses_on_an_explicit_off(): void
+    {
+        $this->fake_role_manager();
+        $this->seed_templates();
+
+        // Custom (and on, and unset): an administrator, and a user holding edit_theme_options, are allowed.
+        foreach (['custom', true, null] as $state) {
+            $GLOBALS['wpmcp_test_vc_templates_state'] = $state;
+            $custom = self::factory()->user->create(['role' => 'editor']);
+            get_userdata($custom)->add_cap('edit_theme_options');
+            foreach ([$this->admin, $custom] as $user) {
+                wp_set_current_user($user);
+                $out = $this->write_templates(['operation' => 'add', 'element' => ['name' => 'T', 'content' => self::HERO], 'expected_hash' => $this->scope('templates')['hash']]);
+                $this->assertIsArray($out, var_export($state, true));
+            }
+        }
+
+        // An explicit off wins.
+        $GLOBALS['wpmcp_test_vc_templates_state'] = false;
+        wp_set_current_user($this->admin);
+        $off = $this->write_templates(['operation' => 'remove', 'path' => 'hero_123', 'expected_hash' => $this->scope('templates')['hash']]);
+        $this->assertWPError($off);
+        $this->assertSame('forbidden', $off->get_error_code());
+        unset($GLOBALS['wpmcp_test_vc_templates_state']);
+    }
+
     public function test_a_user_without_the_capability_cannot_undo_a_template_write(): void
     {
         $this->seed_templates();
