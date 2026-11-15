@@ -17,7 +17,9 @@
 # --live-crm), or, with WPMCP_LIVE_HELPDESK=1, BetterDocs, Fluent Support
 # and Awesome Support only (bin/test-local.sh --live-helpdesk), or, with
 # WPMCP_LIVE_ACTIVITY_LOG=1, WP Activity Log and Simple History only
-# (bin/test-local.sh --live-activity-log), or, with
+# (bin/test-local.sh --live-activity-log), or, with WPMCP_LIVE_EMAIL_LOG=1,
+# WP Mail Logging, Check and Log Email and Email Log only
+# (bin/test-local.sh --live-email-log), or, with
 # WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
 # WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
@@ -223,6 +225,18 @@ if [ "${WPMCP_LIVE_ACTIVITY_LOG:-}" = "1" ]; then
 	PLUGINS=(
 		"wp-security-audit-log:wp-security-audit-log.php"
 		"simple-history:index.php"
+	)
+fi
+
+# The live email log job (issue #905) runs the email log ops against the real
+# WP Mail Logging, Check and Log Email and Email Log, all free on
+# wordpress.org, on one install: each keeps its own table. Exclusive too: the
+# stub-backed tests build all three tables from a fixture.
+if [ "${WPMCP_LIVE_EMAIL_LOG:-}" = "1" ]; then
+	PLUGINS=(
+		"wp-mail-logging:wp-mail-logging.php"
+		"check-email:check-email.php"
+		"email-log:email-log.php"
 	)
 fi
 
