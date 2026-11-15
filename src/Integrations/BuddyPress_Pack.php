@@ -139,7 +139,7 @@ final class BuddyPress_Pack
             ],
             'buddypress-list-activity'        => [
                 'mode'         => 'read',
-                'description'  => 'List BuddyPress activity items newest first, with content; filter by component, type or user_id. Hidden and spam items are listed for moderators only. Email only for callers with list_users; activity meta is never returned',
+                'description'  => 'List BuddyPress activity items newest first, with content; filter by component, type or user_id. Hidden and spam items are listed for moderators only. On BuddyBoss, others get only items they may see (public, loggedin, own onlyme, friends), published and unsuspended; media, document and video items are not listed. Email only for callers with list_users; activity meta is never returned',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -855,15 +855,37 @@ final class BuddyPress_Pack
         ];
     }
 
-    /** Whether a column or table of BuddyPress's own schema exists (BuddyBoss Platform adds some). */
+    /** Probe results per table and column, for the life of the request. @var array<string, bool> */
+    private static array $schema_seen = [];
+
+    /** Whether this is BuddyBoss Platform (its schema always has the privacy, status and suspend parts). */
+    private static function is_buddyboss(): bool
+    {
+        return (bool) apply_filters('wpmcp_buddyboss_active', defined('BP_PLATFORM_VERSION'));
+    }
+
+    /**
+     * Whether a column or table of BuddyPress's own schema exists. On BuddyBoss
+     * Platform the answer is always yes, so the read rules never depend on a
+     * probe that can fail: if the schema were somehow missing, the list query
+     * errors and returns nothing instead of returning private items. Elsewhere
+     * the probe is cached per request.
+     */
     private static function has_schema(string $table, ?string $column = null): bool
     {
         global $wpdb;
-        $suppress = $wpdb->suppress_errors(true);
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- probing a third-party table's live shape; nothing to cache.
-        $columns = (array) $wpdb->get_col($wpdb->prepare('SHOW COLUMNS FROM %i', $table));
-        $wpdb->suppress_errors($suppress);
-        return null === $column ? [] !== $columns : in_array($column, $columns, true);
+        if (self::is_buddyboss()) {
+            return true;
+        }
+        $key = $table . '|' . ( $column ?? '' );
+        if (! isset(self::$schema_seen[ $key ])) {
+            $suppress = $wpdb->suppress_errors(true);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- probing a third-party table's live shape, cached in $schema_seen.
+            $columns = (array) $wpdb->get_col($wpdb->prepare('SHOW COLUMNS FROM %i', $table));
+            $wpdb->suppress_errors($suppress);
+            self::$schema_seen[ $key ] = null === $column ? [] !== $columns : in_array($column, $columns, true);
+        }
+        return self::$schema_seen[ $key ];
     }
 
     /**
@@ -893,9 +915,11 @@ final class BuddyPress_Pack
                     $friends = array_merge($friends, array_map('intval', (array) friends_get_friend_user_ids($user)));
                 }
                 $friends = array_values(array_unique(array_filter($friends)));
-                $levels  = $user > 0 ? "'public', 'loggedin', 'grouponly'" : "'public'";
+                $levels  = $user > 0 ? "'public', 'loggedin'" : "'public'";
                 $rule    = "( {$alias}.privacy IN ({$levels})";
                 if ($user > 0) {
+                    // Group-only items only in their own group (the group access rule below then applies).
+                    $rule .= " OR ( {$alias}.privacy = 'grouponly' AND {$alias}.component = 'groups' )";
                     $rule .= " OR ( {$alias}.privacy = 'onlyme' AND {$alias}.user_id = %d )";
                     $vals[] = $user;
                     if ([] !== $friends) {
