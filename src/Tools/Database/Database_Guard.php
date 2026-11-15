@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Database;
 
 use WPMCP\Tools\Content\Content_Guard;
+use WPMCP\Tools\Meta\Secret_Options;
 use WPMCP\Tools\WooCommerce\Gateway_Secrets;
 
 if (! defined('ABSPATH')) {
@@ -435,6 +436,36 @@ class Database_Guard
      * @return array<int, mixed>
      */
     public static function mask_gateway_secrets(array $rows): array
+    {
+        return self::mask_option_rows(self::mask_gateway_rows($rows));
+    }
+
+    /**
+     * wp_options rows with the credentials the secret registry and key-name
+     * heuristic cover masked in option_value (issue #865, Secret_Options):
+     * the same rule get-option applies, for a row that names its option.
+     * Runs after the gateway pass, which needs the raw values to scrub.
+     *
+     * @param array<int, mixed> $rows
+     * @return array<int, mixed>
+     */
+    private static function mask_option_rows(array $rows): array
+    {
+        foreach ($rows as $index => $row) {
+            if (is_array($row) && isset($row['option_name'], $row['option_value']) && is_string($row['option_name']) && is_string($row['option_value'])) {
+                $rows[ $index ]['option_value'] = Secret_Options::mask_row_value($row['option_name'], $row['option_value']);
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * The payment gateway pass of mask_gateway_secrets().
+     *
+     * @param array<int, mixed> $rows
+     * @return array<int, mixed>
+     */
+    private static function mask_gateway_rows(array $rows): array
     {
         if (! function_exists('WC') || ! class_exists('WC_Payment_Gateway')) {
             return $rows;

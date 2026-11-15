@@ -210,6 +210,9 @@ final class Gateway_Secrets
     }
 
     /**
+     * Public so Secret_Options (issue #865) reads and re-encodes option
+     * values in the same shapes the gateway rule does.
+     *
      * $value peeled down to an array: the array plus the layers taken off it
      * (outermost first), or null when no array is inside. Serialized data is
      * decoded without instantiating any class.
@@ -217,7 +220,7 @@ final class Gateway_Secrets
      * @param mixed $value
      * @return array{0: array<mixed>, 1: array<int, string>}|null
      */
-    private static function decode($value): ?array
+    public static function decode($value): ?array
     {
         $layers = [];
         for ($depth = 0; $depth < 4; $depth++) {
@@ -263,7 +266,7 @@ final class Gateway_Secrets
      * @param array<int, string> $layers
      * @return mixed
      */
-    private static function encode(array $settings, array $layers)
+    public static function encode(array $settings, array $layers)
     {
         $value = $settings;
         foreach (array_reverse($layers) as $layer) {
