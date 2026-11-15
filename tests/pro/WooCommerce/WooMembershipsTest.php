@@ -3,6 +3,7 @@
 namespace WPMCP\Tests\Pro\WooCommerce;
 
 use WPMCP\Governance\Governance;
+use WPMCP\Privacy\Masking;
 use WPMCP\Pro\Gate;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
@@ -211,7 +212,11 @@ class WooMembershipsTest extends \WP_UnitTestCase
         $all = $this->read('memberships.members', ['plan_id' => $gold]);
         $this->assertSame(200, $all['status'], wp_json_encode($all));
         $this->assertSame([$b, $a], array_column($all['body']['members'], 'id'));
-        $this->assertSame(get_userdata($ann)->user_email, $all['body']['members'][1]['user_email']);
+        $this->assertTrue($all['body']['masked']);
+        $this->assertSame(Masking::email(get_userdata($ann)->user_email), $all['body']['members'][1]['user_email']);
+        $this->assertNotSame(get_userdata($ann)->user_email, $all['body']['members'][1]['user_email']);
+        $this->assertSame(Masking::value(get_userdata($ann)->display_name), $all['body']['members'][1]['display_name']);
+        $this->assertSame($ann, $all['body']['members'][1]['user_id'], 'ids stay readable');
 
         $active = $this->read('memberships.members', ['plan_id' => $gold, 'status' => ['active']]);
         $this->assertSame([$a], array_column($active['body']['members'], 'id'));

@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\WooCommerce\Catalog;
 
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Wc_User_Membership_Snapshot;
 
 if (! defined('ABSPATH')) {
@@ -137,12 +138,12 @@ final class Membership_Ops
             if (null !== $row) {
                 $user   = get_userdata($row['user_id']);
                 $rows[] = self::view($row) + [
-                    'user_email'   => $user ? (string) $user->user_email : null,
-                    'display_name' => $user ? (string) $user->display_name : null,
+                    'user_email'   => $user ? Masking::email((string) $user->user_email) : null,
+                    'display_name' => $user ? Masking::value((string) $user->display_name) : null,
                 ];
             }
         }
-        return [ 'page' => $page, 'per_page' => $per_page, 'total' => (int) $query->found_posts, 'members' => $rows ];
+        return [ 'page' => $page, 'per_page' => $per_page, 'total' => (int) $query->found_posts, 'masked' => true, 'members' => $rows ];
     }
 
     /** @return array<string, mixed> */
