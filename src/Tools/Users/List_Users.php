@@ -56,7 +56,7 @@ class List_Users
     {
         return [
             'id'           => (int) $user->ID,
-            'username'     => (string) $user->user_login,
+            'username'     => is_email((string) $user->user_login) ? Masking::email((string) $user->user_login) : (string) $user->user_login,
             'display_name' => Masking::value((string) $user->display_name),
             'email'        => Masking::email((string) $user->user_email),
             'roles'        => array_values((array) $user->roles),
