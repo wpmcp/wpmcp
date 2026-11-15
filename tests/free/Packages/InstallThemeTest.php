@@ -144,10 +144,9 @@ class InstallThemeTest extends \WP_UnitTestCase
         $out = (new Install_Theme())->activate_installed($target, []);
         $this->assertSame($target, get_stylesheet());
 
-        foreach ($out['operation_ids'] as $operation_id) {
-            $restored = (new Rollback_Operation())->handle(['operation_id' => $operation_id]);
-            $this->assertTrue($restored['restored']);
-        }
+        // One switch is one undo (issue #869): either id puts both options back.
+        $restored = (new Rollback_Operation())->handle(['operation_id' => $out['operation_ids'][0]]);
+        $this->assertTrue($restored['restored']);
 
         $this->assertSame($original_stylesheet, get_option('stylesheet'));
         $this->assertSame($original_template, get_option('template'));

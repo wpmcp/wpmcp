@@ -147,6 +147,22 @@ class Rollback_Service
             self::warn(sprintf('operation %s refused: %s', $operation_id, $locked->get_error_message()));
             return false;
         }
+        // One theme switch is one undo (issue #869): either half puts both
+        // the template and the stylesheet back, and no undo may leave them
+        // as a broken pair.
+        $partner = null;
+        if (Theme_Switch_Snapshot::is_theme_option((array) $row['snapshot'])) {
+            $partner_id  = Theme_Switch_Snapshot::partner_id((array) $row['snapshot']);
+            $partner_row = '' === $partner_id ? null : Snapshot_Store::get_by_operation($partner_id);
+            if ($partner_row && null === Snapshot_Store::rolled_back_at($partner_row)) {
+                $partner = $partner_row;
+            }
+            $refused = Theme_Switch_Snapshot::refusal(array_filter([ $row['snapshot'], $partner ? $partner['snapshot'] : null ]));
+            if (null !== $refused) {
+                self::warn(sprintf('operation %s refused: %s Nothing was changed.', $operation_id, $refused));
+                return false;
+            }
+        }
         // Claimed before it is applied, atomically, so two undos racing for
         // the same operation cannot both apply it. Released again when the
         // restore throws, or when a file restore is refused by its own site
@@ -156,10 +172,22 @@ class Rollback_Service
             self::warn(self::already_undone($operation_id, $row ? (string) Snapshot_Store::rolled_back_at($row) : ''));
             return false;
         }
+        $partner_claimed = $partner && Snapshot_Store::claim_rollback((string) $partner['operation_id']);
         try {
             self::apply_for_caller($row['snapshot']);
+            if ($partner_claimed) {
+                self::apply_for_caller($partner['snapshot']);
+                self::warn(sprintf(
+                    'operation %s was one half of a theme switch: its paired operation %s was undone with it, so the template and stylesheet are back together.',
+                    $operation_id,
+                    $partner['operation_id']
+                ));
+            }
         } catch (\Throwable $e) {
             Snapshot_Store::release_rollback($operation_id);
+            if ($partner_claimed) {
+                Snapshot_Store::release_rollback((string) $partner['operation_id']);
+            }
             throw $e;
         }
         if (self::restore_failed($row['snapshot'])) {
