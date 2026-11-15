@@ -280,7 +280,8 @@ class ElementorProFormsPackTest extends \WP_UnitTestCase
         $this->assertSame([ $a ], $ids([ 'status' => 'unread' ]));
         $this->assertSame([ $b ], $ids([ 'status' => 'read' ]));
         $this->assertSame([ $c ], $ids([ 'status' => 'trash' ]));
-        $this->assertSame([ $b ], $ids([ 'search' => 'bob@' ]));
+        $this->assertSame([ $b, $a ], $ids([ 'search' => 'Contact' ]), 'search matches the form name');
+        $this->assertSame([], $ids([ 'search' => 'bob@' ]), 'search never matches field values');
         $this->assertSame([ $a ], $ids([ 'before' => '2026-01-31' ]));
         $this->assertSame([ $b ], $ids([ 'after' => '2026-02-01', 'before' => '2026-02-28' ]));
         $this->assertSame([], $ids([ 'form' => $this->page . '_zzz9999' ]));
@@ -360,6 +361,20 @@ class ElementorProFormsPackTest extends \WP_UnitTestCase
             $this->assertStringNotContainsString($secret, $csv);
         }
         $this->assertStringContainsString('"2***"', $csv);
+    }
+
+    public function test_search_cannot_probe_masked_values_and_referer_loses_its_query(): void
+    {
+        $this->submit('ada@example.org', [ 'referer' => 'https://example.org/contact/?email=ada@example.org#x' ]);
+        foreach ([ 'ada@', 'ada@e', 'example.org', 'Ada' ] as $probe) {
+            $out = $this->ok($this->read('elementor-list-submissions', [ 'search' => $probe ]))['result'];
+            $this->assertSame(0, $out['total'], $probe);
+            $this->assertSame([], $out['submissions'], $probe);
+        }
+        $list = $this->ok($this->read('elementor-list-submissions'))['result'];
+        $this->assertSame('https://example.org/contact/', $list['submissions'][0]['referer']);
+        $csv = $this->ok($this->read('elementor-export-submissions', [ 'form' => $this->page . '_a1b2c3d' ]))['result']['csv'];
+        $this->assertStringNotContainsString('?email', $csv);
     }
 
     public function test_single_read_stays_full_for_manage_options_and_denied_without_it(): void

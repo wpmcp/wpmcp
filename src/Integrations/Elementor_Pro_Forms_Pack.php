@@ -218,7 +218,7 @@ final class Elementor_Pro_Forms_Pack
             ] + $base,
             'elementor-list-submissions'         => $base + [
                 'mode'         => 'read',
-                'description'  => 'List Elementor Pro form submissions newest first: id, form key and name, page, status, read flag, main field value (MASKED), referer and dates, plus counts (all, unread, read, trash). status: all (default, not trashed), unread, read or trash; form ({post_id}_{element_id}); search matches any field value; after and before are dates (YYYY-MM-DD); page and per_page (max 100). Personal data',
+                'description'  => 'List Elementor Pro form submissions newest first: id, form key and name, page, status, read flag, main field value (MASKED), referer and dates, plus counts (all, unread, read, trash). status: all (default, not trashed), unread, read or trash; form ({post_id}_{element_id}); search matches the form name or submission id (never field values); after and before are dates (YYYY-MM-DD); page and per_page (max 100). Personal data',
                 'input_schema' => [ 'type' => 'object', 'properties' => $filter + $paging ],
                 'handler'      => static fn (array $args): array => self::list_submissions($args),
             ],
@@ -506,7 +506,8 @@ final class Elementor_Pro_Forms_Pack
         }
         if (isset($args['search'])) {
             $like    = '%' . $wpdb->esc_like((string) $args['search']) . '%';
-            $parts[] = $wpdb->prepare('(EXISTS (SELECT 1 FROM %i v WHERE v.submission_id = s.id AND v.value LIKE %s) OR s.id LIKE %s)', self::table('values'), $like, $like);
+            // Form name and id only: matching field values would let a caller rebuild a masked value from total and counts (issue #866).
+            $parts[] = $wpdb->prepare('(s.form_name LIKE %s OR s.id LIKE %s)', $like, $like);
         }
         if (isset($args['form'])) {
             [$post_id, $element_id] = explode('_', (string) $args['form'], 2);
@@ -587,6 +588,12 @@ final class Elementor_Pro_Forms_Pack
         return null === $main ? null : [ 'key' => $main['key'], 'value' => WS_Form_Pack::mask($main['value']) ];
     }
 
+    /** A referring URL without its query string and fragment, which can carry personal data. */
+    private static function plain_url(string $url): string
+    {
+        return (string) preg_replace('/[?#].*$/s', '', $url);
+    }
+
     /** One submissions row as list-submissions returns it. */
     private static function summary(array $row, ?array $main): array
     {
@@ -599,7 +606,7 @@ final class Elementor_Pro_Forms_Pack
             'status'                  => (string) $row['status'],
             'is_read'                 => (bool) (int) $row['is_read'],
             'main'                    => $main,
-            'referer'                 => (string) $row['referer'],
+            'referer'                 => self::plain_url((string) $row['referer']),
             'referer_title'           => isset($row['referer_title']) ? (string) $row['referer_title'] : null,
             'actions_count'           => (int) $row['actions_count'],
             'actions_succeeded_count' => (int) $row['actions_succeeded_count'],
@@ -733,7 +740,7 @@ final class Elementor_Pro_Forms_Pack
                 'user_id'    => (int) $row['user_id'],
                 'user_agent' => WS_Form_Pack::mask((string) $row['user_agent']),
                 'user_ip'    => WS_Form_Pack::mask((string) $row['user_ip']),
-                'referrer'   => (string) $row['referer'],
+                'referrer'   => self::plain_url((string) $row['referer']),
             ];
         }
 
