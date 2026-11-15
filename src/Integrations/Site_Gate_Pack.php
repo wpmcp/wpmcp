@@ -247,25 +247,46 @@ final class Site_Gate_Pack
         $none     = new \stdClass();
         $prior    = get_option($option, $none);
 
-        self::write($slug, true, $mode);
-
-        $probes  = [
-            'front_page' => Site_Gate::probe(home_url('/')),
-            'login'      => Site_Gate::probe(wp_login_url()),
-            'rest_root'  => Site_Gate::probe(rest_url()),
-        ];
-        $blocked = null;
-        if (! empty($probes['login']['reachable']) && in_array((int) $probes['login']['status'], [ 401, 403, 503 ], true)) {
-            $blocked = 'gate_blocked_login';
-        } elseif (! empty($probes['rest_root']['reachable']) && 503 === (int) $probes['rest_root']['status']) {
-            $blocked = 'gate_blocked_rest';
-        }
-        if (null !== $blocked) {
+        $restore = static function () use ($option, $prior, $none): void {
             if ($prior === $none) {
                 delete_option($option);
             } else {
                 update_option($option, $prior);
             }
+        };
+        // Anything that stops this request before the checks finish (an error,
+        // a fatal, the time limit) must not leave the site closed.
+        $committed = false;
+        $shutdown  = static function () use (&$committed, $restore): void {
+            if (! $committed) {
+                $restore();
+            }
+        };
+        register_shutdown_function($shutdown);
+
+        $blocked = null;
+        $probes  = [];
+        try {
+            self::write($slug, true, $mode);
+
+            // Short timeouts: the three requests together stay under ten seconds.
+            $probes = [
+                'front_page' => Site_Gate::probe(home_url('/'), 3),
+                'login'      => Site_Gate::probe(wp_login_url(), 3),
+                'rest_root'  => Site_Gate::probe(rest_url(), 3),
+            ];
+            if (! empty($probes['login']['reachable']) && in_array((int) $probes['login']['status'], [ 401, 403, 503 ], true)) {
+                $blocked = 'gate_blocked_login';
+            } elseif (! empty($probes['rest_root']['reachable']) && 503 === (int) $probes['rest_root']['status']) {
+                $blocked = 'gate_blocked_rest';
+            }
+            $committed = null === $blocked;
+        } finally {
+            if (! $committed) {
+                $restore();
+            }
+        }
+        if (null !== $blocked) {
             if (! empty($context['operation_id'])) {
                 Snapshot_Store::delete_operation((string) $context['operation_id']);
             }
@@ -282,7 +303,7 @@ final class Site_Gate_Pack
             'undo'       => 'rollback-operation restores the plugin settings exactly; disable-site-gate opens the site again.',
         ];
         if ('coming-soon' === $slug) {
-            $out['note'] = 'SeedProd also keeps its page published or draft in step with the mode on its own next settings save; that status was not changed here.';
+            $out['note'] = 'SeedProd gates on its settings flag alone (it reads the landing page row whatever its status) and re-syncs the page to published or draft on its own next settings save; the page status is not changed here.';
         }
         if (! empty($probes['front_page']['reachable']) && 'maintenance' === $mode && 503 !== (int) $probes['front_page']['status']) {
             $out['warning'] = 'The home page did not answer 503 to an anonymous request; a page cache or CDN may still be serving the old page.';

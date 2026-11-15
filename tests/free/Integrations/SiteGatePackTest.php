@@ -257,6 +257,25 @@ class SiteGatePackTest extends \WP_UnitTestCase
         $this->assertSame([], Snapshot_Store::list_by_session('default'), 'no undo point is left for a write that was put back');
     }
 
+    public function test_an_error_while_probing_puts_the_settings_back_and_rethrows(): void
+    {
+        $this->opt_in();
+        $this->activate('under-construction-page');
+        update_option('ucp_options', [ 'status' => '0' ]);
+        add_filter('pre_http_request', static function () {
+            throw new \RuntimeException('probe blew up');
+        }, 0);
+
+        try {
+            $this->write('enable-site-gate', [ 'plugin' => 'under-construction-page' ], true);
+            $this->fail('the error should propagate');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('probe blew up', $e->getMessage());
+        }
+
+        $this->assertSame('0', get_option('ucp_options')['status'], 'the gate is not left on');
+    }
+
     public function test_a_rest_root_that_answers_503_puts_the_settings_back(): void
     {
         $this->opt_in();

@@ -31,6 +31,7 @@ final class Site_Gate
     /** Plugin slug => main file, for the plugins this class reads. */
     public const PLUGINS = [
         'coming-soon'                   => 'coming-soon/coming-soon.php',
+        // LightStart is this plugin: the slug wp-maintenance-mode (#903 names it by its new brand).
         'wp-maintenance-mode'           => 'wp-maintenance-mode/wp-maintenance-mode.php',
         'under-construction-page'       => 'under-construction-page/under-construction.php',
         'maintenance'                   => 'maintenance/maintenance.php',
@@ -105,10 +106,10 @@ final class Site_Gate
      *
      * @return array{reachable: bool, status?: int, retry_after?: string|null, location?: string|null, error?: string}
      */
-    public static function probe(string $url): array
+    public static function probe(string $url, int $timeout = 8): array
     {
         $response = wp_remote_get($url, [
-            'timeout'     => 8,
+            'timeout'     => $timeout,
             'redirection' => 0,
             'cookies'     => [],
             'sslverify'   => (bool) apply_filters('https_local_ssl_verify', false), // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- core's own loopback filter, the one wp_remote_get() loopbacks use.

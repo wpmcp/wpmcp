@@ -193,6 +193,13 @@ class SiteGateLiveTest extends \WP_UnitTestCase
         $this->assertTrue($stored['enable_coming_soon_mode'], 'the plugin keeps the flag the toggle wrote');
         $this->assertSame('publish', get_post_status($page), 'and publishes the page for the mode that is on');
 
+        // The gate does not wait for that sync: with the page still a draft, the plugin's
+        // own front door class hooks the template redirect from the flag alone.
+        wp_update_post([ 'ID' => $page, 'post_status' => 'draft' ]);
+        remove_all_actions('template_redirect');
+        $render = new \SeedProd_Lite_Render();
+        $this->assertNotFalse(has_action('template_redirect', [ $render, 'render_comingsoon_page' ]), 'SeedProd gates the site with its page in draft');
+
         (new Rollback_Operation())->handle([ 'operation_id' => $out['operation_id'] ]);
         $this->assertFalse($this->gate()['active']);
         $this->assertSame('', $this->toggle('disable-site-gate', [ 'plugin' => 'coming-soon' ])['error']['code'] ?? '', 'nothing left to disable after the undo');
