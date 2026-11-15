@@ -586,8 +586,9 @@ class Contact_Form_7_Integration extends Forms_Integration
                         'sender'          => [ 'type' => 'string', 'maxLength' => 320 ],
                         'reply_to'        => [ 'type' => 'string', 'maxLength' => 320 ],
                     ],
-                    'required'      => [ 'form_id', 'notification_id' ],
-                    'minProperties' => 3,
+                    'required'             => [ 'form_id', 'notification_id' ],
+                    'minProperties'        => 3,
+                    'additionalProperties' => false,
                 ],
                 'validate'     => static function (array $args): ?array {
                     $refusal = self::form_refusal((int) $args['form_id']);

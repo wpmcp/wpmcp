@@ -198,6 +198,29 @@ abstract class Forms_Integration extends Integration_Dispatcher
     }
 
     /**
+     * A refusal when the entry has financial records, which an entry delete
+     * never removes: orders, transactions and subscriptions are accounting
+     * data the site and the payment processor still rely on.
+     *
+     * @param array<int, array{0: string, 1: string}> $tables [table suffix, column naming the entry] pairs
+     * @return array<string, mixed>|null
+     */
+    protected static function payment_refusal(int $entry_id, array $tables): ?array
+    {
+        foreach ($tables as [ $table, $column ]) {
+            if (self::count_rows($table, $column, $entry_id) > 0) {
+                return [
+                    'code'    => 'entry_has_payments',
+                    'message' => 'This entry has payment records (orders, transactions or subscriptions). Financial records are not deleted here.',
+                    'data'    => [ 'entry_id' => $entry_id, 'table' => $table ],
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Delete rows from several tables of a host plugin in ONE session, each
      * table's rows under its own db_rows before-image (the WS Form delete
      * pattern, #676), so a single rollback-session puts everything back.
@@ -242,10 +265,11 @@ abstract class Forms_Integration extends Integration_Dispatcher
 
         $ids    = [];
         $counts = [];
-        foreach ($plan as [ $table, $step, $before ]) {
-            $where = $step['where'];
-            $out   = Safe_Mutation::run(
-                [
+        try {
+            foreach ($plan as [ $table, $step, $before ]) {
+                $where = $step['where'];
+                $out   = Safe_Mutation::run(
+                    [
                     'object_type'         => 'db_rows',
                     'object_id'           => $table,
                     'session_id'          => (string) $context['session_id'],
@@ -259,21 +283,48 @@ abstract class Forms_Integration extends Integration_Dispatcher
                         'set'         => [],
                         'rows'        => $before,
                     ],
-                ],
-                static function () use ($table, $where, $before): int {
-                    global $wpdb;
+                    ],
+                    static function () use ($table, $where, $before): int {
+                        global $wpdb;
                     // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- removing the rows of the host plugin's own table, which the db_rows before-image above covers; the object cache is invalidated right after.
-                    $affected = $wpdb->delete($table, $where);
-                    if (false === $affected) {
-                        // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught by the dispatcher and returned as a JSON error, never rendered.
-                        throw new Operation_Refused('delete_failed', sprintf('Could not delete rows of %s: %s', $table, $wpdb->last_error));
+                        $affected = $wpdb->delete($table, $where);
+                        if (false === $affected) {
+                            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught by the dispatcher and returned as a JSON error, never rendered.
+                            throw new Operation_Refused('delete_failed', sprintf('Could not delete rows of %s: %s', $table, $wpdb->last_error));
+                        }
+                        Database_Guard::invalidate_caches($table, [ 'rows' => $before, 'where' => $where ]);
+                        return (int) $affected;
                     }
-                    Database_Guard::invalidate_caches($table, [ 'rows' => $before, 'where' => $where ]);
-                    return (int) $affected;
+                );
+                $ids[]                   = (string) $out['operation_id'];
+                $counts[ $step['table'] ] = (int) $out['result'];
+            }
+        } catch (\Throwable $e) {
+            // All or nothing: put back every table already deleted, newest first,
+            // so a failure part-way never leaves an entry half removed.
+            $undone = [];
+            $failed = [];
+            foreach (array_reverse($ids) as $operation_id) {
+                try {
+                    $result = ( new \WPMCP\Tools\Rollback_Operation() )->handle([ 'operation_id' => $operation_id ]);
+                    if (! empty($result['restored'])) {
+                        $undone[] = $operation_id;
+                    } else {
+                        $failed[] = $operation_id;
+                    }
+                } catch (\Throwable $undo_error) {
+                    $failed[] = $operation_id;
                 }
+            }
+            // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught by the dispatcher and returned as a JSON error, never rendered.
+            throw new Operation_Refused(
+                [] === $failed ? 'delete_failed' : 'delete_partial',
+                [] === $failed
+                    ? 'The delete failed part-way and every table already deleted was put back; nothing was removed.'
+                    : 'The delete failed part-way and some tables could not be put back automatically: restore them with rollback-operation using the operation ids.',
+                [ 'restored' => $undone, 'not_restored' => $failed, 'cause' => $e->getMessage() ]
             );
-            $ids[]                   = (string) $out['operation_id'];
-            $counts[ $step['table'] ] = (int) $out['result'];
+            // phpcs:enable WordPress.Security.EscapeOutput.ExceptionNotEscaped
         }
 
         return [ 'result' => $counts, 'operation_ids' => $ids ];
@@ -346,13 +397,43 @@ abstract class Forms_Integration extends Integration_Dispatcher
                 return null;
             case 'redirect':
                 $url = (string) $final['url'];
-                if ('' === $url || ! preg_match('#^https?://[^\s]+$#i', $url) || $url !== esc_url_raw($url)) {
+                if (null !== ($tags = self::redirect_tag_problem($url))) {
+                    return $tags;
+                }
+                if ('' === $url || ! preg_match('#^https?://[^\s]+$#i', $url) || (! preg_match('/[{}\[\]]/', $url) && $url !== esc_url_raw($url))) {
                     return 'A redirect confirmation needs an http or https url.';
                 }
                 return null;
         }
 
         return 'The confirmation type must be message, page or redirect.';
+    }
+
+    /**
+     * A redirect confirmation sends the visitor to its url, and the form
+     * plugins fill smart tags in that url with the submission's values. A tag
+     * in a url that leaves this site would hand those values to another host,
+     * so it is refused unless a site opts in with
+     * wpmcp_forms_allow_redirect_smart_tags (which receives the url).
+     */
+    protected static function redirect_tag_problem(string $url): ?string
+    {
+        if (! preg_match('/[{}\[\]]/', $url)) {
+            return null;
+        }
+        if (preg_match('/[<>\x00-\x1f]/', $url)) {
+            return 'A redirect url must not contain markup or control characters.';
+        }
+        $host = wp_parse_url($url, PHP_URL_HOST);
+        $home = wp_parse_url(home_url(), PHP_URL_HOST);
+        if (is_string($host) && is_string($home) && 0 === strcasecmp($host, $home) && ! preg_match('/[{}\[\]]/', $host)) {
+            return null;
+        }
+        if (true === apply_filters('wpmcp_forms_allow_redirect_smart_tags', false, $url)) {
+            return null;
+        }
+
+        return 'A redirect to another site must not contain smart tags or shortcodes, which would send submitted values to that host (a site can allow it with wpmcp_forms_allow_redirect_smart_tags).';
     }
 
     /**

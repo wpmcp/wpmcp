@@ -410,7 +410,7 @@ class WPForms_Integration extends Forms_Integration
      *
      * @return array{0: ?array, 1: ?array}  [refusal, plan]
      */
-    private static function notification_plan(array $args): array
+    private static function notification_plan(array $args, bool $with_recipients = false): array
     {
         $post = self::form_post((int) $args['form_id']);
         if (null === $post) {
@@ -424,7 +424,7 @@ class WPForms_Integration extends Forms_Integration
         }
         $before = self::notification_view($all[ $id ]);
         $next   = $all[ $id ];
-        $map    = [ 'name' => 'notification_name', 'to' => 'email', 'sender_name' => 'sender_name', 'sender_address' => 'sender_address', 'replyto' => 'replyto', 'subject' => 'subject', 'message' => 'message' ];
+        $map    = [ 'name' => 'notification_name', 'sender_name' => 'sender_name', 'sender_address' => 'sender_address', 'replyto' => 'replyto', 'subject' => 'subject', 'message' => 'message' ];
         foreach ($map as $arg => $key) {
             if (isset($args[ $arg ])) {
                 $next[ $key ] = (string) $args[ $arg ];
@@ -432,6 +432,11 @@ class WPForms_Integration extends Forms_Integration
         }
         if (isset($args['enabled'])) {
             $next['enable'] = $args['enabled'] ? '1' : '0';
+        }
+        // Who a notification goes to is changed only by set-notification-recipients
+        // (confirm, validation, domain filter, preview), never by the plain edit.
+        if ($with_recipients && isset($args['to'])) {
+            $next['email'] = (string) $args['to'];
         }
 
         $new_data = $data;
@@ -476,7 +481,16 @@ class WPForms_Integration extends Forms_Integration
             if (! preg_match('#^https?://[^\s]+$#i', (string) $args['redirect'])) {
                 return [ [ 'code' => 'invalid_confirmation', 'message' => 'A redirect confirmation needs an http or https url.', 'data' => [ 'form_id' => (int) $post->ID, 'confirmation_id' => $id ] ], null ];
             }
-            $next['redirect'] = esc_url_raw((string) $args['redirect']);
+            $raw_redirect = (string) $args['redirect'];
+            $redirect_problem = self::redirect_tag_problem($raw_redirect);
+            $has_tags = (bool) preg_match('/[{}\[\]]/', $raw_redirect);
+            if (null === $redirect_problem && ! $has_tags && esc_url_raw($raw_redirect) !== $raw_redirect) {
+                $redirect_problem = 'The redirect url contains characters WordPress would strip, so it would be saved altered. Use a plain url.';
+            }
+            if (null !== $redirect_problem) {
+                return [ [ 'code' => 'invalid_confirmation', 'message' => $redirect_problem, 'data' => [ 'form_id' => (int) $post->ID, 'confirmation_id' => $id ] ], null ];
+            }
+            $next['redirect'] = $has_tags ? $raw_redirect : esc_url_raw($raw_redirect);
         }
         $after   = self::confirmation_view($id, $next);
         $problem = self::confirmation_problem([ 'type' => $after['type'], 'message' => $after['message'], 'page' => $after['page'], 'url' => $after['redirect'] ]);
@@ -506,7 +520,7 @@ class WPForms_Integration extends Forms_Integration
         $write = [
             'capability' => 'manage_options',
             'snapshot'   => static function (array $args): ?array {
-                $plan = isset($args['confirmation_id']) ? self::confirmation_plan($args)[1] : self::notification_plan($args)[1];
+                $plan = isset($args['confirmation_id']) ? self::confirmation_plan($args)[1] : self::notification_plan($args, array_key_exists('to', $args))[1];
                 return null === $plan ? null : self::row_snapshot('posts', 'ID', (int) $plan['post']->ID, [ 'post_content' => wp_json_encode($plan['new_data']) ]);
             },
         ] + self::write_flags();
@@ -545,8 +559,9 @@ class WPForms_Integration extends Forms_Integration
                         'sender_address'  => [ 'type' => 'string', 'maxLength' => 320 ],
                         'replyto'         => [ 'type' => 'string', 'maxLength' => 320 ],
                     ],
-                    'required'      => [ 'form_id', 'notification_id' ],
-                    'minProperties' => 3,
+                    'required'             => [ 'form_id', 'notification_id' ],
+                    'minProperties'        => 3,
+                    'additionalProperties' => false,
                 ],
                 'validate'     => static function (array $args): ?array {
                     [ $refusal ] = self::notification_plan($args);
@@ -587,7 +602,7 @@ class WPForms_Integration extends Forms_Integration
                     'required'   => [ 'form_id', 'notification_id', 'to' ],
                 ],
                 'validate'        => static function (array $args): ?array {
-                    [ $refusal ] = self::notification_plan($args);
+                    [ $refusal ] = self::notification_plan($args, true);
                     if (null !== $refusal) {
                         return $refusal;
                     }
@@ -595,14 +610,14 @@ class WPForms_Integration extends Forms_Integration
                     return null === $problem ? null : [ 'code' => 'invalid_recipients', 'message' => $problem, 'data' => [ 'form_id' => (int) $args['form_id'] ] ];
                 },
                 'confirm_preview' => static function (array $args): array {
-                    [ , $plan ] = self::notification_plan($args);
+                    [ , $plan ] = self::notification_plan($args, true);
                     return [
                         'message' => sprintf('It changes who notification %s of form %d is sent to. Undo: rollback-operation.', $plan['id'], (int) $plan['post']->ID),
                         'data'    => [ 'form_id' => (int) $plan['post']->ID, 'before' => [ 'to' => $plan['before']['to'] ], 'after' => [ 'to' => $plan['after']['to'] ] ],
                     ];
                 },
                 'handler'         => static function (array $args): array {
-                    [ , $plan ] = self::notification_plan($args);
+                    [ , $plan ] = self::notification_plan($args, true);
                     $changed    = $plan['before']['to'] !== $plan['after']['to'];
                     if ($changed) {
                         self::save_form_data($plan['post'], $plan['new_data']);
@@ -618,8 +633,8 @@ class WPForms_Integration extends Forms_Integration
                 },
             ],
             'update-confirmation'         => $write + [
-                'mode'         => 'write',
-                'description'  => 'Edit one confirmation of a form: name, type (message, page, redirect), message (post HTML only), page (id of a published page) and redirect (an http or https url). The result must be coherent for its type. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after. Undo: rollback-operation',
+                'mode'         => 'destructive',
+                'description'  => 'Edit one confirmation of a form (needs confirm:true; the confirmation shows the confirmation before and after, since a redirect sends visitors, and smart tag values, to another page): name, type (message, page, redirect), message (post HTML only), page (id of a published page) and redirect (an http or https url). The result must be coherent for its type. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after. Undo: rollback-operation',
                 'input_schema' => [
                     'type'          => 'object',
                     'properties'    => [
@@ -631,10 +646,18 @@ class WPForms_Integration extends Forms_Integration
                         'page'            => $id,
                         'redirect'        => [ 'type' => 'string', 'maxLength' => 2000 ],
                     ],
-                    'required'      => [ 'form_id', 'confirmation_id' ],
-                    'minProperties' => 3,
+                    'required'             => [ 'form_id', 'confirmation_id' ],
+                    'minProperties'        => 3,
+                    'additionalProperties' => false,
                 ],
                 'validate'     => static fn (array $args): ?array => self::confirmation_plan($args)[0],
+                'confirm_preview' => static function (array $args): array {
+                    [ , $plan ] = self::confirmation_plan($args);
+                    return [
+                        'message' => sprintf('It changes confirmation %s of form %d. Undo: rollback-operation.', $plan['id'], (int) $plan['post']->ID),
+                        'data'    => [ 'form_id' => (int) $plan['post']->ID, 'before' => $plan['before'], 'after' => $plan['after'] ],
+                    ];
+                },
                 'handler'      => static function (array $args): array {
                     [ , $plan ] = self::confirmation_plan($args);
                     $changes    = self::diff_fields($plan['before'], $plan['after']);

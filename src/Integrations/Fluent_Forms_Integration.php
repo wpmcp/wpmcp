@@ -281,10 +281,9 @@ class Fluent_Forms_Integration extends Forms_Integration
                     if (! self::submission($entry_id)) {
                         return [ 'code' => 'entry_not_found', 'message' => 'Fluent Forms has no entry with that id.', 'data' => [ 'entry_id' => $entry_id ] ];
                     }
-                    foreach (self::PAYMENT_TABLES as $table) {
-                        if (self::count_rows($table, 'submission_id', $entry_id) > 0) {
-                            return [ 'code' => 'entry_has_payments', 'message' => 'This submission has payment records (orders, transactions or subscriptions). Financial records are not deleted here.', 'data' => [ 'entry_id' => $entry_id, 'table' => $table ] ];
-                        }
+                    $payments = self::payment_refusal($entry_id, array_map(static fn (string $table): array => [ $table, 'submission_id' ], self::PAYMENT_TABLES));
+                    if (null !== $payments) {
+                        return $payments;
                     }
                     return null;
                 },

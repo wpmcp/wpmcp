@@ -279,4 +279,16 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
     {
         return [ 'form_id' => 11, 'entry_id' => 101 ];
     }
+
+    public function test_delete_entry_refuses_an_entry_with_a_stripe_or_paypal_record(): void
+    {
+        foreach ([ 'stripe-1', 'paypal-1' ] as $key) {
+            global $wpdb;
+            $wpdb->insert($wpdb->prefix . 'frmt_form_entry_meta', [ 'entry_id' => 101, 'meta_key' => $key, 'meta_value' => 'paid' ]);
+            $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'form_id' => 11, 'entry_id' => 101 ], 'confirm' => true ]);
+            $this->assertSame('entry_has_payments', $out['error']['code'], $key);
+            $this->assertSame(1, $this->rows('frmt_form_entry', 'entry_id', 101));
+            $wpdb->delete($wpdb->prefix . 'frmt_form_entry_meta', [ 'meta_key' => $key ]);
+        }
+    }
 }

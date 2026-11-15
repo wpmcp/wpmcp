@@ -112,7 +112,7 @@ class FormidableLiveTest extends \WP_UnitTestCase
         $to = $this->ok($this->integration->handle_write([ 'operation' => 'set-notification-recipients', 'confirm' => true, 'args' => [ 'form_id' => $this->form_id, 'notification_id' => $this->email_id, 'to' => 'boss@example.test', 'bcc' => 'audit@example.test' ] ]));
         $this->assertSame('boss@example.test', $this->settings($this->email_id)['email_to']);
 
-        $conf = $this->ok($this->integration->handle_write([ 'operation' => 'update-confirmation', 'args' => [ 'form_id' => $this->form_id, 'confirmation_id' => $this->confirm_id, 'type' => 'redirect', 'redirect' => 'https://example.test/thanks?a=1&b=2' ] ]));
+        $conf = $this->ok($this->integration->handle_write([ 'operation' => 'update-confirmation', 'confirm' => true, 'args' => [ 'form_id' => $this->form_id, 'confirmation_id' => $this->confirm_id, 'type' => 'redirect', 'redirect' => 'https://example.test/thanks?a=1&b=2' ] ]));
         $this->assertSame('redirect', $this->settings($this->confirm_id)['success_action']);
         $this->assertStringStartsWith('https://example.test/thanks', $this->settings($this->confirm_id)['success_url']);
 

@@ -54,11 +54,18 @@ namespace SRFM\Inc\Database\Tables {
                     form_data longtext NOT NULL,
                     PRIMARY KEY  (ID)
                 )");
+                // SureForms' payments table (only the column a delete reads).
+                $wpdb->query('CREATE TABLE IF NOT EXISTS ' . $wpdb->prefix . "srfm_payments (
+                    id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+                    entry_id bigint(20) unsigned NOT NULL,
+                    PRIMARY KEY  (id)
+                )");
             }
 
             public static function uninstall(): void
             {
                 global $wpdb;
+                $wpdb->query('DROP TABLE IF EXISTS ' . $wpdb->prefix . 'srfm_payments');
                 $wpdb->query('DROP TABLE IF EXISTS ' . self::table());
             }
 

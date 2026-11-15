@@ -193,4 +193,27 @@ class ContactForm7ConfigTest extends \WP_UnitTestCase
         $this->assertArrayHasKey('error', $out);
         $this->assertSame('New message', $this->mail()['subject']);
     }
+
+    public function test_update_notification_cannot_change_recipients(): void
+    {
+        $this->opt_in();
+        foreach ([ 'to', 'cc', 'bcc', 'recipient' ] as $key) {
+            $out = $this->write('update-notification', [ 'form_id' => $this->form, 'notification_id' => 'mail', 'subject' => 'x', $key => 'evil@example.test' ], true);
+            $this->assertSame('invalid_args', $out['error']['code'], $key);
+        }
+        $this->assertSame('[_site_admin_email]', $this->mail()['recipient']);
+        $this->assertStringNotContainsString('evil', $this->mail()['additional_headers']);
+        $this->assertSame('New message', $this->mail()['subject'], 'Nothing was written');
+    }
+
+    public function test_merge_tag_recipients_are_accepted_and_broken_tags_refused(): void
+    {
+        $this->opt_in();
+        foreach ([ '[_site_admin_email]', '[your-email]', 'Boss <boss@example.test>, [your-email]' ] as $to) {
+            $this->assertArrayNotHasKey('error', $this->write('set-notification-recipients', [ 'form_id' => $this->form, 'notification_id' => 'mail', 'to' => $to ], true), $to);
+        }
+        foreach ([ '[your-email', 'a b@example.test', '[x y]' ] as $bad) {
+            $this->assertSame('invalid_recipients', $this->write('set-notification-recipients', [ 'form_id' => $this->form, 'notification_id' => 'mail', 'to' => $bad ], true)['error']['code'], $bad);
+        }
+    }
 }

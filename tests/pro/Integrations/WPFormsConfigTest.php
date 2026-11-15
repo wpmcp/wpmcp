@@ -61,7 +61,8 @@ class WPFormsConfigTest extends \WP_UnitTestCase
     private function write(string $op, array $args, bool $confirm = false): array
     {
         $payload = [ 'operation' => $op, 'args' => $args ];
-        if ($confirm) {
+        // update-confirmation always confirms: the dedicated test below covers the refusal without it.
+        if ($confirm || 'update-confirmation' === $op) {
             $payload['confirm'] = true;
         }
         return $this->integration->handle_write($payload);
@@ -190,5 +191,54 @@ class WPFormsConfigTest extends \WP_UnitTestCase
         $out = $this->write('update-notification', [ 'form_id' => $this->form, 'notification_id' => '1', 'subject' => 'x' ]);
         $this->assertArrayHasKey('error', $out);
         $this->assertSame('New Entry', $this->settings($this->form)['notifications'][1]['subject']);
+    }
+
+    // ---- review fixes: recipients only through their own op, confirmation gate ----
+
+    public function test_update_notification_cannot_change_recipients(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $out = $this->write('update-notification', [ 'form_id' => $this->form, 'notification_id' => '1', 'subject' => 'x', 'to' => 'evil@example.test' ], true);
+        $this->assertSame('invalid_args', $out['error']['code']);
+        $this->assertSame('{admin_email}', $this->settings($this->form)['notifications'][1]['email']);
+        $this->assertSame('New Entry', $this->settings($this->form)['notifications'][1]['subject'], 'Nothing was written');
+    }
+
+    public function test_merge_tag_and_named_recipients_are_accepted(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        foreach ([ '{admin_email}', '{field_id="2"}', 'Boss <boss@example.test>, {field_id="2"}' ] as $to) {
+            $out = $this->write('set-notification-recipients', [ 'form_id' => $this->form, 'notification_id' => '1', 'to' => $to ], true);
+            $this->assertArrayNotHasKey('error', $out, $to);
+        }
+        foreach ([ '{admin_email', 'a b@example.test', '{x y}z' ] as $bad) {
+            $this->assertSame('invalid_recipients', $this->write('set-notification-recipients', [ 'form_id' => $this->form, 'notification_id' => '1', 'to' => $bad ], true)['error']['code'], $bad);
+        }
+    }
+
+    public function test_update_confirmation_needs_confirm_and_previews_before_and_after(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $out = $this->integration->handle_write([ 'operation' => 'update-confirmation', 'args' => [ 'form_id' => $this->form, 'confirmation_id' => '1', 'type' => 'redirect', 'redirect' => 'https://example.test/next' ] ]);
+        $this->assertSame('confirmation_required', $out['error']['code']);
+        $this->assertSame('message', $out['error']['data']['before']['type']);
+        $this->assertSame('redirect', $out['error']['data']['after']['type']);
+        $this->assertSame('message', $this->settings($this->form)['confirmations'][1]['type'], 'Nothing changed without confirm');
+    }
+
+    public function test_an_off_site_redirect_with_smart_tags_is_refused_unless_a_site_allows_it(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $args = [ 'form_id' => $this->form, 'confirmation_id' => '1', 'type' => 'redirect' ];
+
+        $this->assertSame('invalid_confirmation', $this->write('update-confirmation', $args + [ 'redirect' => 'https://evil.test/?e=[email]' ])['error']['code']);
+        $this->assertSame('invalid_confirmation', $this->write('update-confirmation', $args + [ 'redirect' => 'https://evil.test/?e={field_id="1"}' ])['error']['code']);
+        $this->assertSame('invalid_confirmation', $this->write('update-confirmation', $args + [ 'redirect' => 'https://[email]/' ])['error']['code'], 'A tag in the host');
+        $same = $this->write('update-confirmation', $args + [ 'redirect' => home_url('/thanks?e=[email]') ]);
+        $this->assertArrayNotHasKey('error', $same, wp_json_encode($same));
+
+        add_filter('wpmcp_forms_allow_redirect_smart_tags', '__return_true');
+        $this->assertArrayNotHasKey('error', $this->write('update-confirmation', $args + [ 'redirect' => 'https://partner.test/?e=[email]' ]));
+        remove_all_filters('wpmcp_forms_allow_redirect_smart_tags');
     }
 }

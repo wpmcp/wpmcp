@@ -267,4 +267,16 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
     {
         return [ 'entry_id' => 201 ];
     }
+
+    public function test_delete_entry_refuses_an_entry_with_a_payment_record(): void
+    {
+        global $wpdb;
+        $wpdb->insert($wpdb->prefix . 'srfm_payments', [ 'entry_id' => 201 ]);
+
+        $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => 201 ], 'confirm' => true ]);
+
+        $this->assertSame('entry_has_payments', $out['error']['code']);
+        $this->assertSame([], Entries::$deleted);
+        $this->assertNotNull(Entries::table_row(201));
+    }
 }

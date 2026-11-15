@@ -240,12 +240,13 @@ class SureForms_Integration extends Forms_Integration
                 'mode'            => 'destructive',
                 'objects'         => [ 'entry_id' => 'entry' ],
                 'capability'      => 'manage_options',
-                'description'     => 'Permanently delete one SureForms entry through SureForms\' own entries accessor. Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true. Reversible: the entry row of the srfm_entries table is snapshotted first and comes back at its original id with rollback-operation. ' . self::NOT_ERASURE,
+                'description'     => 'Permanently delete one SureForms entry through SureForms\' own entries accessor; refused with entry_has_payments when it has a payment record. Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true. Reversible: the entry row of the srfm_entries table is snapshotted first and comes back at its original id with rollback-operation. ' . self::NOT_ERASURE,
                 'input_schema'    => [
                     'type'       => 'object',
                     'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
                     'required'   => [ 'entry_id' ],
                 ],
+                'validate'        => static fn (array $args): ?array => self::payment_refusal((int) $args['entry_id'], [ [ 'srfm_payments', 'entry_id' ] ]),
                 'confirm_preview' => function (array $args) use ($entries): array {
                     $row = $entries::get((int) $args['entry_id']);
                     if (empty($row) || ! self::column($row, 'ID')) {

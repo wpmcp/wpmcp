@@ -67,7 +67,7 @@ class WPFormsLiveTest extends \WP_UnitTestCase
         $confirmations = $this->ok($this->integration->handle_read([ 'operation' => 'list-confirmations', 'args' => [ 'form_id' => $this->form_id ] ]))['result']['confirmations'];
         $cid           = $confirmations[0]['id'];
         $page          = self::factory()->post->create([ 'post_type' => 'page', 'post_status' => 'publish' ]);
-        $conf          = $this->ok($this->integration->handle_write([ 'operation' => 'update-confirmation', 'args' => [ 'form_id' => $this->form_id, 'confirmation_id' => $cid, 'type' => 'page', 'page' => $page ] ]));
+        $conf          = $this->ok($this->integration->handle_write([ 'operation' => 'update-confirmation', 'confirm' => true, 'args' => [ 'form_id' => $this->form_id, 'confirmation_id' => $cid, 'type' => 'page', 'page' => $page ] ]));
         $this->assertSame('page', $this->settings()['confirmations'][ $cid ]['type']);
 
         foreach ([ $conf, $to, $edit ] as $out) {

@@ -115,6 +115,28 @@ class Forminator_Integration extends Forms_Integration
         return [ 'code' => 'entry_not_found', 'message' => 'Forminator has no submission with that id on that form.', 'data' => [ 'form_id' => (int) $args['form_id'], 'entry_id' => (int) $args['entry_id'] ] ];
     }
 
+    /**
+     * Forminator keeps a Stripe or PayPal payment as entry meta (stripe-1,
+     * paypal-1 and so on), so an entry with such a row has a payment record.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function forminator_payment_refusal(int $entry_id): ?array
+    {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'frmt_form_entry_meta';
+        if (! \WPMCP\Safety\Plugin_Table_Rows_Snapshot::table_exists($table)) {
+            return null;
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- reads the host plugin's own entry meta fresh, so a payment is never missed.
+        $found = $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE entry_id = %d AND (meta_key LIKE %s OR meta_key LIKE %s)', $table, $entry_id, $wpdb->esc_like('stripe-') . '%', $wpdb->esc_like('paypal-') . '%'));
+
+        return (int) $found > 0
+            ? [ 'code' => 'entry_has_payments', 'message' => 'This entry has a payment record (Stripe or PayPal). Financial records are not deleted here.', 'data' => [ 'entry_id' => $entry_id ] ]
+            : null;
+    }
+
     protected function operations(): array
     {
         return [
@@ -226,7 +248,7 @@ class Forminator_Integration extends Forms_Integration
                 'self_snapshotting' => true,
                 'objects'           => [ 'form_id' => [ 'type' => 'post', 'own_type' => true, 'access' => 'read' ], 'entry_id' => 'entry' ],
                 'capability'        => 'manage_options',
-                'description'       => 'Permanently delete one Forminator submission with its values (the rows of the frmt_form_entry and frmt_form_entry_meta tables, removed directly: Forminator\'s own delete hooks do not run and uploaded files stay on disk). Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true. Reversible: every row is snapshotted first and rollback-session puts them back. ' . self::NOT_ERASURE,
+                'description'       => 'Permanently delete one Forminator submission (refused with entry_has_payments when it has a Stripe or PayPal record) with its values (the rows of the frmt_form_entry and frmt_form_entry_meta tables, removed directly: Forminator\'s own delete hooks do not run and uploaded files stay on disk). Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true. Reversible: every row is snapshotted first and rollback-session puts them back. ' . self::NOT_ERASURE,
                 'input_schema'      => [
                     'type'       => 'object',
                     'properties' => [
@@ -235,7 +257,7 @@ class Forminator_Integration extends Forms_Integration
                     ],
                     'required'   => [ 'form_id', 'entry_id' ],
                 ],
-                'validate'          => static fn (array $args): ?array => self::entry_refusal($args),
+                'validate'          => static fn (array $args): ?array => self::entry_refusal($args) ?? self::forminator_payment_refusal((int) $args['entry_id']),
                 'confirm_preview'   => static function (array $args): array {
                     $entry = \Forminator_API::get_entry((int) $args['form_id'], (int) $args['entry_id']);
                     $meta  = self::count_rows('frmt_form_entry_meta', 'entry_id', (int) $args['entry_id']);

@@ -79,7 +79,8 @@ class FormidableConfigTest extends \WP_UnitTestCase
     private function write(string $op, array $args, bool $confirm = false): array
     {
         $payload = [ 'operation' => $op, 'args' => $args ];
-        if ($confirm) {
+        // update-confirmation always confirms: the dedicated test below covers the refusal without it.
+        if ($confirm || 'update-confirmation' === $op) {
             $payload['confirm'] = true;
         }
         return $this->integration->handle_write($payload);
@@ -237,5 +238,61 @@ class FormidableConfigTest extends \WP_UnitTestCase
         wp_set_current_user(self::factory()->user->create([ 'role' => 'editor' ]));
         $this->assertArrayHasKey('error', $this->write('delete-entry', [ 'entry_id' => 50 ], true));
         $this->assertSame(1, $this->rows('frm_items', 'id', 50));
+    }
+
+    // ---- review fixes ------------------------------------------------------
+
+    public function test_update_notification_cannot_change_recipients(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        foreach ([ 'to', 'cc', 'bcc' ] as $key) {
+            $out = $this->write('update-notification', [ 'form_id' => 5, 'notification_id' => $this->email, 'subject' => 'x', $key => 'evil@example.test' ], true);
+            $this->assertSame('invalid_args', $out['error']['code'], $key);
+        }
+        $s = $this->settings($this->email);
+        $this->assertSame('[admin_email]', $s['email_to']);
+        $this->assertArrayNotHasKey('bcc', $s);
+        $this->assertSame('New booking', $s['email_subject'], 'Nothing was written');
+    }
+
+    public function test_shortcode_and_named_recipients_are_accepted(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        foreach ([ '[admin_email]', '[25]', 'Boss <boss@example.test>, [25]', 'Site <[admin_email]>' ] as $to) {
+            $this->assertArrayNotHasKey('error', $this->write('set-notification-recipients', [ 'form_id' => 5, 'notification_id' => $this->email, 'to' => $to ], true), $to);
+        }
+        foreach ([ '[admin_email', 'a b@example.test', '[x y]' ] as $bad) {
+            $this->assertSame('invalid_recipients', $this->write('set-notification-recipients', [ 'form_id' => 5, 'notification_id' => $this->email, 'to' => $bad ], true)['error']['code'], $bad);
+        }
+    }
+
+    public function test_update_confirmation_needs_confirm_and_off_site_tag_redirects_are_refused(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $args = [ 'form_id' => 5, 'confirmation_id' => $this->confirm, 'type' => 'redirect' ];
+
+        $preview = $this->integration->handle_write([ 'operation' => 'update-confirmation', 'args' => $args + [ 'redirect' => 'https://example.test/next' ] ]);
+        $this->assertSame('confirmation_required', $preview['error']['code']);
+        $this->assertSame('redirect', $preview['error']['data']['after']['type']);
+        $this->assertSame('message', $this->settings($this->confirm)['success_action']);
+
+        $this->assertSame('invalid_confirmation', $this->write('update-confirmation', $args + [ 'redirect' => 'https://evil.test/?e=[25]' ])['error']['code']);
+        $this->assertSame('invalid_confirmation', $this->write('update-confirmation', $args + [ 'redirect' => 'https://evil.test/?e={x}' ])['error']['code']);
+        $this->assertArrayNotHasKey('error', $this->write('update-confirmation', $args + [ 'redirect' => home_url('/thanks?e=[25]') ]));
+        $this->assertSame('message', get_post($this->confirm) ? 'message' : '', 'sanity');
+    }
+
+    public function test_delete_entry_refuses_an_entry_with_payment_records(): void
+    {
+        global $wpdb;
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        foreach ([ 'frm_payments', 'frm_subscriptions' ] as $table) {
+            $wpdb->insert($wpdb->prefix . $table, [ 'item_id' => 50 ]);
+            $out = $this->write('delete-entry', [ 'entry_id' => 50 ], true);
+            $this->assertSame('entry_has_payments', $out['error']['code'], $table);
+            $this->assertSame(1, $this->rows('frm_items', 'id', 50));
+            $wpdb->delete($wpdb->prefix . $table, [ 'item_id' => 50 ]);
+        }
+        $this->assertArrayNotHasKey('error', $this->write('delete-entry', [ 'entry_id' => 50 ], true));
     }
 }

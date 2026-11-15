@@ -78,6 +78,14 @@ if (! class_exists('FrmEntry')) {
                 item_key varchar(100) NULL,
                 PRIMARY KEY  (id)
             )");
+            // Formidable's Stripe add-on tables (only the column a delete reads).
+            foreach ([ 'frm_payments', 'frm_subscriptions' ] as $table) {
+                $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}{$table} (
+                    id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+                    item_id bigint(20) unsigned NOT NULL,
+                    PRIMARY KEY  (id)
+                )");
+            }
             $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}frm_item_metas (
                 id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
                 meta_value longtext NULL,
@@ -90,6 +98,8 @@ if (! class_exists('FrmEntry')) {
         public static function uninstall_tables(): void
         {
             global $wpdb;
+            $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}frm_payments");
+            $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}frm_subscriptions");
             $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}frm_item_metas");
             $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}frm_items");
         }

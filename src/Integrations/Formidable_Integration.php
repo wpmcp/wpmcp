@@ -207,14 +207,14 @@ class Formidable_Integration extends Forms_Integration
                 'self_snapshotting' => true,
                 'objects'           => [ 'entry_id' => 'entry' ],
                 'capability'        => self::ENTRY_CAPABILITY,
-                'description'       => 'Permanently delete one Formidable entry with its values and, for a repeater or embedded form, its child entries (the rows of frm_items and frm_item_metas, removed directly: Formidable\'s own delete hooks do not run and uploaded files stay on disk). Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true and manage_options. Reversible: every row is snapshotted first and rollback-session puts them back. ' . self::NOT_ERASURE,
+                'description'       => 'Permanently delete one Formidable entry with its values and, for a repeater or embedded form, its child entries; refused with entry_has_payments when it has a payment or subscription record (the rows of frm_items and frm_item_metas, removed directly: Formidable\'s own delete hooks do not run and uploaded files stay on disk). Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true and manage_options. Reversible: every row is snapshotted first and rollback-session puts them back. ' . self::NOT_ERASURE,
                 'input_schema'      => [
                     'type'       => 'object',
                     'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
                     'required'   => [ 'entry_id' ],
                 ],
                 'validate'          => static fn (array $args): ?array => is_object(\FrmEntry::getOne((int) $args['entry_id']))
-                    ? null
+                    ? self::payment_refusal((int) $args['entry_id'], [ [ 'frm_payments', 'item_id' ], [ 'frm_subscriptions', 'item_id' ] ])
                     : [ 'code' => 'entry_not_found', 'message' => 'Formidable has no entry with that id.', 'data' => [ 'entry_id' => (int) $args['entry_id'] ] ],
                 'confirm_preview'   => static function (array $args): array {
                     $entry_id = (int) $args['entry_id'];
@@ -368,7 +368,7 @@ class Formidable_Integration extends Forms_Integration
      *
      * @return array{0: ?array, 1: ?array} [refusal, plan]
      */
-    private static function email_plan(array $args): array
+    private static function email_plan(array $args, bool $with_recipients = false): array
     {
         $form_id = (int) $args['form_id'];
         if (null !== ($refusal = self::form_refusal($form_id))) {
@@ -380,10 +380,19 @@ class Formidable_Integration extends Forms_Integration
         }
         $before   = self::email_view($action['post'], $action['settings']);
         $settings = $action['settings'];
-        $map      = [ 'to' => 'email_to', 'cc' => 'cc', 'bcc' => 'bcc', 'from' => 'from', 'reply_to' => 'reply_to', 'subject' => 'email_subject', 'message' => 'email_message' ];
+        $map      = [ 'from' => 'from', 'reply_to' => 'reply_to', 'subject' => 'email_subject', 'message' => 'email_message' ];
         foreach ($map as $arg => $key) {
             if (isset($args[ $arg ])) {
                 $settings[ $key ] = trim((string) $args[ $arg ]);
+            }
+        }
+        // Who an email goes to is changed only by set-notification-recipients
+        // (confirm, validation, domain filter, preview), never by the plain edit.
+        if ($with_recipients) {
+            foreach ([ 'to' => 'email_to', 'cc' => 'cc', 'bcc' => 'bcc' ] as $arg => $key) {
+                if (isset($args[ $arg ])) {
+                    $settings[ $key ] = trim((string) $args[ $arg ]);
+                }
             }
         }
         $status = isset($args['enabled']) ? ($args['enabled'] ? 'publish' : 'draft') : $action['post']->post_status;
@@ -425,7 +434,16 @@ class Formidable_Integration extends Forms_Integration
             if (! preg_match('#^https?://[^\s]+$#i', (string) $args['redirect'])) {
                 return [ [ 'code' => 'invalid_confirmation', 'message' => 'A redirect confirmation needs an http or https url.', 'data' => [ 'form_id' => $form_id, 'confirmation_id' => (int) $args['confirmation_id'] ] ], null ];
             }
-            $settings['success_url'] = esc_url_raw((string) $args['redirect']);
+            $raw_redirect = (string) $args['redirect'];
+            $redirect_problem = self::redirect_tag_problem($raw_redirect);
+            $has_tags = (bool) preg_match('/[{}\[\]]/', $raw_redirect);
+            if (null === $redirect_problem && ! $has_tags && esc_url_raw($raw_redirect) !== $raw_redirect) {
+                $redirect_problem = 'The redirect url contains characters WordPress would strip, so it would be saved altered. Use a plain url.';
+            }
+            if (null !== $redirect_problem) {
+                return [ [ 'code' => 'invalid_confirmation', 'message' => $redirect_problem, 'data' => [ 'form_id' => $form_id, 'confirmation_id' => (int) $args['confirmation_id'] ] ], null ];
+            }
+            $settings['success_url'] = $has_tags ? $raw_redirect : esc_url_raw($raw_redirect);
         }
         $status = isset($args['enabled']) ? ($args['enabled'] ? 'publish' : 'draft') : $action['post']->post_status;
         $title  = isset($args['name']) ? (string) $args['name'] : $action['post']->post_title;
@@ -496,8 +514,9 @@ class Formidable_Integration extends Forms_Integration
                         'from'            => [ 'type' => 'string', 'maxLength' => 320 ],
                         'reply_to'        => [ 'type' => 'string', 'maxLength' => 320 ],
                     ],
-                    'required'      => [ 'form_id', 'notification_id' ],
-                    'minProperties' => 3,
+                    'required'             => [ 'form_id', 'notification_id' ],
+                    'minProperties'        => 3,
+                    'additionalProperties' => false,
                 ],
                 'validate'     => static function (array $args): ?array {
                     [ $refusal ] = self::email_plan($args);
@@ -545,7 +564,7 @@ class Formidable_Integration extends Forms_Integration
                     'minProperties' => 3,
                 ],
                 'validate'        => static function (array $args): ?array {
-                    [ $refusal ] = self::email_plan($args);
+                    [ $refusal ] = self::email_plan($args, true);
                     if (null !== $refusal) {
                         return $refusal;
                     }
@@ -560,7 +579,7 @@ class Formidable_Integration extends Forms_Integration
                     return null;
                 },
                 'confirm_preview' => static function (array $args): array {
-                    [ , $plan ] = self::email_plan($args);
+                    [ , $plan ] = self::email_plan($args, true);
                     $pick       = static fn (array $v): array => array_intersect_key($v, [ 'to' => 1, 'cc' => 1, 'bcc' => 1 ]);
                     return [
                         'message' => sprintf('It changes who email action %d of form %d is sent to. Undo: rollback-operation.', (int) $plan['post']->ID, $plan['form_id']),
@@ -568,7 +587,7 @@ class Formidable_Integration extends Forms_Integration
                     ];
                 },
                 'handler'         => static function (array $args): array {
-                    [ , $plan ] = self::email_plan($args);
+                    [ , $plan ] = self::email_plan($args, true);
                     $pick       = static fn (array $v): array => array_intersect_key($v, [ 'to' => 1, 'cc' => 1, 'bcc' => 1 ]);
                     $changed    = $pick($plan['before']) !== $pick($plan['after']);
                     if ($changed) {
@@ -578,8 +597,8 @@ class Formidable_Integration extends Forms_Integration
                 },
             ],
             'update-confirmation'         => $write + [
-                'mode'         => 'write',
-                'description'  => 'Edit one confirmation (on_submit action) of a form: enabled, name, type (message, page, redirect), message (post HTML only), page (id of a published page) and redirect (an http or https url). The result must be coherent for its type. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after. Undo: rollback-operation',
+                'mode'         => 'destructive',
+                'description'  => 'Edit one confirmation (on_submit action) of a form (needs confirm:true; the confirmation shows the confirmation before and after, since a redirect sends visitors, and smart tag values, to another page): enabled, name, type (message, page, redirect), message (post HTML only), page (id of a published page) and redirect (an http or https url). The result must be coherent for its type. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after. Undo: rollback-operation',
                 'input_schema' => [
                     'type'          => 'object',
                     'properties'    => [
@@ -592,10 +611,18 @@ class Formidable_Integration extends Forms_Integration
                         'page'            => $id,
                         'redirect'        => [ 'type' => 'string', 'maxLength' => 2000 ],
                     ],
-                    'required'      => [ 'form_id', 'confirmation_id' ],
-                    'minProperties' => 3,
+                    'required'             => [ 'form_id', 'confirmation_id' ],
+                    'minProperties'        => 3,
+                    'additionalProperties' => false,
                 ],
                 'validate'     => static fn (array $args): ?array => self::confirmation_plan($args)[0],
+                'confirm_preview' => static function (array $args): array {
+                    [ , $plan ] = self::confirmation_plan($args);
+                    return [
+                        'message' => sprintf('It changes confirmation %d of form %d. Undo: rollback-operation.', (int) $plan['post']->ID, $plan['form_id']),
+                        'data'    => [ 'form_id' => $plan['form_id'], 'before' => $plan['before'], 'after' => $plan['after'] ],
+                    ];
+                },
                 'handler'      => static function (array $args): array {
                     [ , $plan ] = self::confirmation_plan($args);
                     $changes    = self::diff_fields($plan['before'], $plan['after']);
