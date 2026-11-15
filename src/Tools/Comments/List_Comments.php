@@ -8,9 +8,9 @@ if (! defined('ABSPATH')) {
 
 /**
  * Read-only: list comments as safe summary rows, optionally filtered by post
- * and moderation status, with paging. Comments are generally public content,
- * so the author name, email, url and body are returned as stored; this tool
- * adds no new exposure beyond what WordPress already renders. It never touches
+ * and moderation status, with paging. The author email is masked
+ * in the list (masked: true); name, url, body and status stay readable for
+ * moderation, and get-comment returns the full email. It never touches
  * Safe_Mutation (reads have nothing to roll back).
  */
 class List_Comments
@@ -54,7 +54,7 @@ class List_Comments
 
         $rows = [];
         foreach ((array) $comments as $comment) {
-            $rows[] = Comment_View::row($comment);
+            $rows[] = Comment_View::list_row($comment);
         }
 
         return [
@@ -62,6 +62,7 @@ class List_Comments
             'total'    => $total,
             'page'     => $page,
             'post_id'  => $post_id,
+            'masked'   => true,
         ];
     }
 }
