@@ -49,6 +49,14 @@ class Import_Template
             $type = (string) $args['template_type'];
         }
 
+        // Display conditions decide where a theme-builder part or popup renders
+        // for every visitor, so setting them takes what set-template-conditions
+        // and create-theme-template take (issue #864); this tool alone only asks
+        // edit_posts. Refused before anything is created.
+        if (! empty($export['conditions']) && is_array($export['conditions']) && ! current_user_can('manage_options')) {
+            return new \WP_Error('forbidden', 'Importing a template with display conditions needs the manage_options capability, as set-template-conditions does: conditions change what every visitor sees. Import it without conditions, or ask an administrator.');
+        }
+
         // Regenerate every element id on import so a template exported from
         // another site (or the same one) never carries colliding ids.
         $taken   = [];

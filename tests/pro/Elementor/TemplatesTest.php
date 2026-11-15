@@ -206,6 +206,35 @@ class TemplatesTest extends Structural_Harness
         $this->assertMatchesRegularExpression('/^[0-9a-f]{7}$/', $saved[0]['id']);
     }
 
+    public function test_import_template_display_conditions_need_manage_options(): void
+    {
+        $export = [
+            'title'      => 'Site header',
+            'type'       => 'header',
+            'content'    => $this->template_tree(),
+            'conditions' => ['include/general'],
+        ];
+        $before = (int) wp_count_posts('elementor_library')->publish;
+
+        foreach (['contributor', 'author', 'editor'] as $role) {
+            wp_set_current_user(self::factory()->user->create(['role' => $role]));
+            $out = (new Import_Template())->handle(['export' => $export]);
+
+            $this->assertWPError($out, $role);
+            $this->assertSame('forbidden', $out->get_error_code());
+        }
+        $this->assertSame($before, (int) wp_count_posts('elementor_library')->publish);
+
+        // Without conditions the same import creates an inert template.
+        wp_set_current_user(self::factory()->user->create(['role' => 'contributor']));
+        $this->assertIsArray((new Import_Template())->handle(['export' => ['conditions' => []] + $export]));
+
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $admin = (new Import_Template())->handle(['export' => $export]);
+        $this->assertIsArray($admin);
+        $this->assertSame(['include/general'], $admin['conditions']);
+    }
+
     public function test_import_template_rejects_a_malformed_element_tree(): void
     {
         // Untrusted JSON: a scalar where an element object belongs used to

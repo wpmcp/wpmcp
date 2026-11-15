@@ -351,6 +351,68 @@ class WPBakeryElementEditingTest extends \WP_UnitTestCase
         $this->assertSame($before, get_option(self::TEMPLATES));
     }
 
+    /** @return array<string,array{0:string}> */
+    public static function users_without_site_wide_write(): array
+    {
+        return [
+            'contributor' => ['contributor'],
+            'author'      => ['author'],
+            'editor'      => ['editor'],
+        ];
+    }
+
+    /** @dataProvider users_without_site_wide_write */
+    public function test_template_writes_need_edit_theme_options_and_write_nothing_otherwise(string $role): void
+    {
+        $this->seed_templates();
+        $before = get_option(self::TEMPLATES);
+        $hash   = $this->scope('templates')['hash'];
+        wp_set_current_user(self::factory()->user->create(['role' => $role]));
+
+        $cases = [
+            ['operation' => 'add', 'element' => ['name' => 'Mine', 'content' => self::HERO]],
+            ['operation' => 'update', 'path' => 'hero_123', 'element' => ['name' => 'Hijacked']],
+            ['operation' => 'remove', 'path' => 'hero_123'],
+        ];
+        foreach ($cases as $case) {
+            $out = $this->write_templates($case + ['expected_hash' => $hash]);
+            $this->assertWPError($out, $role . ' ' . $case['operation']);
+            $this->assertSame('forbidden', $out->get_error_code());
+            $this->assertStringContainsString('edit_theme_options', $out->get_error_message());
+        }
+        $this->assertSame($before, get_option(self::TEMPLATES));
+    }
+
+    public function test_an_administrator_can_still_write_and_undo_templates(): void
+    {
+        $this->seed_templates();
+        $before = get_option(self::TEMPLATES);
+
+        $out = $this->write_templates(['operation' => 'remove', 'path' => 'hero_123', 'expected_hash' => $this->scope('templates')['hash']]);
+
+        $this->assertIsArray($out);
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertSame($before, get_option(self::TEMPLATES));
+    }
+
+    public function test_a_user_without_the_capability_cannot_undo_a_template_write(): void
+    {
+        $this->seed_templates();
+        $before = get_option(self::TEMPLATES);
+        $out    = $this->write_templates(['operation' => 'remove', 'path' => 'hero_123', 'expected_hash' => $this->scope('templates')['hash']]);
+        $this->assertIsArray($out);
+
+        foreach (['contributor', 'author', 'editor'] as $role) {
+            wp_set_current_user(self::factory()->user->create(['role' => $role]));
+            $this->assertFalse(Rollback_Service::restore_operation($out['operation_id']), $role);
+            $this->assertArrayNotHasKey('hero_123', (array) get_option(self::TEMPLATES));
+        }
+
+        wp_set_current_user($this->admin);
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertSame($before, get_option(self::TEMPLATES));
+    }
+
     public function test_bad_template_requests_write_nothing(): void
     {
         $this->seed_templates();

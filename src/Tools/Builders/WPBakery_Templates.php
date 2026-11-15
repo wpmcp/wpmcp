@@ -24,18 +24,36 @@ if (! defined('ABSPATH')) {
  * - update: path is the template id, element {name?, content?};
  * - remove: path is the template id.
  *
+ * The templates are one site-wide option every user shares, so a write takes
+ * edit_theme_options, the capability the Avada and other site-wide builder
+ * writes take (issue #864), and the undo point declares the same capability
+ * so rollback-operation cannot be used to bypass it. WPBakery's own panel
+ * only asks edit_posts plus its Role Manager "templates" part, which lets a
+ * Contributor change every user's templates on a default install; when the
+ * Role Manager is loaded and denies the part to this user, the write is
+ * refused too.
+ *
  * Every call needs expected_hash, the hash the templates read returns, and
  * snapshots the whole option first, so rollback-operation puts it back
  * (deleting it again when the write created it).
  */
 final class WPBakery_Templates
 {
+    public const CAPABILITY = 'edit_theme_options';
+
     /**
      * @param array<string,mixed> $args
      * @return array<string,mixed>|\WP_Error
      */
     public static function write(array $args)
     {
+        if (! current_user_can(self::CAPABILITY)) {
+            return new \WP_Error('forbidden', 'Writing the WPBakery saved templates requires the edit_theme_options capability: they are shared by every user of the site.');
+        }
+        if (! self::role_manager_allows()) {
+            return new \WP_Error('forbidden', "WPBakery's Role Manager does not give this user access to the Templates part, so the saved templates were left untouched.");
+        }
+
         $option    = WPBakery_Design::TEMPLATES_OPTION;
         $operation = (string) ($args['operation'] ?? '');
         if (! in_array($operation, ['add', 'update', 'remove'], true)) {
@@ -65,11 +83,12 @@ final class WPBakery_Templates
         try {
             $out = Safe_Mutation::run(
                 [
-                    'object_type' => 'option',
-                    'object_id'   => $option,
-                    'session_id'  => (string) ($args['session_id'] ?? 'default'),
-                    'tool_name'   => 'update-builder-content',
-                    'args'        => $args,
+                    'object_type'         => 'option',
+                    'object_id'           => $option,
+                    'session_id'          => (string) ($args['session_id'] ?? 'default'),
+                    'tool_name'           => 'update-builder-content',
+                    'args'                => $args,
+                    'extra_snapshot_data' => ['restore_capability' => self::CAPABILITY],
                 ],
                 static function () use ($templates, $stored) {
                     if (false === $stored) {
@@ -91,6 +110,21 @@ final class WPBakery_Templates
             'path'         => $id,
             'hash'         => Builder_Design_Data::option_hash($option),
         ];
+    }
+
+    /**
+     * WPBakery's own gate for saving and deleting a template
+     * (Vc_Templates_Panel_Editor::save() and delete()): the Role Manager's
+     * templates part must be on or never configured. True when WPBakery is
+     * not loaded, since there is no Role Manager to ask.
+     */
+    private static function role_manager_allows(): bool
+    {
+        if (! function_exists('vc_user_access')) {
+            return true;
+        }
+
+        return (bool) vc_user_access()->part('templates')->checkStateAny(true, null)->get();
     }
 
     /**
