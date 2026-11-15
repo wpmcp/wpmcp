@@ -176,4 +176,24 @@ class CallRestTest extends \WP_UnitTestCase
         delete_option('wordpress_api_key');
         $GLOBALS['wp_rest_server'] = null;
     }
+    public function test_a_plugin_route_registered_under_the_core_namespace_is_masked(): void
+    {
+        add_action('rest_api_init', $register = static function (): void {
+            register_rest_route('wp/v2', '/wpmcp-test-cfg', [
+                'methods'             => 'GET',
+                'permission_callback' => '__return_true',
+                'callback'            => static fn () => [ 'api_key' => 'CORENSLEAK', 'label' => 'ok' ],
+            ]);
+        });
+        $GLOBALS['wp_rest_server'] = null;
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+
+        $out = (new Call_Rest())->handle([ 'method' => 'GET', 'route' => '/wp/v2/wpmcp-test-cfg' ]);
+
+        $this->assertSame('[redacted]', $out['body']['api_key']);
+        $this->assertSame('ok', $out['body']['label']);
+
+        remove_action('rest_api_init', $register);
+        $GLOBALS['wp_rest_server'] = null;
+    }
 }

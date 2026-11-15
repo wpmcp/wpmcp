@@ -587,6 +587,21 @@ class SecretOptionsTest extends \WP_UnitTestCase
         $this->assertSame([ 'K1', 'K2' ], array_column(get_option('wpmcp_test_unregistered')['hosts'], 'api_key'));
     }
 
+    public function test_an_object_nested_in_an_array_is_masked_without_instantiating_a_class(): void
+    {
+        update_option('wpmcp_test_unregistered', [ 'a' => (object) [ 'password' => 'LEAKNO', 'host' => 'h' ] ]);
+        $value = (new Get_Option())->handle([ 'name' => 'wpmcp_test_unregistered' ])['value'];
+        $this->assertStringNotContainsString('LEAKNO', wp_json_encode($value));
+        $this->assertSame('h', ((array) $value['a'])['host']);
+
+        // The same shape stored as a serialized string, with a class that is never loaded.
+        update_option('wpmcp_test_unregistered', 'a:1:{s:1:"a";O:12:"Never_Loaded":2:{s:8:"password";s:6:"LEAKNO";s:4:"host";s:1:"h";}}');
+        $value = (new Get_Option())->handle([ 'name' => 'wpmcp_test_unregistered' ])['value'];
+        $this->assertStringNotContainsString('LEAKNO', $value);
+        $this->assertStringNotContainsString('LEAKNO', wp_json_encode(unserialize($value, [ 'allowed_classes' => false ]))); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize -- reads back the masked fixture without instantiating a class.
+        $this->assertFalse(class_exists('Never_Loaded', false));
+    }
+
     /** Walks "a.b.c" through nested arrays; null when absent. */
     private function path_value(array $data, string $path)
     {

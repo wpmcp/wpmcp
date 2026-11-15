@@ -380,6 +380,18 @@ final class Secret_Options
                 $data[ $key ] = self::mask_value($item);
             } elseif (is_array($item)) {
                 $data[ $key ] = self::mask_tree($item, $spec, $allow, $path);
+            } elseif (is_object($item)) {
+                // An object nested in the array (stdClass, or the incomplete-class stand-in
+                // for a class that was never instantiated): its properties are masked like
+                // keys, and it comes back as a plain object. No class is ever instantiated.
+                $props = [];
+                foreach ((array) $item as $prop => $value) {
+                    $props[ self::plain_property((string) $prop) ] = $value;
+                }
+                $inner = self::mask_tree($props, $spec, $allow, $path);
+                if ($inner !== $props) {
+                    $data[ $key ] = (object) $inner;
+                }
             } elseif (is_string($item) && self::looks_encoded($item)) {
                 // JSON text or a serialized string inside the array: masked in the same form.
                 $decoded = Gateway_Secrets::decode($item);
@@ -412,6 +424,13 @@ final class Secret_Options
             }
         }
         return $value;
+    }
+
+    /** A property name without the null-byte prefix a private or protected one carries in an array cast. */
+    private static function plain_property(string $name): string
+    {
+        $pos = strrpos($name, "\0");
+        return false === $pos ? $name : substr($name, $pos + 1);
     }
 
     /** Whether a string could be JSON text or serialized data worth decoding. */
@@ -616,13 +635,14 @@ final class Secret_Options
     }
 
     /**
-     * Core's own routes carry no plugin credentials, and some show a secret
-     * on purpose (a new application password), so the key-name heuristic
-     * skips them. Everything else, plugin namespaces included, gets it.
+     * Routes that show a secret on purpose, which the key-name heuristic
+     * skips: creating an application password returns the new password once.
+     * Every other route, core namespaces included (a plugin can register
+     * under wp/v2), gets the heuristic.
      */
     private static function is_core_route(string $route): bool
     {
-        return 1 === preg_match('#^/(wp/v\d+|wp-site-health|wp-block-editor|oembed|wp-abilities)(/|$)#i', $route) && ! self::is_settings_route($route);
+        return 1 === preg_match('#^/wp/v\d+/users/(\d+|me)/application-passwords(/|$)#i', $route);
     }
 
     /**
