@@ -378,7 +378,7 @@ composer test:local    # the test gate: lint, drift check, PHPUnit on the defaul
 composer lint          # PSR-12 with WordPress-idiomatic naming
 ```
 
-The PHPUnit suite does not run on GitHub Actions. It runs locally through `bin/test-local.sh`, and the pre-push hook in `.githooks/` runs it before every push, on the default WordPress, on the `Requires at least` minimum, and on the default WordPress installed as a multisite network (`WP_MULTISITE=1`). Every leg runs even when one fails, and the run ends with a pass/fail summary. The first run of the script turns the hook on for the clone. GitHub keeps only the static gates: lint, the drift check, compliance and Plugin Check.
+The PHPUnit suite does not run on GitHub Actions. It runs locally through `bin/test-local.sh`, and the pre-push hook in `.githooks/` runs it before every push, on the default WordPress, on the `Requires at least` minimum, and on the default WordPress installed as a multisite network (`WP_MULTISITE=1`). Every leg runs even when one fails, and the run ends with a pass/fail summary. The first run of the script turns the hook on for the clone. GitHub keeps only the static gates: lint, the drift check, compliance and Plugin Check. Run `composer check:flavors` for the release-flavor class guard in seconds; the rule behind it is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 The script needs MariaDB and Subversion, and nothing else to configure:
 

@@ -7,13 +7,13 @@
 # multisite network (issue #530); any failing leg blocks the push.
 #
 # Skip it for one push with WPMCP_SKIP_LOCAL_TESTS=1 git push, or git push --no-verify.
+#
+# The release-flavor class guard (bin/check-flavors.sh, `composer check:flavors`)
+# is the exception: it takes seconds, and CI's compliance and plugin-check jobs
+# fail on it, so it also runs when WPMCP_SKIP_LOCAL_TESTS=1 is set. Only
+# --no-verify or WPMCP_SKIP_FLAVOR_CHECK=1 bypasses it.
 
 set -euo pipefail
-
-if [ "${WPMCP_SKIP_LOCAL_TESTS:-}" = 1 ]; then
-	echo "[pre-push] WPMCP_SKIP_LOCAL_TESTS=1: skipping the local test gate." >&2
-	exit 0
-fi
 
 # Branch or tag deletions send no commits and need no suite.
 sends_commits=false
@@ -23,6 +23,19 @@ while read -r _local_ref local_sha _remote_ref _remote_sha; do
 	esac
 done
 [ "$sends_commits" = true ] || exit 0
+
+if [ "${WPMCP_SKIP_FLAVOR_CHECK:-}" != 1 ] && [ -x bin/check-flavors.sh ]; then
+	echo "[pre-push] release-flavor class guard (composer check:flavors)..." >&2
+	if ! bash bin/check-flavors.sh </dev/null; then
+		echo "[pre-push] push blocked: fix the flavor class guard above (CI would fail on it)." >&2
+		exit 1
+	fi
+fi
+
+if [ "${WPMCP_SKIP_LOCAL_TESTS:-}" = 1 ]; then
+	echo "[pre-push] WPMCP_SKIP_LOCAL_TESTS=1: skipping the local test gate." >&2
+	exit 0
+fi
 
 if [ ! -x bin/test-local.sh ]; then
 	echo "[pre-push] bin/test-local.sh is missing on this branch; merge main to get the local test gate." >&2
