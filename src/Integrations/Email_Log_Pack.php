@@ -39,10 +39,14 @@ if (! defined('ABSPATH')) {
  * addresses masked, and never a body, headers or an IP address;
  * emaillog-get-email returns one email with its recipients in full, its
  * headers (Authorization, token, key, secret, password and cookie headers
- * blanked) and its body cut to 1,000 characters (body: full raises that to
- * 20,000). Any link that carries a reset, login, verification or other
- * one-time token is replaced by [redacted-link] in the body, headers and
- * errors, and the unredacted text is never available through MCP. The IP
+ * blanked) and NO body by default (body: none), because a body can hold a
+ * password, a one-time code or a reset link and the agent transcript would
+ * keep it. body: truncated cuts it to 1,000 characters, body: full to
+ * 20,000. A body that is returned is redacted on a best effort basis: links
+ * with a known token key or word, or an opaque token in the path or query,
+ * become [redacted-link], and the value after password, passcode, code, otp,
+ * pin, token, secret or api key is replaced by [redacted]. The patterns
+ * cannot recognise every secret, so a body can still hold one. The IP
  * address Check and Log Email and Email Log store is never returned, and
  * attachments come back as file names only. Nothing here reads an option,
  * so no SMTP credential can leave through these ops.
@@ -210,7 +214,7 @@ final class Email_Log_Pack
 
         return [
             'emaillog-list-emails' => $base + [
-                'description'  => 'List emails logged by WP Mail Logging, Check and Log Email or Email Log, newest first: id, time (site time), recipient, subject, status (sent or failed), error, has_attachments, source. Filters: recipient, subject (substrings), status, since and until (dates, site time), page_size (default 20, max 100), offset. source when several plugins are active. Recipients MASKED (j***@example.com), no bodies or headers; emaillog-get-email returns one email. Personal data',
+                'description'  => 'List emails logged by WP Mail Logging, Check and Log Email or Email Log, newest first: id, time (site time), recipient, subject, status (sent or failed), error, has_attachments, source. Filters: recipient (matches the stored address, which is masked in the result), subject (substrings), status, since and until (dates, site time), page_size (default 20, max 100), offset. source when several plugins are active. Recipients MASKED (j***@example.com), no bodies or headers; emaillog-get-email returns one email. Personal data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -228,13 +232,13 @@ final class Email_Log_Pack
                 'handler'      => static fn (array $args): array => self::list_emails($args),
             ],
             'emaillog-get-email'   => $base + [
-                'description'  => 'One logged email: recipients in full, subject, status, error, headers, attachment names and the body cut to 1,000 characters (body: full for 20,000). Reset, login and verification links are replaced by [redacted-link], credential headers blanked, IP address never returned. source when several plugins are active. Personal data',
+                'description'  => 'One logged email: recipients in full, subject, status, error, headers, attachment names. NO body unless body is truncated (1,000 characters) or full (20,000); a returned body is best-effort redacted (links with tokens, passwords, codes) and may still hold a secret. Credential headers blanked, IP never returned. source when several plugins are active. Personal data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
                         'source' => $source,
                         'id'     => [ 'type' => 'integer', 'minimum' => 1 ],
-                        'body'   => [ 'type' => 'string', 'enum' => [ 'truncated', 'full' ] ],
+                        'body'   => [ 'type' => 'string', 'enum' => [ 'none', 'truncated', 'full' ] ],
                     ],
                     'required'   => [ 'id' ],
                 ],
@@ -346,13 +350,14 @@ final class Email_Log_Pack
         if ('wp-mail-logging' === $source) {
             return "(e.`error` IS NOT NULL AND e.`error` <> '')";
         }
+        $probe = 'check-email' === $source && Plugin_Table_Rows_Snapshot::table_exists(self::error_table())
+            ? $wpdb->prepare('EXISTS (SELECT 1 FROM %i x WHERE x.`check_email_log_id` = e.`id`)', self::error_table())
+            : '';
         if (self::has_column($table, 'result')) {
-            return "(e.`result` = 0 OR (e.`error_message` IS NOT NULL AND e.`error_message` <> ''))";
+            $column = "(e.`result` = 0 OR (e.`error_message` IS NOT NULL AND e.`error_message` <> ''))";
+            return '' === $probe ? $column : "({$column} OR {$probe})";
         }
-        if ('check-email' === $source && Plugin_Table_Rows_Snapshot::table_exists(self::error_table())) {
-            return $wpdb->prepare('EXISTS (SELECT 1 FROM %i x WHERE x.`check_email_log_id` = e.`id`)', self::error_table());
-        }
-        return '0=1';
+        return '' === $probe ? '0=1' : $probe;
     }
 
     /** SQL (already prepared) for the error text of alias e. */
@@ -464,9 +469,10 @@ final class Email_Log_Pack
         $source = self::resolve_source($args);
         $source = is_string($source) ? $source : 'wp-mail-logging';
         $row    = self::row($source, (int) $args['id']) ?? [];
-        $full   = 'full' === ($args['body'] ?? 'truncated');
-        $limit  = $full ? self::BODY_FULL : self::BODY_DEFAULT;
-        $body   = self::redact_links((string) ($row['body'] ?? ''));
+        $mode   = (string) ($args['body'] ?? 'none');
+        $limit  = 'full' === $mode ? self::BODY_FULL : self::BODY_DEFAULT;
+        $raw    = self::redact_links((string) ($row['body'] ?? ''));
+        $body   = 'none' === $mode ? '' : $raw;
 
         return [
             'source' => $source,
@@ -480,8 +486,9 @@ final class Email_Log_Pack
                 'headers'        => self::redact_headers((string) ($row['headers'] ?? '')),
                 'attachments'    => self::attachment_names((string) ($row['attachments'] ?? ''), (string) ($row['attachment_names'] ?? '')),
                 'body'           => self::cut($body, $limit),
-                'body_length'    => self::length($body),
-                'body_truncated' => self::length($body) > $limit,
+                'body_included'  => 'none' !== $mode,
+                'body_length'    => self::length($raw),
+                'body_truncated' => 'none' !== $mode && self::length($raw) > $limit,
             ],
         ];
     }
@@ -536,6 +543,15 @@ final class Email_Log_Pack
         return array_values(array_unique($out));
     }
 
+    /** Whether a path segment or query value looks like a random token (16+ characters with letters and digits, or 32+ with hyphens). */
+    private static function opaque_token(string $value): bool
+    {
+        if (1 === preg_match('/^[A-Za-z0-9_=]{16,}$/', $value)) {
+            return 1 === preg_match('/\d/', $value) && 1 === preg_match('/[A-Za-z]/', $value);
+        }
+        return 1 === preg_match('/^[A-Za-z0-9_=\-]{32,}$/', $value) && 1 === preg_match('/\d/', $value);
+    }
+
     /** Whether one URL carries a secret or a one-time grant. */
     private static function link_is_sensitive(string $url): bool
     {
@@ -547,9 +563,17 @@ final class Email_Log_Pack
         if (1 === preg_match('~/(reset|verify|magic|confirm|activate|unlock|invite|accept|download|unsubscribe)|wp-login\.php|lostpassword|resetpass|[?&]rp_~', $path . '?' . ($parts['query'] ?? ''))) {
             return true;
         }
+        foreach (explode('/', $path) as $segment) {
+            if (self::opaque_token($segment)) {
+                return true;
+            }
+        }
         $query = [];
         parse_str((string) ($parts['query'] ?? ''), $query);
         foreach ($query as $name => $value) {
+            if (is_string($value) && self::opaque_token($value)) {
+                return true;
+            }
             $name = strtolower((string) $name);
             if (in_array($name, self::LINK_KEYS, true)) {
                 return true;
@@ -572,7 +596,7 @@ final class Email_Log_Pack
             static fn (array $m): string => self::link_is_sensitive($m[0]) ? self::REDACTED_LINK : $m[0],
             $text
         );
-        return (string) preg_replace('/\b((?:verification|security|login|one[- ]time|confirmation|reset)?\s*(?:code|otp|pin|passcode|password)\b\s*(?:is|:|=)\s*)[A-Za-z0-9\-]{4,}/i', '$1[redacted-code]', $text);
+        return (string) preg_replace('/\b(password|passcode|passwd|pwd|passphrase|code|otp|pin|token|secret|api[_ -]?key)\b((?:\s+is)?\s*[:=]?\s*)[^\s<]+/i', '$1$2[redacted]', $text);
     }
 
     /** The header block with credential headers blanked and secrets in values removed. */

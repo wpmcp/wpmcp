@@ -104,7 +104,7 @@ class EmailLogLiveTest extends \WP_UnitTestCase
         foreach (self::SOURCES as $source) {
             $list = $this->read('emaillog-list-emails', [ 'source' => $source, 'subject' => 'Welcome' ]);
             $this->assertSame(1, $list['total'], $source);
-            $one = $this->read('emaillog-get-email', [ 'source' => $source, 'id' => $list['emails'][0]['id'] ])['email'];
+            $one = $this->read('emaillog-get-email', [ 'source' => $source, 'id' => $list['emails'][0]['id'], 'body' => 'truncated' ])['email'];
             $this->assertStringContainsString('ada@example.com', $one['recipient'], $source);
             $this->assertSame('sent', $one['status'], $source);
             $this->assertStringContainsString('[redacted-link]', $one['body'], $source);

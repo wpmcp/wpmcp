@@ -84,6 +84,17 @@ class EmailLogPackTest extends \WP_UnitTestCase
         }
     }
 
+    public function test_a_lower_role_is_refused_every_op(): void
+    {
+        $id = wpmcp_test_wpml_mail();
+        foreach ([ 'editor', 'author', 'subscriber' ] as $role) {
+            wp_set_current_user(self::factory()->user->create([ 'role' => $role ]));
+            foreach ([ [ 'emaillog-list-emails', [] ], [ 'emaillog-get-email', [ 'id' => $id ] ] ] as [ $op, $args ]) {
+                $this->assertSame('operation_denied', $this->code($this->read($op, $args)), $role . ' ' . $op);
+            }
+        }
+    }
+
     public function test_wp_mail_logging_status_comes_from_the_error_column(): void
     {
         $sent   = wpmcp_test_wpml_mail([ 'timestamp' => '2026-11-10 09:30:00' ]);
@@ -130,7 +141,12 @@ class EmailLogPackTest extends \WP_UnitTestCase
             'attachments' => "/var/www/private/path/contract.pdf",
         ]);
 
-        $email = $this->ok($this->read('emaillog-get-email', [ 'id' => $id ]))['email'];
+        $none = $this->ok($this->read('emaillog-get-email', [ 'id' => $id ]))['email'];
+        $this->assertSame('', $none['body'], 'no body unless asked for');
+        $this->assertFalse($none['body_included']);
+        $this->assertStringNotContainsString('SENTINEL-RESET-KEY', (string) wp_json_encode($none));
+
+        $email = $this->ok($this->read('emaillog-get-email', [ 'id' => $id, 'body' => 'truncated' ]))['email'];
         $this->assertSame('Ada Lovelace <ada@example.com>', $email['recipient']);
         $this->assertSame('sent', $email['status']);
         $this->assertSame([ 'contract.pdf' ], $email['attachments']);
@@ -171,6 +187,21 @@ class EmailLogPackTest extends \WP_UnitTestCase
             $this->assertSame('See [redacted-link] now', Email_Log_Pack::redact_links('See ' . $url . ' now'), $url);
         }
         $this->assertSame('See https://x.test/blog?p=3 now', Email_Log_Pack::redact_links('See https://x.test/blog?p=3 now'));
+        foreach ([
+            'Your password is: P@ss!word99' => 'P@ss!word99',
+            'Your temporary password is Hunter2!' => 'Hunter2',
+            'password: Tr0ub4dor&3' => 'Tr0ub4dor',
+            'Use code 482913 to log in' => '482913',
+            'Your OTP is 99 12 77' => '99',
+            'api key = sk_live_abcdef' => 'sk_live',
+            'See https://x.test/auth/Zm9vYmFyYmF6cXV4 now' => 'Zm9vYmFy',
+            'See https://x.test/a?k=Zm9vYmFyYmF6cXV4 now' => 'Zm9vYmFy',
+            'See https://x.test/p/3f2504e0-4f89-11d3-9a0c-0305e82c3301 now' => '3f2504e0',
+        ] as $text => $secret) {
+            $out = Email_Log_Pack::redact_links($text);
+            $this->assertStringNotContainsString($secret, $out, $text . ' => ' . $out);
+        }
+        $this->assertSame('See https://x.test/my-long-post-title-here now', Email_Log_Pack::redact_links('See https://x.test/my-long-post-title-here now'));
         $this->assertSame('a***@x.test, b***@y.test', Email_Log_Pack::mask_recipients('"A, B" <ada@x.test>; bob@y.test'));
         $this->assertSame('', Email_Log_Pack::mask_recipients(''));
     }
