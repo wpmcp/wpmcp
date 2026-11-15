@@ -118,6 +118,16 @@ class Call_Rest
         // Registered credential options (and anything under /wp/v2/settings)
         // come back masked by the same registry get-option uses (issue #865).
         $body = Secret_Options::mask_rest_body('' !== $matched ? $matched : $route, $body);
+        if (is_array($body) && is_array($body['responses'] ?? null) && 1 === preg_match('#^/batch/v\d+/?$#i', $route)) {
+            // /batch/v1 wraps each sub-response: mask every one by the path it was sent to.
+            $requests = is_array($params['requests'] ?? null) ? array_values($params['requests']) : [];
+            foreach (array_values($body['responses']) as $i => $item) {
+                $path = (string) wp_parse_url((string) ($requests[ $i ]['path'] ?? ''), PHP_URL_PATH);
+                if (is_array($item) && array_key_exists('body', $item) && '' !== $path) {
+                    $body['responses'][ $i ]['body'] = Secret_Options::mask_rest_body($path, $item['body']);
+                }
+            }
+        }
 
         return [
             'status' => $response->get_status(),

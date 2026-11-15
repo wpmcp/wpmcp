@@ -131,4 +131,49 @@ class CallRestTest extends \WP_UnitTestCase
         delete_option('sib_token_store');
         $GLOBALS['wp_rest_server'] = null;
     }
+    /** Re-review of #917: plugin routes and /batch/v1 get the heuristic too. */
+    public function test_a_plugin_route_and_a_batch_of_it_mask_secret_looking_keys(): void
+    {
+        add_action('rest_api_init', $register = static function (): void {
+            register_rest_route('wpmcp-test/v1', '/cfg', [
+                'methods'             => 'GET',
+                'permission_callback' => '__return_true',
+                'callback'            => static fn () => [ 'api_key' => 'PLUGINLEAK', 'label' => 'ok', 'connections' => [ [ 'password' => 'CONNLEAK', 'host' => 'h' ] ], 'max_tokens' => '4096' ],
+            ]);
+        });
+        $GLOBALS['wp_rest_server'] = null;
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+
+        $direct = (new Call_Rest())->handle([ 'method' => 'GET', 'route' => '/wpmcp-test/v1/cfg' ]);
+        $this->assertSame('[redacted]', $direct['body']['api_key']);
+        $this->assertSame('[redacted]', $direct['body']['connections'][0]['password']);
+        $this->assertSame('ok', $direct['body']['label']);
+        $this->assertSame('h', $direct['body']['connections'][0]['host']);
+        $this->assertSame('4096', $direct['body']['max_tokens']);
+
+        add_filter('wpmcp_enable_rest_writes', '__return_true');
+        $batch = (new Call_Rest())->handle([ 'method' => 'POST', 'route' => '/batch/v1', 'confirm' => true, 'params' => [ 'requests' => [ [ 'method' => 'GET', 'path' => '/wpmcp-test/v1/cfg' ] ] ] ]);
+        $this->assertStringNotContainsString('PLUGINLEAK', wp_json_encode($batch));
+        $this->assertStringNotContainsString('CONNLEAK', wp_json_encode($batch));
+
+        remove_action('rest_api_init', $register);
+        $GLOBALS['wp_rest_server'] = null;
+    }
+
+    public function test_settings_route_masks_by_the_option_name_when_the_rest_name_differs(): void
+    {
+        register_setting('general', 'wordpress_api_key', [ 'type' => 'string', 'show_in_rest' => [ 'name' => 'akismet_rest_name' ] ]);
+        update_option('wordpress_api_key', 'AKISMETLEAK');
+        $GLOBALS['wp_rest_server'] = null;
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+
+        $out = (new Call_Rest())->handle([ 'method' => 'GET', 'route' => '/wp/v2/settings' ]);
+
+        $this->assertSame('[redacted]', $out['body']['akismet_rest_name']);
+        $this->assertStringNotContainsString('AKISMETLEAK', wp_json_encode($out));
+
+        unregister_setting('general', 'wordpress_api_key');
+        delete_option('wordpress_api_key');
+        $GLOBALS['wp_rest_server'] = null;
+    }
 }

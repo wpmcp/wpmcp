@@ -1236,14 +1236,30 @@ class Database_Guard
             if ($secret || 1 === preg_match('/^woocommerce_.+_settings$/i', $option)) {
                 return false;
             }
-            if ($transforms) {
-                $raw = get_option($option, null);
-                if (null !== $raw && Secret_Options::mask_registered($option, $raw) !== $raw) {
-                    return false;
-                }
+            if ($transforms && self::transform_may_leak($m['table'], $option)) {
+                return false;
             }
         }
         return [] !== $names[1];
+    }
+
+    /**
+     * Whether a function over the value column of $option in $table could
+     * return a credential the result mask would not see. Only the current
+     * site's options table is checked, against the stored row itself (not
+     * get_option(), which option filters can change); any other options
+     * table, sitemeta included, is refused, since its rows cannot be vouched
+     * for from here.
+     */
+    private static function transform_may_leak(string $table, string $option): bool
+    {
+        global $wpdb;
+        if (strtolower($table) !== strtolower((string) $wpdb->options)) {
+            return true;
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the stored row, read raw so no option filter alters it; the name is a validated literal bound by prepare().
+        $raw = $wpdb->get_var($wpdb->prepare('SELECT option_value FROM %i WHERE option_name = %s', $wpdb->options, $option));
+        return null !== $raw && Secret_Options::mask_registered($option, $raw) !== $raw;
     }
 
     /**

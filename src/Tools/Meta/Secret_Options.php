@@ -2,8 +2,6 @@
 
 namespace WPMCP\Tools\Meta;
 
-use WPMCP\Integrations\Cache_Settings_FlyingPress;
-use WPMCP\Integrations\Cache_Settings_WP_Rocket;
 use WPMCP\Tools\WooCommerce\Gateway_Secrets;
 
 if (! defined('ABSPATH')) {
@@ -166,14 +164,13 @@ final class Secret_Options
      */
     private static function defaults(): array
     {
-        $rocket = new Cache_Settings_WP_Rocket();
-        $fly    = new Cache_Settings_FlyingPress();
-
         return [
             // WP Rocket and FlyingPress: the same lists their settings reads mask
-            // (Cache_Settings_Adapter::secret_keys()), so the two cannot drift.
-            $rocket->option() => $rocket->secret_keys(),
-            $fly->option()    => $fly->secret_keys(),
+            // (secret_keys() of the cache settings adapters, which a test keeps
+            // in step with these). Literal names: the adapters are not part of
+            // every build, so this class must not name them.
+            'wp_rocket_settings' => [ 'consumer_key', 'consumer_email', 'secret_key', 'license', 'secret_cache_key', 'minify_css_key', 'minify_js_key', 'cloudflare_api_key', 'cloudflare_email', 'cloudflare_zone_id', 'sucury_waf_api_key' ],
+            'FLYING_PRESS_CONFIG' => [ 'license_key', 'flying_cdn_api_key', 'cf_api_key', 'cf_email', 'cf_zone_id', 'cf_host_signature' ],
 
             // WP Mail SMTP. Option "wp_mail_smtp" (Options::META_KEY) is a map of mailer
             // groups; its credential keys are the ones in Options::$map. "pass" and the
@@ -347,9 +344,34 @@ final class Secret_Options
                 return true;
             }
         }
-        // Only a string can be a credential: a number or flag under a name like
-        // max_tokens or password_min_length is a setting the caller needs to see.
-        return is_string($item) && 1 === preg_match(self::KEY_PATTERN, $key) && ! in_array($folded, $allow, true);
+        return self::heuristic_hit($key, $item, $allow);
+    }
+
+    /** Names whose numeric value is a limit or a size, not a credential (max_tokens, *_length, *_count, token_ttl). */
+    private const BENIGN_NUMERIC = '/(^|[_-])(max|min|limit|ttl|expir\w*|lifetime|timeout|length|len|count|size|num|number|age|interval|rate|per|used|remaining|budget)([_-]|$)/i';
+
+    /**
+     * The key-name heuristic. A boolean or empty value is never a credential.
+     * A string is, an array is (every leaf under it is masked), and so is a
+     * number, except under a name that says it is a limit or a size
+     * (max_tokens, password_min_length, token_ttl, token_count), numeric
+     * string or not.
+     *
+     * @param mixed              $item
+     * @param array<int, string> $allow
+     */
+    private static function heuristic_hit(string $key, $item, array $allow): bool
+    {
+        if (is_bool($item) || null === $item || '' === $item || [] === $item) {
+            return false;
+        }
+        if (1 !== preg_match(self::KEY_PATTERN, $key) || in_array(strtolower($key), $allow, true)) {
+            return false;
+        }
+        if ((is_int($item) || is_float($item) || (is_string($item) && is_numeric($item))) && 1 === preg_match(self::BENIGN_NUMERIC, $key)) {
+            return false;
+        }
+        return is_scalar($item) || is_array($item);
     }
 
     /**
@@ -364,7 +386,7 @@ final class Secret_Options
         foreach ($data as $key => $item) {
             $path = array_merge($trail, [ (string) $key ]);
             if (self::is_secret_key((string) $key, $item, $spec, $allow, $path)) {
-                $data[ $key ] = Gateway_Secrets::mask($item);
+                $data[ $key ] = self::mask_value($item);
             } elseif (is_array($item)) {
                 $data[ $key ] = self::mask_tree($item, $spec, $allow, $path);
             } elseif (is_string($item) && self::looks_encoded($item)) {
@@ -379,6 +401,26 @@ final class Secret_Options
             }
         }
         return $data;
+    }
+
+    /**
+     * A credential's value as it reads masked: a scalar becomes the mask, an
+     * array keeps its shape with every non-boolean leaf masked.
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    private static function mask_value($value)
+    {
+        if (! is_array($value)) {
+            return Gateway_Secrets::mask($value);
+        }
+        foreach ($value as $key => $leaf) {
+            if (! is_bool($leaf)) {
+                $value[ $key ] = self::mask_value($leaf);
+            }
+        }
+        return $value;
     }
 
     /** Whether a string could be JSON text or serialized data worth decoding. */
@@ -409,10 +451,20 @@ final class Secret_Options
     private static function restore_tree(array $data, array $stored, array $spec, array $allow, array $trail): array
     {
         $is_list = [] !== $data && array_is_list($data);
+        $read    = $data; // the list as sent, before any entry is restored
         foreach ($data as $key => $item) {
             $path = array_merge($trail, [ (string) $key ]);
             if ($is_list && is_array($item) && self::holds_mask($item)) {
-                self::assert_list_entry_matches($data, $stored, (int) $key, $item);
+                self::assert_list_entry_matches($read, $stored, (int) $key, $item, $spec, $allow, $trail);
+            }
+            if (is_array($item) && self::holds_mask($item) && self::is_secret_key((string) $key, $item, $spec, $allow, $path)) {
+                // A credential array read masked leaf by leaf: back only when it is exactly what was read.
+                $old = $stored[ $key ] ?? null;
+                if (! is_array($old) || self::mask_value($old) !== $item) {
+                    throw new \RuntimeException('Refusing to write: a masked credential list was changed, so its entries cannot be matched to the stored ones. Send the real credentials, or leave it as read.');
+                }
+                $data[ $key ] = $old;
+                continue;
             }
             if (Gateway_Secrets::is_masked($item) && self::is_secret_key((string) $key, $item, $spec, $allow, $path)) {
                 if (array_key_exists($key, $stored)) {
@@ -449,22 +501,35 @@ final class Secret_Options
     }
 
     /**
-     * Refuses a restore into list entry $index unless the stored list is the
-     * same length and the entry's identity field is unchanged.
+     * Refuses a restore into list entry $index unless it is unambiguous: the
+     * stored list has the same length and, when the entry has an identity
+     * field (id, key, name, slug, uuid, label) it is unchanged; an entry with
+     * no identity field is restored only when the whole list is what was read
+     * (same entries, same order, masks in place).
      *
-     * @param array<mixed> $data
-     * @param array<mixed> $stored
-     * @param array<mixed> $entry
+     * @param array<mixed>         $data
+     * @param array<mixed>         $stored
+     * @param array<mixed>         $entry
+     * @param array<string, mixed> $spec
+     * @param array<int, string>   $allow
+     * @param array<int, string>   $trail
      */
-    private static function assert_list_entry_matches(array $data, array $stored, int $index, array $entry): void
+    private static function assert_list_entry_matches(array $data, array $stored, int $index, array $entry, array $spec, array $allow, array $trail): void
     {
         $same = array_is_list($stored) && count($stored) === count($data) && isset($stored[ $index ]) && is_array($stored[ $index ]);
         if ($same) {
+            $identified = false;
             foreach ([ 'id', 'key', 'name', 'slug', 'uuid', 'label' ] as $field) {
-                if (array_key_exists($field, $entry) && array_key_exists($field, $stored[ $index ]) && $entry[ $field ] !== $stored[ $index ][ $field ]) {
-                    $same = false;
-                    break;
+                if (array_key_exists($field, $entry) && array_key_exists($field, $stored[ $index ])) {
+                    $identified = true;
+                    if ($entry[ $field ] !== $stored[ $index ][ $field ]) {
+                        $same = false;
+                        break;
+                    }
                 }
+            }
+            if ($same && ! $identified) {
+                $same = self::mask_tree($stored, $spec, $allow, $trail) === $data;
             }
         }
         if (! $same) {
@@ -486,8 +551,10 @@ final class Secret_Options
         if (! is_array($body)) {
             return $body;
         }
-        $exact   = [];
-        $regexes = [];
+        $settings = self::is_settings_route($route);
+        $core     = self::is_core_route($route);
+        $exact    = [];
+        $regexes  = [];
         foreach (array_keys(self::registry()) as $entry) {
             $entry = (string) $entry;
             if ('' !== $entry && '/' === $entry[0]) {
@@ -496,20 +563,24 @@ final class Secret_Options
                 $exact[ strtolower(trim($entry)) ] = true;
             }
         }
-        return self::mask_rest_walk($body, self::is_settings_route($route), $exact, $regexes);
+        $names = $settings ? self::rest_setting_names() : [];
+        return self::mask_rest_walk($body, $settings, $core, $exact, $regexes, $names);
     }
 
     /**
      * @param array<mixed>        $body
      * @param array<string, true> $exact
      * @param array<int, string>  $regexes
+     * @param array<string, string> $names REST setting name to option name.
      * @return array<mixed>
      */
-    private static function mask_rest_walk(array $body, bool $settings, array $exact, array $regexes): array
+    private static function mask_rest_walk(array $body, bool $settings, bool $core, array $exact, array $regexes, array $names): array
     {
+        $none  = [ 'names' => [], 'paths' => [] ];
+        $allow = self::allowlist();
         foreach ($body as $key => $item) {
             if (is_string($key) && $settings) {
-                $body[ $key ] = self::mask_registered($key, $item);
+                $body[ $key ] = self::mask_registered($names[ $key ] ?? $key, $item);
                 continue;
             }
             $registered = is_string($key) && isset($exact[ strtolower(trim($key)) ]);
@@ -518,11 +589,49 @@ final class Secret_Options
             }
             if ($registered) {
                 $body[ $key ] = self::mask_registered((string) $key, $item);
+            } elseif (! $core && is_string($key) && self::heuristic_hit($key, $item, $allow)) {
+                $body[ $key ] = self::mask_value($item);
             } elseif (is_array($item)) {
-                $body[ $key ] = self::mask_rest_walk($item, false, $exact, $regexes);
+                $body[ $key ] = self::mask_rest_walk($item, false, $core, $exact, $regexes, $names);
+            } elseif (! $core && is_string($item) && self::looks_encoded($item)) {
+                $decoded = Gateway_Secrets::decode($item);
+                if (null !== $decoded) {
+                    $inner = self::mask_tree($decoded[0], $none, $allow, []);
+                    if ($inner !== $decoded[0]) {
+                        $body[ $key ] = Gateway_Secrets::encode($inner, $decoded[1]);
+                    }
+                }
             }
         }
         return $body;
+    }
+
+    /**
+     * REST setting name to option name for every setting shown in REST, so a
+     * setting exposed under another name still resolves to its option.
+     *
+     * @return array<string, string>
+     */
+    private static function rest_setting_names(): array
+    {
+        $map = [];
+        foreach (get_registered_settings() as $option => $args) {
+            $rest = $args['show_in_rest'] ?? false;
+            if (is_array($rest) && isset($rest['name']) && is_string($rest['name'])) {
+                $map[ $rest['name'] ] = (string) $option;
+            }
+        }
+        return $map;
+    }
+
+    /**
+     * Core's own routes carry no plugin credentials, and some show a secret
+     * on purpose (a new application password), so the key-name heuristic
+     * skips them. Everything else, plugin namespaces included, gets it.
+     */
+    private static function is_core_route(string $route): bool
+    {
+        return 1 === preg_match('#^/(wp/v\d+|wp-site-health|wp-block-editor|oembed|wp-abilities)(/|$)#i', $route) && ! self::is_settings_route($route);
     }
 
     /**
@@ -537,9 +646,10 @@ final class Secret_Options
         if (! self::is_settings_route($route)) {
             return $params;
         }
+        $names = self::rest_setting_names();
         foreach ($params as $key => $value) {
             if (is_string($key)) {
-                $params[ $key ] = self::unmask_option($key, $value);
+                $params[ $key ] = self::unmask_option($names[ $key ] ?? $key, $value);
             }
         }
         return $params;
