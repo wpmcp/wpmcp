@@ -168,6 +168,15 @@ if [ "${WPMCP_LIVE_TABLEPRESS:-}" = "1" ]; then
 	)
 fi
 
+# The live Rank Math job (issue #681) runs the Rank Math redirects and 404 log
+# ops against the real plugin's tables. Exclusive too: the stub-backed Rank
+# Math tests create stand-in tables.
+if [ "${WPMCP_LIVE_RANK_MATH:-}" = "1" ]; then
+	PLUGINS=(
+		"seo-by-rank-math:rank-math.php"
+	)
+fi
+
 # The live WP Mail SMTP job runs the WP Mail SMTP ops on the theme pair
 # through the real plugin, its Options class, encryption and constants.
 # Exclusive too: the stub-backed WP Mail SMTP tests define a stand-in for its

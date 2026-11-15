@@ -373,6 +373,13 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'tablepress/tablepress.php' );
     }
 
+    // The live Rank Math job (issue #681, WPMCP_LIVE_RANK_MATH=1) runs the
+    // Rank Math redirects ops against the real plugin's tables. Loaded only on
+    // request: the stub-backed tests create stand-in tables.
+    if ( getenv( 'WPMCP_LIVE_RANK_MATH' ) ) {
+        wpmcp_maybe_require_plugin( 'seo-by-rank-math/rank-math.php' );
+    }
+
     // The live WP Mail SMTP job (WPMCP_LIVE_WP_MAIL_SMTP=1) runs the WP Mail
     // SMTP ops through the real plugin. Loaded only on request: the
     // stub-backed WP Mail SMTP tests define a stand-in for its Options class.

@@ -420,7 +420,7 @@ final class Rank_Math_Redirects_Pack
     {
         $comparison = (string) ($args['comparison'] ?? 'exact');
         $pattern    = self::pattern((string) $args['source'], $comparison);
-        $source     = [ 'pattern' => $pattern, 'comparison' => $comparison, 'ignore' => '' ];
+        $source     = [ 'ignore' => '', 'pattern' => $pattern, 'comparison' => $comparison ];
         $serialized = maybe_serialize([ $source ]);
 
         $existing = self::find_by_sources($serialized, 0);
@@ -458,7 +458,7 @@ final class Rank_Math_Redirects_Pack
         $pattern    = $current[0]['pattern'];
         if (isset($args['source']) || isset($args['comparison'])) {
             $pattern    = self::pattern(isset($args['source']) ? (string) $args['source'] : $pattern, $comparison);
-            $serialized = maybe_serialize([ [ 'pattern' => $pattern, 'comparison' => $comparison, 'ignore' => $current[0]['ignore'] ] ]);
+            $serialized = maybe_serialize([ [ 'ignore' => $current[0]['ignore'], 'pattern' => $pattern, 'comparison' => $comparison ] ]);
             if ($serialized !== $row['sources']) {
                 $dup = self::find_by_sources($serialized, $id);
                 if (null !== $dup) {
@@ -545,7 +545,7 @@ final class Rank_Math_Redirects_Pack
         }
         if ('regex' === $comparison) {
             // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- a bad pattern is reported, not warned about.
-            if (false === @preg_match('@' . str_replace('@', '\\@', $pattern) . '@u', '')) {
+            if (false === @preg_match('@' . $pattern . '@', '')) {
                 throw new Operation_Error('invalid_source', 'The regular expression does not compile.');
             }
             return $pattern;
@@ -553,9 +553,12 @@ final class Rank_Math_Redirects_Pack
         if (false !== strpos($pattern, '://') || 0 === strpos($pattern, '//')) {
             throw new Operation_Error('invalid_source', 'The source must be a site path, not a URL with a scheme or host.');
         }
-        $pattern = self::clean($pattern);
-        if ('' === $pattern) {
-            throw new Operation_Error('invalid_source', 'The site root cannot be redirected.');
+        if ('exact' === $comparison) {
+            // As Rank Math stores an exact source: no outer slashes, case kept.
+            $pattern = trim($pattern, '/');
+            if ('' === $pattern) {
+                throw new Operation_Error('invalid_source', 'The site root cannot be redirected.');
+            }
         }
         return $pattern;
     }
@@ -590,7 +593,8 @@ final class Rank_Math_Redirects_Pack
             throw new Operation_Error('invalid_target', 'The target contains control characters or is too long.');
         }
         if ('/' === $target[0] && 0 !== strpos($target, '//')) {
-            return $target;
+            // Rank Math stores a relative destination as a full home URL.
+            return home_url($target);
         }
         $scheme = strtolower((string) wp_parse_url($target, PHP_URL_SCHEME));
         $host   = (string) wp_parse_url($target, PHP_URL_HOST);

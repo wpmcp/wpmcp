@@ -151,10 +151,10 @@ class RankMathRedirectsPackTest extends \WP_UnitTestCase
         $this->assertTrue($out['recoverable']);
         $id  = (int) $out['result']['redirection']['id'];
         $row = $this->row($id);
-        $this->assertSame('/new-page', $row['url_to']);
+        $this->assertSame(home_url('/new-page'), $row['url_to'], 'a relative target is stored as a full home URL, as Rank Math does');
         $this->assertSame('301', (string) $row['header_code']);
         $this->assertSame('active', $row['status']);
-        $this->assertSame('old-page', maybe_unserialize($row['sources'])[0]['pattern']);
+        $this->assertSame('Old-Page', maybe_unserialize($row['sources'])[0]['pattern'], 'Rank Math stores an exact source without outer slashes, case kept');
 
         $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
         $this->assertNull($this->row($id));
