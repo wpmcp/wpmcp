@@ -407,6 +407,7 @@ WPMCP_WP_ROCKET_SRC=/path/to/wp-rocket WPMCP_PERFMATTERS_SRC=/path/to/perfmatter
 WPMCP_JET_ELEMENTS_SRC=/path/to/jet-elements bin/test-local.sh --live-jet-elements   # only the JetElements live group, against a local JetElements copy
 WPMCP_WS_FORM_SRC=/path/to/ws-form-pro bin/test-local.sh --live-ws-form   # only the WS Form live group, against a local WS Form PRO copy
 bin/test-local.sh --live-links          # only the live Pretty Links and ThirstyAffiliates group, against the real free plugins
+bin/test-local.sh --live-site-reviews   # only the live Site Reviews group, against the real free plugin
 bin/test-local.sh --live-adapter        # only both suites on the latest MCP Adapter plugin released on WordPress.org (WPMCP_ADAPTER_VERSION pins one)
 bin/test-local.sh --prune               # prune the test cache to its budget now (--prune --all: every install no run is using)
 ```

@@ -397,6 +397,13 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'thirstyaffiliates/thirstyaffiliates.php' );
     }
 
+    // The live Site Reviews job (issue #687, WPMCP_LIVE_SITE_REVIEWS=1) runs
+    // the Site Reviews ops through the real free plugin. Loaded only on
+    // request: the stub-backed tests build its tables from fixtures.
+    if ( getenv( 'WPMCP_LIVE_SITE_REVIEWS' ) ) {
+        wpmcp_maybe_require_plugin( 'site-reviews/site-reviews.php' );
+    }
+
     // The live WP Mail SMTP job (WPMCP_LIVE_WP_MAIL_SMTP=1) runs the WP Mail
     // SMTP ops through the real plugin. Loaded only on request: the
     // stub-backed WP Mail SMTP tests define a stand-in for its Options class.
@@ -556,6 +563,16 @@ tests_add_filter( 'init', function () {
         \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationSettingsHook::init();
     }
 }, 1 );
+
+// The live Site Reviews job's tables, built by Site Reviews' own Tables class
+// once per run, before any test transaction starts, and its role capabilities
+// (the harness activates no plugin). A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_SITE_REVIEWS' ) && function_exists( 'glsr' ) ) {
+        glsr( \GeminiLabs\SiteReviews\Database\Tables::class )->createTables();
+        glsr( \GeminiLabs\SiteReviews\Role::class )->resetAll();
+    }
+}, 20 );
 
 // The live Code Snippets job's table, built by Code Snippets' own DB class
 // once per run, before any test transaction starts. A no-op everywhere else.
