@@ -98,6 +98,8 @@ class Bearer_Auth
     {
         add_filter('determine_current_user', [self::class, 'resolve'], 20);
         add_filter('rest_post_dispatch', [self::class, 'add_challenge_header'], 10, 3);
+        // A 401 for a Basic credential while Application Passwords are off says so (issue #883).
+        add_filter('rest_post_dispatch', [App_Passwords_Status::class, 'explain_unauthorized'], 11, 3);
     }
 
     /**

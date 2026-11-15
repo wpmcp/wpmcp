@@ -188,10 +188,7 @@ final class Redirection_Pack
     private static function requirement()
     {
         if (! self::is_active()) {
-            return [
-                'code'    => 'redirection_inactive',
-                'message' => 'The Redirection plugin is not active on this site.',
-            ];
+            return Plugin_Refusal::make('redirection_inactive', 'Redirection');
         }
         if (! Redirection_Item_Snapshot::table_exists(Redirection_Item_Snapshot::items_table()) || ! Redirection_Item_Snapshot::table_exists(Redirection_Item_Snapshot::groups_table())) {
             return [

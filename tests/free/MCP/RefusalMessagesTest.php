@@ -96,7 +96,11 @@ class RefusalMessagesTest extends \WP_UnitTestCase
         wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
         Registrar::set_woocommerce_loaded_for_tests(true);
 
-        $this->assertFalse((new Registrar())->permission(self::woo_ability()));
+        $denial = (new Registrar())->permission(self::woo_ability());
+
+        // Not a plugin_missing refusal: the plugin is there, the role lacks the capability (issue #875).
+        $this->assertInstanceOf(\WP_Error::class, $denial);
+        $this->assertSame('operation_denied', $denial->get_error_code());
     }
 
     /**
