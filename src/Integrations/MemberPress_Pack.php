@@ -1118,6 +1118,7 @@ final class MemberPress_Pack
         }
         foreach ([ 'MeprRule' => self::RULE_TYPE, 'MeprProduct' => self::MEMBERSHIP_TYPE ] as $model => $post_type) {
             // MemberPress's own switch on mepr_cpt_all_use_transient_cache.
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- MemberPress's own filter, applied the way it does.
             if (true !== apply_filters('mepr_cpt_all_use_transient_cache', true, $post_type, $model)) {
                 continue;
             }
