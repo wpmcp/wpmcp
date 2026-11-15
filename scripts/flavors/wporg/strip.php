@@ -1422,10 +1422,11 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
 $edits['src/Integrations/Theme_Integration.php'] = [
     [
         "            Redirection_Pack::operations(),\n"
+            . "            Rank_Math_Redirects_Pack::operations(),\n"
             . "            Elementor_Addon_Packs::operations(),\n"
             . "            FunnelKit_Pack::operations(),\n"
             . "            \\WPMCP\\Tools\\ThemeBuilder\\Dynamic\\Dynamic_Template_Ops::operations()\n",
-        "            Redirection_Pack::operations()\n",
+        "            Redirection_Pack::operations(),\n            Rank_Math_Redirects_Pack::operations()\n",
         1,
     ],
     [
@@ -1654,9 +1655,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, WP Mail Logging, Check and Log Email and Email Log emails'\n"
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, WP Mail Logging, Check and Log Email and Email Log emails'\n"
             . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, WP Mail Logging, Check and Log Email and Email Log emails';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, WP Mail Logging, Check and Log Email and Email Log emails';\n",
         1,
     ],
     [

@@ -32,6 +32,13 @@ if (! defined('ABSPATH')) {
  * kind allows the one suffix, "conditions", so it can never name another
  * MemberPress table.
  *
+ * Rank Math redirections (issue #681) are the rows of its
+ * `rank_math_redirections` table (the one suffix, "redirections"), keyed by
+ * id. The lookup cache table beside it is derived data: after a restore the
+ * cache rows of the captured ids are purged through Rank Math's own cache
+ * class, so the next request rebuilds them. Restoring takes manage_options,
+ * the capability the pack's writes need.
+ *
  * Wordfence (issue #577) keeps its state in network-wide tables named the
  * way Wordfence names them (the network prefix, lowercased when Wordfence's
  * own wordfence_case option says so). Two kinds cover them, each with the one
@@ -45,9 +52,13 @@ if (! defined('ABSPATH')) {
  * and after an issue restore its scan notice is recounted, the way its own
  * screens do after the same change.
  *
+ * Pretty Links links (issue #682, the `prli_links` table, the one suffix
+ * "links") are keyed by their own id. A create reserves its id before the
+ * snapshot, so the restore removes the row the write inserted.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
- * for a dictionary row, and Wordfence's own admin capability (manage_options,
+ * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
  * manage_network on a multisite network) for a Wordfence row.
  */
 final class Plugin_Table_Rows_Snapshot
@@ -59,6 +70,8 @@ final class Plugin_Table_Rows_Snapshot
         'pods'             => 'pods_',
         'trp_dictionary'   => 'trp_dictionary_',
         'mepr_rule_access' => 'mepr_rule_access_',
+        'rank_math'        => 'rank_math_',
+        'prli'             => 'prli_',
     ];
 
     /**
@@ -79,6 +92,8 @@ final class Plugin_Table_Rows_Snapshot
     /** kind => the only suffixes it allows, for a kind with a fixed table. */
     private const SUFFIXES = [
         'mepr_rule_access' => [ 'conditions' ],
+        'rank_math'        => [ 'redirections' ],
+        'prli'             => [ 'links' ],
     ];
 
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
@@ -290,7 +305,24 @@ final class Plugin_Table_Rows_Snapshot
         if ('trp_dictionary' === $kind) {
             self::flush_translatepress_cache();
         }
+        if ('rank_math' === $kind) {
+            self::purge_rank_math_cache($ids);
+        }
         self::after_wordfence_restore($kind);
+    }
+
+    /**
+     * Drop Rank Math's derived lookup rows for redirections whose row was
+     * written or restored. A no-op while Rank Math's cache class is absent.
+     *
+     * @param array<int, int|string> $ids
+     */
+    public static function purge_rank_math_cache(array $ids): void
+    {
+        $class = '\\RankMath\\Redirections\\Cache';
+        if (class_exists($class) && method_exists($class, 'purge')) {
+            $class::purge(array_map('intval', $ids));
+        }
     }
 
     /**
@@ -415,9 +447,21 @@ final class Plugin_Table_Rows_Snapshot
             }
             return;
         }
+        if ('rank_math' === $kind) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring a Rank Math redirection requires the manage_options capability.');
+            }
+            return;
+        }
         if ('trp_dictionary' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring TranslatePress translations requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('prli' === $kind) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring Pretty Links links requires the manage_options capability.');
             }
             return;
         }
