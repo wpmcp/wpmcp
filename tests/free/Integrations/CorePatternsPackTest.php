@@ -264,7 +264,11 @@ class CorePatternsPackTest extends \WP_UnitTestCase
     {
         $this->enable_writes();
         $id  = $this->pattern();
-        $bad = $this->page('<!-- wp:paragraph {"align": "left"} --><p class="has-text-align-left">x</p><!-- /wp:paragraph -->' . $this->ref($id));
+        $bad = $this->page('x');
+        // Written straight to the row: a multisite admin has no unfiltered_html, so kses would normalize it.
+        global $wpdb;
+        $wpdb->update($wpdb->posts, [ 'post_content' => '<!-- wp:paragraph {"align": "left"} --><p class="has-text-align-left">x</p><!-- /wp:paragraph -->' . $this->ref($id) ], [ 'ID' => $bad ]);
+        clean_post_cache($bad);
         $this->assertNotSame(serialize_blocks(parse_blocks(get_post($bad)->post_content)), get_post($bad)->post_content, 'the sample must not round-trip');
 
         $this->assertSame('content_not_round_trippable', $this->code($this->write('detach-pattern-instance', [ 'pattern_id' => $id, 'post_ids' => [ $bad ] ])));

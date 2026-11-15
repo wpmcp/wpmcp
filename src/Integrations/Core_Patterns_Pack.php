@@ -83,6 +83,7 @@ final class Core_Patterns_Pack
             'get-synced-pattern'     => [
                 'mode'         => 'read',
                 'capability'   => 'edit_posts',
+                'objects'      => [ 'id' => [ 'type' => 'post', 'access' => 'read' ] ],
                 'description'  => 'Read one pattern: title, sync state, block content, content_hash (for expected_hash) and how many posts place it',
                 'input_schema' => [ 'type' => 'object', 'properties' => [ 'id' => $id ], 'required' => [ 'id' ] ],
                 'validate'     => static fn (array $args): ?array => self::readable_refusal((int) $args['id']),
@@ -91,6 +92,7 @@ final class Core_Patterns_Pack
             'find-pattern-usage'     => [
                 'mode'         => 'read',
                 'capability'   => 'edit_posts',
+                'objects'      => [ 'id' => [ 'type' => 'post', 'access' => 'read' ] ],
                 'description'  => 'Find the posts, templates and patterns that place a synced pattern, with the number of placements in each',
                 'input_schema' => [ 'type' => 'object', 'properties' => [ 'id' => $id ], 'required' => [ 'id' ] ],
                 'validate'     => static fn (array $args): ?array => self::readable_refusal((int) $args['id']),
@@ -117,6 +119,7 @@ final class Core_Patterns_Pack
             ],
             'detach-pattern-instance' => $write + [
                 'self_snapshotting' => true,
+                'objects'           => [ 'pattern_id' => [ 'type' => 'post', 'access' => 'read' ], 'post_ids.*' => 'post', 'post_ids' => 'post' ],
                 'description'       => 'Replace every placement of a synced pattern in the given posts with the pattern\'s own blocks, so later pattern edits no longer reach them. Each post is snapshotted under one session_id; rollback-session undoes the call. Posts without a placement are skipped. Disabled by default (wpmcp_enable_core_patterns_write filter)',
                 'input_schema'      => [
                     'type'       => 'object',
