@@ -122,7 +122,7 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertSame(2, $out['result']['total']);
         $this->assertSame(201, $out['result']['entries'][0]['id']);
         $this->assertSame('unread', $out['result']['entries'][0]['status']);
-        $this->assertSame('ada@example.test', $out['result']['entries'][0]['values']['email']);
+        $this->assertSame('a***@example.test', $out['result']['entries'][0]['values']['email']);
 
         $paged = $this->integration->handle_read([
             'operation' => 'list-entries',
@@ -130,6 +130,23 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         ]);
         $this->assertCount(1, $paged['result']['entries']);
         $this->assertSame(202, $paged['result']['entries'][0]['id']);
+    }
+
+    public function test_list_entries_masks_personal_values_but_get_entry_stays_full(): void
+    {
+        $list = $this->integration->handle_read([
+            'operation' => 'list-entries',
+            'args'      => [ 'form_id' => $this->form_id ],
+        ])['result'];
+        $this->assertTrue($list['masked']);
+        $this->assertSame('A***', $list['entries'][0]['values']['name']);
+        $this->assertSame('unread', $list['entries'][0]['status']);
+        $this->assertStringNotContainsString('ada@example.test', wp_json_encode($list));
+
+        $one = $this->integration->handle_read([ 'operation' => 'get-entry', 'args' => [ 'entry_id' => 201 ] ])['result'];
+        $this->assertArrayNotHasKey('masked', $one);
+        $this->assertSame('ada@example.test', $one['entry']['values']['email']);
+        $this->assertSame('Ada', $one['entry']['values']['name']);
     }
 
     public function test_get_entry_and_missing_entry(): void

@@ -106,7 +106,7 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
         ]);
 
         $this->assertSame(2, $out['result']['total']);
-        $this->assertSame('a@example.test', $out['result']['entries'][0]['values']['email-1']);
+        $this->assertSame('a***@example.test', $out['result']['entries'][0]['values']['email-1']);
         $this->assertSame('2026-02-01 10:00:00', $out['result']['entries'][0]['created_at']);
 
         $paged = $this->integration->handle_read([
@@ -115,6 +115,19 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
         ]);
         $this->assertCount(1, $paged['result']['entries']);
         $this->assertSame(102, $paged['result']['entries'][0]['id']);
+    }
+
+    public function test_list_entries_masks_personal_values_but_get_entry_stays_full(): void
+    {
+        $list = $this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => 11 ] ])['result'];
+        $this->assertTrue($list['masked']);
+        $this->assertSame(101, $list['entries'][0]['id']);
+        $this->assertSame('2026-02-01 10:00:00', $list['entries'][0]['created_at']);
+        $this->assertStringNotContainsString('a@example.test', wp_json_encode($list));
+
+        $one = $this->integration->handle_read([ 'operation' => 'get-entry', 'args' => [ 'form_id' => 11, 'entry_id' => 101 ] ])['result'];
+        $this->assertArrayNotHasKey('masked', $one);
+        $this->assertSame('a@example.test', $one['entry']['values']['email-1']);
     }
 
     public function test_get_entry_requires_matching_form_id(): void

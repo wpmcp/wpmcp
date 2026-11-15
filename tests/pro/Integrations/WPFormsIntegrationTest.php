@@ -95,6 +95,14 @@ class WPFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertFalse($out['notifications'][1]['enabled']);
     }
 
+    public function test_list_entries_returns_summary_rows_with_no_personal_data(): void
+    {
+        $json = wp_json_encode($this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => 3 ] ])['result']);
+        foreach ([ 'ada@example.test', '203.0.113.5', 'ip_address', 'user_agent', 'fields' ] as $leak) {
+            $this->assertStringNotContainsString($leak, $json);
+        }
+    }
+
     public function test_entries_list_filter_and_read(): void
     {
         $all = $this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => 3 ] ])['result'];
