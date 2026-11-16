@@ -508,6 +508,9 @@ final class Plugin
         // An undo of set-permalink-structure rebuilds the rewrite rules for
         // the restored structure and bases, as the write did (issue #785).
         [\WPMCP\Integrations\Core_Site_Pack::class, 'after_options_restored'],
+        // An undo that would change a synced pattern other people's posts
+        // place is refused for a user who cannot edit those posts (#711).
+        [\WPMCP\Integrations\Core_Patterns_Pack::class, 'restore_refusal', 'wpmcp_rollback_post_refusal'],
         // An undo of a cache plugin settings write lets the plugin rebuild
         // what it derives from its settings, as its own save does (#692).
         [\WPMCP\Integrations\Cache_Settings_Pack::class, 'after_options_restored'],
@@ -531,7 +534,7 @@ final class Plugin
         foreach ($refreshers ?? self::ROLLBACK_REFRESHERS as $refresher) {
             [$class, $method] = $refresher;
             if (class_exists($class)) {
-                add_action($refresher[2] ?? 'wpmcp_rollback_options_restored', [$class, $method]);
+                add_action($refresher[2] ?? 'wpmcp_rollback_options_restored', [$class, $method], 10, 2);
             }
         }
     }

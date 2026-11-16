@@ -252,7 +252,7 @@ class Rollback_Service
                 return $store;
             }
             if ($post instanceof \WP_Post) {
-                return self::refused_post_capability('edit_post', $post);
+                return self::refused_post_capability('edit_post', $post) ?? self::refused_by_integration($post);
             }
             $row    = (array) ($snapshot['data']['post'] ?? []);
             $object = get_post_type_object((string) ($row['post_type'] ?? ''));
@@ -272,7 +272,8 @@ class Rollback_Service
                 $post = $post_id > 0 ? get_post($post_id) : null;
                 if ($post instanceof \WP_Post) {
                     $refused = self::refused_store((string) $post->post_type, $post_id)
-                        ?? self::refused_post_capability('delete_post', $post);
+                        ?? self::refused_post_capability('delete_post', $post)
+                        ?? self::refused_by_integration($post);
                     if (null !== $refused) {
                         return $refused;
                     }
@@ -281,6 +282,18 @@ class Rollback_Service
         }
 
         return null;
+    }
+
+    /**
+     * Lets an integration refuse a restore that would write a post it guards
+     * (wpmcp_rollback_post_refusal): the filter gets null and the post, and
+     * returns a reason string to refuse. A synced pattern other people's
+     * posts place is guarded this way.
+     */
+    private static function refused_by_integration(\WP_Post $post): ?string
+    {
+        $why = apply_filters('wpmcp_rollback_post_refusal', null, $post);
+        return is_string($why) && '' !== $why ? $why : null;
     }
 
     /**
