@@ -12,7 +12,8 @@
 # WPMCP_LIVE_BBPRESS=1, bbPress only (bin/test-local.sh --live-bbpress), or, with
 # WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
 # with WPMCP_LIVE_LINKS=1, Pretty Links and ThirstyAffiliates only (bin/test-local.sh
-# --live-links), or,
+# --live-links), or, with WPMCP_LIVE_SITE_REVIEWS=1, Site Reviews only
+# (bin/test-local.sh --live-site-reviews), or,
 # with WPMCP_LIVE_CODE_SNIPPETS=1, Code Snippets only (bin/test-local.sh
 # --live-code-snippets), or,
 # with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
@@ -190,6 +191,15 @@ if [ "${WPMCP_LIVE_LINKS:-}" = "1" ]; then
 	PLUGINS=(
 		"pretty-link:pretty-link.php"
 		"thirstyaffiliates:thirstyaffiliates.php"
+	)
+fi
+
+# The live Site Reviews job (issue #687) runs the Site Reviews ops through the
+# real free plugin. Exclusive too: the stub-backed tests build its tables from
+# fixtures and fake its presence.
+if [ "${WPMCP_LIVE_SITE_REVIEWS:-}" = "1" ]; then
+	PLUGINS=(
+		"site-reviews:site-reviews.php"
 	)
 fi
 
