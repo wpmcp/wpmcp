@@ -128,7 +128,7 @@ This update tightens privacy and credential handling across many integrations an
 
 Security fixes:
 * Personal data is masked in list reads across CRM, LMS, membership, forms, comments, users, Elementor Pro submissions and other integrations. Single-record reads stay complete for users allowed to see them.
-* Credentials are masked in generic option reads, using one central registry of secret options that also covers JSON, serialized and key=value values.
+* Credentials are masked in generic option reads, using one central registry of secret options.
 * WPBakery shared template writes now need the edit theme options permission.
 * MemberPress rules and memberships written through WP MCP take effect immediately.
 * BuddyBoss private, scheduled and suspended activity is hidden from users who are not moderators.
@@ -140,7 +140,7 @@ New integrations:
 * WP Activity Log and Simple History events (read only).
 * Site Reviews: list, moderate and reply to reviews.
 * FluentSMTP and Post SMTP: settings, logs, test send and sender name.
-* Action Scheduler: list, get, cancel and run queued actions.
+* Action Scheduler: list, get, cancel and run queued actions. Secrets in job arguments (JSON, serialized or key=value) are masked.
 * Email log reads for WP Mail Logging, Check and Log Email and Email Log.
 * Site gate status across WP MCP, core and coming soon plugins, with SeedProd and Under Construction toggles.
 * Synced patterns: list, get, usage, create, update and detach.
