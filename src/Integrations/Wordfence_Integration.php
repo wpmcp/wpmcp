@@ -71,9 +71,11 @@ final class Wordfence_Integration
 
         return [
             'get-wordfence-status'           => $cap + Ops_Status_Packs::read_op(
-                'Wordfence status: open scan issues by severity, last scan, firewall mode and brute force settings. No keys',
+                'Wordfence status: open scan issues by severity, last scan, firewall mode, brute force settings, application password block, install and license state. No keys',
                 $requires,
-                static fn (): array => self::status()
+                static fn (): array => self::status(),
+                [],
+                [ 'max_forgot_password', 'license' ]
             ),
             'list-wordfence-scan-issues'     => $cap + Ops_Status_Packs::read_op(
                 'Wordfence scan issues: id, type, severity, status, message and file',
@@ -183,7 +185,7 @@ final class Wordfence_Integration
         $api    = self::api();
         $counts = self::issue_counts();
 
-        return [
+        $status = [
             'version'     => $api->version(),
             'scan'        => [
                 'running'            => (bool) $api->scan_running(),
@@ -208,6 +210,22 @@ final class Wordfence_Integration
                 'strong_passwords'     => (bool) $api->config('loginSec_strongPasswds_enabled'),
             ],
         ];
+
+        // Issues #885 and #883: Wordfence's "Disable WordPress application
+        // passwords" (on by default) stops every Application Password client.
+        $disabled                                = (bool) $api->config('loginSec_disableApplicationPasswords');
+        $status['application_passwords_disabled'] = $disabled;
+        if ($disabled) {
+            $status['application_passwords_note'] = 'Wordfence disables Application Passwords, so Application Password clients such as WP MCP cannot connect. Turn off "Disable WordPress application passwords" under Wordfence > Firewall > All Firewall Options > Brute Force Protection.';
+        }
+
+        // The install and license state only, never the key or the email.
+        $installed                       = method_exists($api, 'installation_complete') ? $api->installation_complete() : null;
+        $status['installation_complete'] = null === $installed ? null : (bool) $installed;
+        $license                         = method_exists($api, 'license_type') ? (string) $api->license_type() : 'none';
+        $status['license']               = in_array($license, [ 'none', 'free', 'paid' ], true) ? $license : 'none';
+
+        return $status;
     }
 
     /**
