@@ -206,7 +206,14 @@ final class Secret_Options
             'post_smtp_mobile_app_connection' => true,
 
             // UpdraftPlus: one option per remote storage service, instance settings nested inside.
-            '/^updraft_(s3|s3generic|dreamobjects|dropbox|googledrive|onedrive|ftp|sftp|webdav|cloudfiles|openstack|azure|googlecloud|backblaze|pcloud|updraftvault)$/i' => [ 'accesskey', 'secretkey', 'apikey', 'pass', 'password', 'key', 'secret', 'token', 'access_token', 'refresh_token', 'auth_token', 'appkey' ],
+            // "dreamhost", "sftp_settings" and "webdav_settings" are the pre-2017 names its
+            // migration code still reads (class-updraftplus.php, methods/webdav.php).
+            '/^updraft_(s3|s3generic|dreamobjects|dreamhost|dropbox|googledrive|onedrive|ftp|sftp|sftp_settings|webdav|webdav_settings|cloudfiles|openstack|azure|googlecloud|backblaze|pcloud|updraftvault)$/i' => [ 'accesskey', 'secretkey', 'sessiontoken', 'apikey', 'pass', 'password', 'key', 'secret', 'token', 'access_token', 'refresh_token', 'auth_token', 'appkey' ],
+            // A WebDAV URL carries the user and password (webdavs://user:pass@host/path).
+            '/^updraft_webdav(_settings)?$/i'   => [ 'url' ],
+            // Pre-2017 flat credential options, still read and migrated by UpdraftPlus
+            // (class-updraftplus.php, methods/ftp.php), so an old site can still hold them.
+            '/^updraft_((s3|s3generic|dreamobjects)_(login|pass)|ftp_pass|googledrive_secret|googledrive_token|dropboxtk_access_token|cloudfiles_apikey)$/i' => true,
             'updraft_encryptionphrase'          => true,
             'updraft_dropboxtk_request_token'   => true,
             'updraft_migrator_localkeys'        => true,

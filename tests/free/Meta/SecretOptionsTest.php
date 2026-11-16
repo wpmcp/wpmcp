@@ -151,6 +151,17 @@ class SecretOptionsTest extends \WP_UnitTestCase
             'WP Mail SMTP mail key' => [ 'wp_mail_smtp_mail_key', 'bWFpbGtleQ==' ],
             'BackWPup app secret'   => [ 'backwpup_cfg_dropboxappsecret', 'dbx-real' ],
             'Weglot private key'    => [ 'weglot-translate-api_key_private', 'wg_private_real' ],
+            // Pre-2017 UpdraftPlus flat options, still read by its migration code (class-updraftplus.php, methods/ftp.php).
+            'Updraft legacy S3 secret'      => [ 'updraft_s3_pass', 's3-legacy-secret' ],
+            'Updraft legacy S3 key id'      => [ 'updraft_s3_login', 'AKIALEGACY' ],
+            'Updraft legacy S3-compatible'  => [ 'updraft_s3generic_pass', 's3g-legacy-secret' ],
+            'Updraft legacy DreamObjects'   => [ 'updraft_dreamobjects_pass', 'dho-legacy-secret' ],
+            'Updraft legacy FTP password'   => [ 'updraft_ftp_pass', 'ftp-legacy-pw' ],
+            'Updraft legacy Drive secret'   => [ 'updraft_googledrive_secret', 'gd-legacy-secret' ],
+            'Updraft legacy Drive token'    => [ 'updraft_googledrive_token', 'gd-legacy-token' ],
+            'Updraft legacy Dropbox token'  => [ 'updraft_dropboxtk_access_token', 'dbx-legacy-token' ],
+            'Updraft legacy Cloud Files'    => [ 'updraft_cloudfiles_apikey', 'cf-legacy-key' ],
+            'Akismet API key'               => [ 'wordpress_api_key', 'abc123def456' ],
         ];
     }
 
@@ -179,6 +190,11 @@ class SecretOptionsTest extends \WP_UnitTestCase
             'Mailchimp for WP'       => [ 'mc4wp', [ 'api_key' => 'mc-real-us1', 'allow_usage_tracking' => 0 ], [ 'api_key' ], [ 'allow_usage_tracking' => 0 ] ],
             'Brevo main option'      => [ 'sib_main_option', [ 'access_key' => 'xkeysib-real', 'ma_key' => 'ma-real', 'sib_use_apiv2' => 1 ], [ 'access_key', 'ma_key' ], [ 'sib_use_apiv2' => 1 ] ],
             'Weglot settings'        => [ 'weglot-translate-v3', [ 'api_key' => 'wg_real', 'original_language' => 'en' ], [ 'api_key' ], [ 'original_language' => 'en' ] ],
+            'Updraft S3 session'     => [ 'updraft_s3', [ 'version' => 1, 'settings' => [ 's3-x' => [ 'accesskey' => 'AKIA', 'secretkey' => 'sk', 'sessiontoken' => 'st-real', 'path' => 'b' ] ] ], [ 'settings.s3-x.accesskey', 'settings.s3-x.secretkey', 'settings.s3-x.sessiontoken' ], [ 'settings.s3-x.path' => 'b' ] ],
+            'Updraft DreamHost'      => [ 'updraft_dreamhost', [ 'accesskey' => 'dh-key', 'secretkey' => 'dh-secret', 'path' => 'b' ], [ 'accesskey', 'secretkey' ], [ 'path' => 'b' ] ],
+            'Updraft legacy SFTP'    => [ 'updraft_sftp_settings', [ 'host' => 'sftp.example.com', 'user' => 'bob', 'pass' => 'sftp-pw', 'key' => 'PRIVATE KEY' ], [ 'pass', 'key' ], [ 'host' => 'sftp.example.com' ] ],
+            'Updraft WebDAV'         => [ 'updraft_webdav', [ 'version' => 1, 'settings' => [ 'w-1' => [ 'url' => 'webdavs://bob:pw@dav.example.com/b', 'instance_label' => 'Mine' ] ] ], [ 'settings.w-1.url' ], [ 'settings.w-1.instance_label' => 'Mine' ] ],
+            'Updraft legacy WebDAV'  => [ 'updraft_webdav_settings', [ 'url' => 'webdavs://bob:pw@dav.example.com/b', 'pass' => 'dav-pw' ], [ 'url', 'pass' ], [] ],
         ];
     }
 
