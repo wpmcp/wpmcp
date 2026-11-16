@@ -3,6 +3,7 @@
 namespace WPMCP\Integrations;
 
 use WPMCP\Tools\Content\Readable_Posts;
+use WPMCP\Privacy\Masking;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -80,14 +81,14 @@ class SureForms_Integration extends Forms_Integration
     }
 
     /** Normalised entry payload shared by list-entries and get-entry. */
-    private static function entry_row($row): array
+    private static function entry_row($row, bool $masked = false): array
     {
         return [
             'id'         => (int) self::column($row, 'ID'),
             'form_id'    => (int) self::column($row, 'form_id'),
             'status'     => (string) self::column($row, 'status'),
             'created_at' => (string) self::column($row, 'created_at'),
-            'values'     => self::values($row),
+            'values'     => $masked ? Masking::value(self::values($row)) : self::values($row),
         ];
     }
 
@@ -187,7 +188,7 @@ class SureForms_Integration extends Forms_Integration
                 'mode'         => 'read',
                 'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => self::ENTRY_CAPABILITY,
-                'description'  => 'List a SureForms form\'s entries with paging (page_size default 20, max 100), each with status, timestamp, and decoded field values',
+                'description'  => 'List a SureForms form\'s entries with paging (page_size default 20, max 100), each with status, timestamp, and decoded field values MASKED (get-entry returns one in full)',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -208,11 +209,12 @@ class SureForms_Integration extends Forms_Integration
                     ]) ?: []);
                     $out = [];
                     foreach (array_slice(array_values($rows), $offset, $page_size) as $row) {
-                        $out[] = self::entry_row($row);
+                        $out[] = self::entry_row($row, true);
                     }
                     return [
                         'form_id' => $form_id,
                         'entries' => $out,
+                        'masked'  => true,
                         'total'   => count($rows),
                         'paging'  => [ 'offset' => $offset, 'page_size' => $page_size ],
                     ];

@@ -3,6 +3,7 @@
 namespace WPMCP\Integrations;
 
 use WPMCP\MCP\Registrar;
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Plugin_Table_Rows_Snapshot;
 use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Safety\Safe_Mutation;
@@ -250,7 +251,7 @@ final class MemberPress_Pack
             'memberpress-list-members'      => $base + [
                 'mode'         => 'read',
                 'objects'      => $own('membership_id'),
-                'description'  => 'List MemberPress members newest first: user id, login, display name, email, active and inactive membership ids, transaction and subscription counts, total spent. status: active, inactive, expired, none or all (default); membership_id filters; search matches login, email or name. Personal data. Read-only',
+                'description'  => 'List MemberPress members newest first: user id, login, display name, email, active and inactive membership ids, transaction and subscription counts, total spent. Login, name and email are masked (masked: true); use get-user for full values. status: active, inactive, expired, none or all (default); membership_id filters; search matches login, email or name. Read-only',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -609,9 +610,9 @@ final class MemberPress_Pack
         foreach ((array) $rows as $row) {
             $members[] = [
                 'user_id'              => (int) $row['user_id'],
-                'user_login'           => (string) $row['user_login'],
-                'display_name'         => (string) $row['display_name'],
-                'email'                => (string) $row['user_email'],
+                'user_login'           => Masking::value((string) $row['user_login']),
+                'display_name'         => Masking::value((string) $row['display_name']),
+                'email'                => Masking::email((string) $row['user_email']),
                 'active_memberships'   => self::id_list($row['memberships'] ?? ''),
                 'inactive_memberships' => self::id_list($row['inactive_memberships'] ?? ''),
                 'transactions'         => (int) ($row['txn_count'] ?? 0),
@@ -620,7 +621,7 @@ final class MemberPress_Pack
                 'member_since'         => $row['created_at'] ?? null,
             ];
         }
-        return [ 'members' => $members, 'total' => $total, 'page' => $page, 'per_page' => $per_page ];
+        return [ 'members' => $members, 'total' => $total, 'page' => $page, 'per_page' => $per_page, 'masked' => true ];
     }
 
     /** The transaction columns a caller sees; the gateway's raw response is never one of them. */

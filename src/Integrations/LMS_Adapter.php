@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Save_Filters;
@@ -232,7 +233,7 @@ abstract class LMS_Adapter
                 'mode'         => 'read',
                 'objects'      => [ 'course_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => 'list_users',
-                'description'  => "A {$label} course's enrollments newest first: user id, display name, email, status (enrolled, pending, cancelled, expired) and date. Personal data: needs list_users. Read-only; status filters; page and per_page (max 50)",
+                'description'  => "A {$label} course's enrollments newest first: user id, display name and email MASKED, status (enrolled, pending, cancelled, expired) and date. Personal data: needs list_users. Read-only; status filters; page and per_page (max 50)",
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -543,14 +544,14 @@ abstract class LMS_Adapter
             $user   = get_userdata((int) $row['user_id']);
             $rows[] = [
                 'user_id'      => (int) $row['user_id'],
-                'display_name' => $user instanceof \WP_User ? (string) $user->display_name : null,
-                'email'        => $user instanceof \WP_User ? (string) $user->user_email : null,
+                'display_name' => $user instanceof \WP_User ? Masking::value((string) $user->display_name) : null,
+                'email'        => $user instanceof \WP_User ? Masking::value((string) $user->user_email) : null,
                 'status'       => (string) $row['status'],
                 'enrolled_at'  => $row['enrolled_at'],
             ];
         }
 
-        return [ 'course_id' => $course, 'enrollments' => $rows, 'total' => (int) $result['total'], 'page' => $page, 'per_page' => $per_page ];
+        return [ 'course_id' => $course, 'enrollments' => $rows, 'total' => (int) $result['total'], 'masked' => true, 'page' => $page, 'per_page' => $per_page ];
     }
 
     // ------------------------------------------------------------------

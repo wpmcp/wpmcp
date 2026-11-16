@@ -132,6 +132,25 @@ class ContactForm7EntriesTest extends \WP_UnitTestCase
         $this->assertFalse($out['result']['entries'][0]['spam']);
     }
 
+    public function test_list_entries_masks_sender_and_subject_but_get_entry_stays_full(): void
+    {
+        $out = $this->read('list-entries', [ 'form_id' => $this->form_a ])['result'];
+        $this->assertTrue($out['masked']);
+        $newest = $out['entries'][0];
+        $this->assertSame('e***@example.test', $newest['from_email']);
+        $this->assertSame('e***', $newest['from_name']);
+        $this->assertSame('H***', $newest['subject']);
+        $json = wp_json_encode($out);
+        foreach ([ 'ada@example.test', 'grace@example.test', 'edsger@example.test', 'Hello from' ] as $leak) {
+            $this->assertStringNotContainsString($leak, $json);
+        }
+
+        $one = $this->read('get-entry', [ 'entry_id' => $this->entries_a[0] ])['result']['entry'];
+        $this->assertSame('edsger@example.test', $one['from_email']);
+        $this->assertSame('edsger', $one['from_name']);
+        $this->assertSame('Hello from edsger', $one['subject']);
+    }
+
     public function test_list_entries_pages_with_offset_so_page_two_differs(): void
     {
         $page1 = $this->read('list-entries', [ 'form_id' => $this->form_a, 'offset' => 0, 'page_size' => 2 ]);

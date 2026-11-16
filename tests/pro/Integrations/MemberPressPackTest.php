@@ -283,7 +283,11 @@ class MemberPressPackTest extends \WP_UnitTestCase
         $row = array_column($all['members'], null, 'user_id')[ $ada ];
         $this->assertSame([ 'user_id', 'user_login', 'display_name', 'email', 'active_memberships', 'inactive_memberships', 'transactions', 'active_subscriptions', 'total_spent', 'member_since' ], array_keys($row));
         $this->assertSame([ $gold, $silver ], $row['active_memberships']);
-        $this->assertSame('ada@example.org', $row['email']);
+        $this->assertTrue($all['masked']);
+        $this->assertSame('a***@example.org', $row['email']);
+        $this->assertSame('A***', $row['display_name']);
+        $this->assertSame('a***', $row['user_login']);
+        $this->assertStringNotContainsString('ada@example.org', wp_json_encode($all));
 
         $active = $this->ok($this->read('memberpress-list-members', [ 'membership_id' => $gold, 'status' => 'active' ]))['result'];
         $this->assertSame([ $ada ], array_column($active['members'], 'user_id'));

@@ -82,12 +82,19 @@ class Woo_Read
 
         $out = $this->dispatch->get($route, $this->apply_query_defaults($def, $query));
 
-        return [
+        $result = [
             'op'     => $op,
             'route'  => $route,
             'status' => $out['status'],
             'body'   => self::redact($out['body'], $def['redact'] ?? []),
         ];
+        // Raw order and customer lists carry many people's data: mask it, and
+        // say so. orders.get, customers.get and refunds.get stay full.
+        if (List_Masking::applies($op) && $out['status'] < 300) {
+            $result['body']   = List_Masking::apply($op, $result['body']);
+            $result['masked'] = true;
+        }
+        return $result;
     }
 
     /**

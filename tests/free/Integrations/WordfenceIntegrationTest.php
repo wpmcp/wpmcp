@@ -340,6 +340,12 @@ class WordfenceIntegrationTest extends \WP_UnitTestCase
         $this->assertStringContainsString('id=1', $attacks['attacks'][0]['url']);
         $this->assertStringNotContainsString('TOPSECRET', (string) wp_json_encode($attacks));
 
+        $wpdb->query($wpdb->prepare('INSERT INTO %i (ctime, IP, statusCode, action, actionDescription, URL) VALUES (%f, UNHEX(%s), 403, %s, %s, %s)', self::t('wfHits'), 1699999000, bin2hex(Wordfence_Integration::ip_binary('203.0.113.8')), 'blocked:waf', 'probe ada@example.com', 'https://example.org/?mail=ada@example.com'));
+        $more = $this->read('list-wordfence-blocked-attacks', [ 'limit' => 50 ])['result'];
+        $this->assertTrue($more['masked']);
+        $this->assertStringNotContainsString('ada@example.com', (string) wp_json_encode($more), 'emails inside the URL and description are masked');
+        $this->assertStringContainsString('a***@example.com', (string) wp_json_encode($more));
+
         $blocks = $this->read('list-wordfence-blocks')['result'];
         $this->assertSame(2, $blocks['count'], 'expired and pattern rows are not IP blocks in force');
         $ips = array_column($blocks['blocks'], 'ip');
@@ -348,8 +354,9 @@ class WordfenceIntegrationTest extends \WP_UnitTestCase
 
         $fails = $this->read('list-wordfence-login-failures')['result'];
         $this->assertSame(1, $fails['count']);
-        $this->assertSame('admin', $fails['failures'][0]['username']);
-        $this->assertSame('192.0.2.1', $fails['failures'][0]['ip']);
+        $this->assertSame('a***', $fails['failures'][0]['username'], 'the username tried is masked in a list');
+        $this->assertTrue($fails['masked']);
+        $this->assertSame('192.0.2.1', $fails['failures'][0]['ip'], 'the IP stays: block-wordfence-ip needs it (product decision pending)');
     }
 
     // ---------------------------------------------------------------

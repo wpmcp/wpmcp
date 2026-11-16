@@ -2,6 +2,8 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -88,7 +90,7 @@ class Forminator_Integration extends Forms_Integration
     }
 
     /** Compact row from a Forminator_Form_Entry_Model. */
-    private static function entry_row($entry): array
+    private static function entry_row($entry, bool $masked = false): array
     {
         $values = [];
         $meta   = is_object($entry) && is_array($entry->meta_data ?? null) ? $entry->meta_data : [];
@@ -98,7 +100,7 @@ class Forminator_Integration extends Forms_Integration
         return [
             'id'         => is_object($entry) ? (int) ($entry->entry_id ?? 0) : 0,
             'created_at' => is_object($entry) ? (string) ($entry->date_created_sql ?? '') : '',
-            'values'     => $values,
+            'values'     => $masked ? Masking::value($values) : $values,
         ];
     }
 
@@ -195,7 +197,7 @@ class Forminator_Integration extends Forms_Integration
                 'mode'         => 'read',
                 'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => self::ENTRY_CAPABILITY,
-                'description'  => 'List a Forminator form\'s submissions with paging (page_size default 20, max 100) and their decoded field values',
+                'description'  => 'List a Forminator form\'s submissions with paging (page_size default 20, max 100) and their decoded field values MASKED (get-entry returns one in full)',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -212,11 +214,12 @@ class Forminator_Integration extends Forms_Integration
                     $entries   = (array) (\Forminator_API::get_form_entries($form_id) ?: []);
                     $out       = [];
                     foreach (array_slice(array_values($entries), $offset, $page_size) as $entry) {
-                        $out[] = self::entry_row($entry);
+                        $out[] = self::entry_row($entry, true);
                     }
                     return [
                         'form_id' => $form_id,
                         'entries' => $out,
+                        'masked'  => true,
                         'total'   => count($entries),
                         'paging'  => [ 'offset' => $offset, 'page_size' => $page_size ],
                     ];

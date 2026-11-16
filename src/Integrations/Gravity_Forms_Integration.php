@@ -2,6 +2,8 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -62,6 +64,34 @@ class Gravity_Forms_Integration extends Forms_Integration
     {
         $form = \GFAPI::get_form($form_id);
         return is_array($form) && [] !== $form ? $form : null;
+    }
+
+    /** Entry properties that carry no personal data and stay readable in a list. */
+    private const LIST_READABLE_KEYS = [
+        'id', 'form_id', 'post_id', 'date_created', 'date_updated', 'status', 'is_starred', 'is_read',
+        'currency', 'payment_status', 'payment_date', 'payment_amount', 'payment_method',
+        'transaction_id', 'transaction_type', 'is_fulfilled',
+    ];
+
+    /**
+     * A list row with every field value and personal property masked. An
+     * allowlist keeps the ids, dates, status and payment fields readable, so
+     * a field a later Gravity Forms release adds is masked by default.
+     *
+     * @param mixed $entry
+     * @return mixed
+     */
+    private static function mask_entry($entry)
+    {
+        if (! is_array($entry)) {
+            return $entry;
+        }
+        foreach ($entry as $key => $value) {
+            if (! in_array((string) $key, self::LIST_READABLE_KEYS, true)) {
+                $entry[ $key ] = Masking::value($value);
+            }
+        }
+        return $entry;
     }
 
     protected function operations(): array
@@ -171,7 +201,7 @@ class Gravity_Forms_Integration extends Forms_Integration
             'list-entries' => [
                 'mode'         => 'read',
                 'capability'   => self::ENTRY_CAPABILITY,
-                'description'  => 'List a form\'s entries, newest first, with paging (page_size default 20, max 100, plus offset) and an optional status filter (active/spam/trash). Requires manage_options because entries are user data',
+                'description'  => 'List a form\'s entries, newest first, with paging (page_size default 20, max 100, plus offset) and an optional status filter (active/spam/trash). Field values, ip, user_agent, source_url and created_by are MASKED (get-entry returns one in full); ids, dates, status and payment fields stay readable. Requires manage_options because entries are user data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -189,7 +219,8 @@ class Gravity_Forms_Integration extends Forms_Integration
                     $entries   = \GFAPI::get_entries($form_id, $search, null, $paging, $total);
                     return [
                         'form_id' => $form_id,
-                        'entries' => is_wp_error($entries) ? [] : (array) $entries,
+                        'entries' => is_wp_error($entries) ? [] : array_map([ self::class, 'mask_entry' ], array_values((array) $entries)),
+                        'masked'  => true,
                         'total'   => (int) $total,
                         'paging'  => $paging,
                     ];

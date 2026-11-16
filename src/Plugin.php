@@ -1937,7 +1937,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-users',
             'free',
-            'List WordPress users as safe summary rows (id, username, display name, email, roles, registration date). Never returns password hashes or other secrets',
+            'List WordPress users as safe summary rows (id, username, display name, email, roles, registration date). Display name and email are masked (masked: true): use get-user for full values. Never returns password hashes or other secrets',
             [
                 'type'       => 'object',
                 'properties' => [

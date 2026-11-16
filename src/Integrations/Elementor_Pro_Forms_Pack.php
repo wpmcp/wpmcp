@@ -3,6 +3,7 @@
 namespace WPMCP\Integrations;
 
 use WPMCP\MCP\Registrar;
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Plugin_Table_Rows_Snapshot;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Tools\Database\Database_Guard;
@@ -49,7 +50,7 @@ if (! defined('ABSPATH')) {
  * submissions screen and REST controller require. Submissions are personal
  * data (names, emails, IP addresses): list-submissions and
  * export-submissions mask every field value, the IP address and the user
- * agent with WS_Form_Pack::mask() (as wsform-list-entries does), and
+ * agent with Masking::value() (as wsform-list-entries does), and
  * get-submission returns one submission in full (as wsform-get-entry does).
  *
  * Presence is filterable (wpmcp_elementor_pro_active, default:
@@ -577,7 +578,7 @@ final class Elementor_Pro_Forms_Pack
 
     /**
      * The main field with its value masked the way the WS Form pack masks list
-     * reads (WS_Form_Pack::mask(): an email keeps its first character and its
+     * reads (Masking::value(): an email keeps its first character and its
      * domain, anything else its first character).
      *
      * @param array{key: string, value: mixed}|null $main
@@ -585,7 +586,7 @@ final class Elementor_Pro_Forms_Pack
      */
     private static function masked_main(?array $main): ?array
     {
-        return null === $main ? null : [ 'key' => $main['key'], 'value' => WS_Form_Pack::mask($main['value']) ];
+        return null === $main ? null : [ 'key' => $main['key'], 'value' => Masking::value($main['value']) ];
     }
 
     /** A referring URL without its query string and fragment, which can carry personal data. */
@@ -730,7 +731,7 @@ final class Elementor_Pro_Forms_Pack
             $id    = (int) $row['id'];
             $cells = [];
             foreach ($keys as $key) {
-                $cells[ $key ] = WS_Form_Pack::mask($values[ $id ][ $key ] ?? '');
+                $cells[ $key ] = Masking::value($values[ $id ][ $key ] ?? '');
             }
             $out[] = [
                 'fields'     => $cells,
@@ -738,8 +739,8 @@ final class Elementor_Pro_Forms_Pack
                 'id'         => $id,
                 'created_at' => get_date_from_gmt((string) $row['created_at_gmt']),
                 'user_id'    => (int) $row['user_id'],
-                'user_agent' => WS_Form_Pack::mask((string) $row['user_agent']),
-                'user_ip'    => WS_Form_Pack::mask((string) $row['user_ip']),
+                'user_agent' => Masking::value((string) $row['user_agent']),
+                'user_ip'    => Masking::value((string) $row['user_ip']),
                 'referrer'   => self::plain_url((string) $row['referer']),
             ];
         }

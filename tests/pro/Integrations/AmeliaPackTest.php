@@ -382,14 +382,15 @@ class AmeliaPackTest extends \WP_UnitTestCase
 
         $customers = $this->ok($this->read('amelia-list-customers', [ 'search' => 'lane' ]));
         $this->assertSame(1, $customers['total']);
-        $this->assertSame([ 'id' => $this->customer, 'first_name' => 'Sarah', 'last_name' => 'Lane', 'email' => 'sarah@example.com', 'phone' => '+15550100', 'note' => '', 'status' => 'visible', 'bookings' => 1 ], $customers['customers'][0]);
+        $this->assertSame([ 'id' => $this->customer, 'first_name' => 'S***', 'last_name' => 'L***', 'email' => 's***@example.com', 'phone' => '+***', 'note' => '', 'status' => 'visible', 'bookings' => 1 ], $customers['customers'][0]);
+        $this->assertTrue($customers['masked']);
         $this->assertCount(1, $this->ok($this->read('amelia-list-customers', [ 'per_page' => 1, 'page' => 2 ]))['customers']);
 
         $all = $this->ok($this->read('amelia-list-appointments', [ 'from' => $day, 'to' => $day ]));
         $this->assertSame(2, $all['total']);
         $this->assertSame($day . ' 10:00', $all['appointments'][0]['start']);
         $this->assertSame($day . ' 11:00', $all['appointments'][0]['end']);
-        $this->assertSame([ [ 'booking_id' => $all['appointments'][0]['customers'][0]['booking_id'], 'customer_id' => $this->customer, 'name' => 'Sarah Lane', 'status' => 'approved', 'persons' => 1 ] ], $all['appointments'][0]['customers']);
+        $this->assertSame([ [ 'booking_id' => $all['appointments'][0]['customers'][0]['booking_id'], 'customer_id' => $this->customer, 'name' => 'S***', 'status' => 'approved', 'persons' => 1 ] ], $all['appointments'][0]['customers']);
 
         $mine = $this->ok($this->read('amelia-list-appointments', [ 'from' => $day, 'to' => $day, 'customer_id' => $other ]));
         $this->assertSame(1, $mine['total']);
@@ -438,7 +439,8 @@ class AmeliaPackTest extends \WP_UnitTestCase
         $attendees = $this->ok($this->read('amelia-list-event-attendees', [ 'event_id' => $event ]))['attendees'];
         $this->assertCount(2, $attendees);
         $this->assertSame([ 'approved', 'canceled' ], array_column($attendees, 'status'));
-        $this->assertSame('sarah@example.com', $attendees[0]['email']);
+        $this->assertSame('s***@example.com', $attendees[0]['email']);
+        $this->assertSame('S***', $attendees[0]['name']);
         $this->assertSame('not_found', $this->code($this->read('amelia-list-event-attendees', [ 'event_id' => 999 ])));
     }
 
@@ -684,7 +686,9 @@ class AmeliaPackTest extends \WP_UnitTestCase
         $this->assertSame('Anna', $anna['first_name']);
         $this->assertSame([ 'day' => 'monday', 'start' => '09:00', 'end' => '17:00', 'breaks' => [ [ 'start' => '12:00', 'end' => '13:00' ] ] ], $anna['working_week'][0]);
         $this->assertSame([ [ 'name' => 'Trip', 'start' => '2031-01-02', 'end' => '2031-01-03', 'repeat' => false ] ], $anna['days_off']);
-        $this->assertSame($anna, $this->ok($this->read('amelia-list-employees', [ 'search' => 'anna@' ]))['employees'][0], 'The answer is the list-employees shape.');
+        $listed = $this->ok($this->read('amelia-list-employees', [ 'search' => 'anna@' ]))['employees'][0];
+        $this->assertSame([ 'a***@example.com', '+***' ], [ $listed['email'], $listed['phone'] ], 'a list masks the employee email and phone');
+        $this->assertSame($anna, array_merge($listed, [ 'email' => $anna['email'], 'phone' => $anna['phone'] ]), 'The answer is the list-employees shape.');
 
         $rename = $this->write('amelia-update-employee', [ 'employee_id' => $anna['id'], 'first_name' => 'Ana' ]);
         $this->assertSame('Ana', $this->ok($rename)['employee']['first_name']);

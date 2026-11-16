@@ -89,6 +89,6 @@ class TutorLmsLiveTest extends \WP_UnitTestCase
         $out = $this->call('read', 'tutor-list-enrollments', [ 'course_id' => $course ]);
         $this->assertSame([ $student ], array_column($out['enrollments'], 'user_id'));
         $this->assertSame('enrolled', $out['enrollments'][0]['status']);
-        $this->assertSame('live.student@example.com', $out['enrollments'][0]['email']);
+        $this->assertSame('l***@example.com', $out['enrollments'][0]['email']);
     }
 }

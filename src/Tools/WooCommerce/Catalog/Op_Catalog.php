@@ -180,9 +180,9 @@ class Op_Catalog
 
         // Orders. Order data is PII-bearing, so these keep the narrower
         // edit_shop_orders the free order tools already require.
-        'orders.list'         => [ 'GET', '/wc/v3/orders', 'orders', self::CAP_ORDERS, 'Query orders with the full wc/v3 filter surface (status, customer, product, date ranges, orderby...)' ],
+        'orders.list'         => [ 'GET', '/wc/v3/orders', 'orders', self::CAP_ORDERS, 'Query orders with the full wc/v3 filter surface (status, customer, product, date ranges, orderby...). Personal data is masked (masked: true); use orders.get for one order in full' ],
         'orders.get'          => [ 'GET', '/wc/v3/orders/{id}', 'orders', self::CAP_ORDERS, 'Full wc/v3 representation of one order, line items included' ],
-        'orders.notes'        => [ 'GET', '/wc/v3/orders/{order_id}/notes', 'orders', self::CAP_ORDERS, 'Notes on one order, including customer-facing ones' ],
+        'orders.notes'        => [ 'GET', '/wc/v3/orders/{order_id}/notes', 'orders', self::CAP_ORDERS, 'Notes on one order, including customer-facing ones. Note text is masked (masked: true)' ],
         'orders.add-note'     => [ 'POST', '/wc/v3/orders/{order_id}/notes', 'orders', self::CAP_ORDERS, 'Add an internal or customer-facing (customer_note:true) note to an order. Additive', 'write', null, [ 'undo_op' => null ] ],
         // Order create and edit (issue #292) run in-process through the
         // WooCommerce order CRUD (Order_Ops), so HPOS and the legacy store
@@ -198,7 +198,7 @@ class Op_Catalog
         // cannot un-issue a refund. api_refund defaults to false here, the
         // opposite of the raw endpoint, so a gateway refund is always an
         // explicit choice.
-        'refunds.list'        => [ 'GET', '/wc/v3/orders/{order_id}/refunds', 'refunds', self::CAP_ORDERS, 'Refunds recorded against one order' ],
+        'refunds.list'        => [ 'GET', '/wc/v3/orders/{order_id}/refunds', 'refunds', self::CAP_ORDERS, 'Refunds recorded against one order. Reason is masked (masked: true); use refunds.get for full values' ],
         'refunds.get'         => [ 'GET', '/wc/v3/orders/{order_id}/refunds/{id}', 'refunds', self::CAP_ORDERS, 'One refund on one order' ],
         'refunds.create'      => [ 'POST', '/wc/v3/orders/{order_id}/refunds', 'refunds', self::CAP_ORDERS, 'Record a refund against an order (amount, reason, line_items). api_refund defaults to false: pass api_refund:true to also refund through the payment gateway', 'destructive', [ 'type' => 'wc_order', 'param' => 'order_id' ], [ 'recoverable' => false, 'defaults' => [ 'api_refund' => false ] ] ],
 
@@ -211,7 +211,7 @@ class Op_Catalog
 
         // Customers. Customer records are user records, so reads take the
         // user-listing capability and writes the user-editing ones.
-        'customers.list'      => [ 'GET', '/wc/v3/customers', 'customers', self::CAP_CUSTOMERS, 'Query store customers (email, role, search, paging)' ],
+        'customers.list'      => [ 'GET', '/wc/v3/customers', 'customers', self::CAP_CUSTOMERS, 'Query store customers (email, role, search, paging). Personal data is masked (masked: true); use customers.get for one customer in full' ],
         'customers.get'       => [ 'GET', '/wc/v3/customers/{id}', 'customers', self::CAP_CUSTOMERS, 'One customer with billing/shipping profile' ],
         // meta_data keys that grant roles or capabilities are refused on
         // both: WooCommerce only strips underscore-prefixed keys, so a
@@ -356,7 +356,7 @@ class Op_Catalog
         // confirm:true; cancel is destructive (off by default) and not
         // recoverable.
         'memberships.plans'                 => [ 'GET', '/wc/v3/memberships/plans', 'memberships', self::CAP_STORE, 'Membership plans: access method, length and dates, product ids, member counts by status and access rules (content, product, discount); page, per_page', 'read', null, [ 'handler' => 'membership_plans', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
-        'memberships.members'               => [ 'GET', '/wc/v3/memberships/members', 'memberships', self::CAP_CUSTOMERS, 'User memberships newest first, filterable by plan_id and status (or a list); page, per_page (max 50). Each: status, plan, user and email, start, end, paused and cancelled dates (UTC), order', 'read', null, [ 'handler' => 'membership_members', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
+        'memberships.members'               => [ 'GET', '/wc/v3/memberships/members', 'memberships', self::CAP_CUSTOMERS, 'User memberships newest first, filterable by plan_id and status (or a list); page, per_page (max 50). Each: status, plan, user, masked email and name (masked: true; use get-user for full values), start, end, paused and cancelled dates (UTC), order', 'read', null, [ 'handler' => 'membership_members', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
         'memberships.user'                  => [ 'GET', '/wc/v3/memberships/members', 'memberships', self::CAP_CUSTOMERS, 'Every membership one user_id holds, any status', 'read', null, [ 'handler' => 'membership_user', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
         'memberships.grant'                 => [ 'POST', '/wc/v3/memberships/members', 'memberships', self::CAP_STORE, 'Grant plan_id to user_id through Memberships (refused when they already hold that plan). May email, so needs confirm:true. Rollback deletes it', 'write', [ 'type' => 'wc_user_membership_create', 'create' => true ], [ 'handler' => 'membership_grant', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],
         'memberships.pause'                 => [ 'PUT', '/wc/v3/memberships/members/{id}', 'memberships', self::CAP_STORE, 'Pause an active, complimentary or free_trial membership: access stops until resumed', 'write', [ 'type' => 'wc_user_membership', 'param' => 'id' ], [ 'handler' => 'membership_pause', 'plugin' => self::PLUGIN_MEMBERSHIPS ] ],

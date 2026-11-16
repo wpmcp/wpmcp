@@ -129,6 +129,15 @@ class NinjaFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertSame($this->old, $next['entries'][0]['id']);
     }
 
+    public function test_list_entries_returns_summary_rows_with_no_personal_data(): void
+    {
+        $i    = new Ninja_Forms_Integration();
+        $json = wp_json_encode($i->handle_read(['operation' => 'list-entries', 'args' => ['form_id' => 8]])['result']);
+        foreach ([ 'old@example.test', 'new@example.test', 'values', '_field_80' ] as $leak) {
+            $this->assertStringNotContainsString($leak, $json);
+        }
+    }
+
     public function test_get_entry_returns_values_and_refuses_other_post_types(): void
     {
         $i     = new Ninja_Forms_Integration();
