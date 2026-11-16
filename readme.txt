@@ -45,7 +45,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * With Pro, BetterDocs: knowledge base docs and categories (read, and undoable doc creates and edits)
 * With Pro, Fluent Support and Awesome Support: tickets and their threads (read, customer emails masked in lists), and undoable replies, notes and status changes, off until the site turns them on
-* With Pro, cache and performance settings for WP Rocket, Perfmatters and FlyingPress: lazy load, minify, delay JS, CDN and preload read with license and CDN keys never returned, undoable settings changes and a cache preload (off until the site turns them on)
+* With Pro, cache and performance settings for WP Rocket, Perfmatters, FlyingPress and LiteSpeed Cache: lazy load, minify, delay JS, CDN and preload read with license and CDN keys never returned, undoable settings changes a cache preload, and a LiteSpeed purge for one post or URL (off until the site turns them on)
 * With Pro, Elementor Pro forms: forms found in pages, and form submissions listed, read and exported as CSV, with undoable status changes and deletes (off until the site turns them on)
 * With Pro, Elementor addon packs: Essential Addons, Premium Addons, Ultimate Addons and JetElements widgets listed with their controls, and each pack's modules switched on or off, every toggle undoable
 * Media library plus stock image imports
@@ -133,7 +133,7 @@ New integrations and operations:
 * LearnDash courses and the Elementor addon pack JetElements.
 * Elementor Pro form submissions; WS Form forms and submissions.
 * bbPress, Code Snippets, Wordfence and WP Mail SMTP.
-* Cache and performance settings for WP Rocket, Perfmatters and FlyingPress, with API keys never returned.
+* Cache and performance settings for WP Rocket, Perfmatters, FlyingPress and LiteSpeed Cache, with API keys never returned.
 * Knowledge base and support: BetterDocs, Fluent Support and Awesome Support.
 * Theme Pro layouts, elements and hooks for Astra Pro, Kadence Pro and GP Premium.
 * Core site identity, homepage and permalink operations.

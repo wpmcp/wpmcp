@@ -253,6 +253,7 @@ return [
         'src/Integrations/Cache_Settings_WP_Rocket.php',
         'src/Integrations/Cache_Settings_Perfmatters.php',
         'src/Integrations/Cache_Settings_FlyingPress.php',
+        'src/Integrations/Cache_Settings_LiteSpeed.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

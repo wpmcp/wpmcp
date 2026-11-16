@@ -77,6 +77,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // Avada's global options, written by the Avada design_system
             // scope on the builder pair (issue #637).
             'fusion_options',
+            // LiteSpeed Cache's own settings, one option per id, written by
+            // set-litespeed-settings on the theme pair (issue #933).
+            'litespeed.conf.*',
             // WPBakery's saved templates, written by the builder pair's
             // templates scope (issue #639).
             'wpb_js_templates',
