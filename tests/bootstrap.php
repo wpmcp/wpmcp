@@ -580,6 +580,15 @@ tests_add_filter( 'init', function () {
     }
 }, 20 );
 
+// The live FluentSMTP job's email log table, built by FluentSMTP's own
+// activator (its DB migrator) once per run, before any test transaction
+// starts. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_FLUENT_SMTP' ) && class_exists( '\\FluentMail\\Includes\\Activator' ) ) {
+        \FluentMail\Includes\Activator::handle( false );
+    }
+}, 1 );
+
 // The live CRM job's tables, built by FluentCRM's and MailPoet's own
 // activation routines once per run, before any test transaction starts.
 // FluentCRM reads its options table from init priority 5, so its tables are
