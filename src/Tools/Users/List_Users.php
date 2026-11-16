@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Users;
 
+use WPMCP\Privacy\Masking;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -46,6 +48,7 @@ class List_Users
             'users' => $rows,
             'total' => (int) $query->get_total(),
             'page'  => $page,
+            'masked' => true,
         ];
     }
 
@@ -53,9 +56,9 @@ class List_Users
     {
         return [
             'id'           => (int) $user->ID,
-            'username'     => (string) $user->user_login,
-            'display_name' => (string) $user->display_name,
-            'email'        => (string) $user->user_email,
+            'username'     => is_email((string) $user->user_login) ? Masking::email((string) $user->user_login) : (string) $user->user_login,
+            'display_name' => Masking::value((string) $user->display_name),
+            'email'        => Masking::email((string) $user->user_email),
             'roles'        => array_values((array) $user->roles),
             'registered'   => (string) $user->user_registered,
         ];
