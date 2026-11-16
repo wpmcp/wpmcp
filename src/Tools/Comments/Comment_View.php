@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Comments;
 
+use WPMCP\Privacy\Masking;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -40,5 +42,16 @@ class Comment_View
             'status'       => self::status((string) $comment->comment_approved),
             'date'         => (string) $comment->comment_date,
         ];
+    }
+
+    /**
+     * A row for a LIST read: the author email is masked on the server
+     * (Privacy\Masking), because a list hands many commenters' emails to the
+     * model at once. Name, content and status stay readable for moderation.
+     * A single get-comment keeps the full email.
+     */
+    public static function list_row(\WP_Comment $comment): array
+    {
+        return Masking::keys(self::row($comment), [ 'author_email' ]);
     }
 }
