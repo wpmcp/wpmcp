@@ -38,6 +38,37 @@ class GetCommentTest extends \WP_UnitTestCase
         $this->assertSame('unapproved', $out['status']);
     }
 
+    private function personal_comment(): int
+    {
+        $id              = self::factory()->comment->create([
+            'comment_post_ID'      => self::factory()->post->create(),
+            'comment_author_email' => 'sam@example.com',
+            'comment_author_IP'    => '203.0.113.7',
+        ]);
+        $this->created[] = $id;
+        return $id;
+    }
+
+    public function test_get_masks_email_and_ip_below_manage_options(): void
+    {
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'editor' ]));
+        $out = (new Get_Comment())->handle(['id' => $this->personal_comment()]);
+
+        $this->assertTrue($out['masked']);
+        $this->assertSame('s***@example.com', $out['author_email']);
+        $this->assertSame('203.0.113.x', $out['author_ip']);
+    }
+
+    public function test_get_returns_full_email_and_ip_at_manage_options(): void
+    {
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        $out = (new Get_Comment())->handle(['id' => $this->personal_comment()]);
+
+        $this->assertFalse($out['masked']);
+        $this->assertSame('sam@example.com', $out['author_email']);
+        $this->assertSame('203.0.113.7', $out['author_ip']);
+    }
+
     public function test_get_requires_id(): void
     {
         $this->expectException(\InvalidArgumentException::class);

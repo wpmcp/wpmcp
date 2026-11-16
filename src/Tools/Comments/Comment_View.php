@@ -29,6 +29,44 @@ class Comment_View
         }
     }
 
+    /**
+     * List row with commenter email and IP masked (owner policy, issue #718):
+     * lists are masked, single reads stay full for manage_options.
+     */
+    public static function masked_row(\WP_Comment $comment): array
+    {
+        $row                 = self::row($comment);
+        $row['author_email'] = self::mask_email($row['author_email']);
+        $row['author_ip']    = self::mask_ip((string) $comment->comment_author_IP);
+        return $row;
+    }
+
+    public static function mask_email(string $email): string
+    {
+        $at = strrpos($email, '@');
+        if ('' === $email || false === $at) {
+            return '' === $email ? '' : '***';
+        }
+        return substr($email, 0, 1) . '***' . substr($email, $at);
+    }
+
+    public static function mask_ip(string $ip): string
+    {
+        if ('' === $ip) {
+            return '';
+        }
+        if (false !== strpos($ip, ':')) {
+            $parts = explode(':', $ip);
+            return implode(':', array_slice($parts, 0, 2)) . ':x';
+        }
+        $parts = explode('.', $ip);
+        if (4 !== count($parts)) {
+            return 'x';
+        }
+        $parts[3] = 'x';
+        return implode('.', $parts);
+    }
+
     public static function row(\WP_Comment $comment): array
     {
         return [
