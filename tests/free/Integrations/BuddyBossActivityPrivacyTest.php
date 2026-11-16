@@ -178,7 +178,6 @@ class BuddyBossActivityPrivacyTest extends \WP_UnitTestCase
     private function reset_schema_cache(): void
     {
         $prop = new \ReflectionProperty(\WPMCP\Integrations\BuddyPress_Pack::class, 'schema_seen');
-        $prop->setAccessible(true);
         $prop->setValue(null, []);
     }
 
