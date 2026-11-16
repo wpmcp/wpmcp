@@ -3,6 +3,7 @@
 namespace WPMCP\Integrations;
 
 use WPMCP\Tools\Content\Readable_Posts;
+use WPMCP\Privacy\Masking;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -185,7 +186,7 @@ class MetForm_Integration extends Forms_Integration
                 'mode'         => 'read',
                 'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => self::ENTRY_CAPABILITY,
-                'description'  => 'List a MetForm form\'s entries, newest first, with paging (page_size default 20, max 100) and their stored field values',
+                'description'  => 'List a MetForm form\'s entries, newest first, with paging (page_size default 20, max 100) and their stored field values MASKED (get-entry returns one in full)',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -206,12 +207,13 @@ class MetForm_Integration extends Forms_Integration
                             'id'         => (int) $post->ID,
                             'form_id'    => $form_id,
                             'created_at' => (string) $post->post_date,
-                            'values'     => self::values((int) $post->ID),
+                            'values'     => Masking::value(self::values((int) $post->ID)),
                         ];
                     }
                     return [
                         'form_id' => $form_id,
                         'entries' => $entries,
+                        'masked'  => true,
                         'total'   => (int) $query->found_posts,
                         'paging'  => [ 'offset' => $offset, 'page_size' => $page_size ],
                     ];

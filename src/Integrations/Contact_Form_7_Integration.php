@@ -2,6 +2,8 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -126,7 +128,7 @@ class Contact_Form_7_Integration extends Forms_Integration
      *
      * @param \Flamingo_Inbound_Message $msg
      */
-    private static function shape_entry($msg, bool $with_fields): array
+    private static function shape_entry($msg, bool $with_fields, bool $masked = false): array
     {
         $out = [
             'id'         => (int) $msg->id(),
@@ -136,6 +138,11 @@ class Contact_Form_7_Integration extends Forms_Integration
             'channel'    => (string) ($msg->channel ?? ''),
             'spam'       => (bool) ($msg->spam ?? false),
         ];
+        if ($masked) {
+            // A list shows many senders at once: name, email and the free-text
+            // subject (which often holds either) are masked in full.
+            $out = Masking::keys($out, [ 'subject', 'from_name', 'from_email' ]);
+        }
         if ($with_fields) {
             $out['fields'] = is_array($msg->fields ?? null) ? $msg->fields : [];
             $out['meta']   = is_array($msg->meta ?? null) ? $msg->meta : [];
@@ -280,7 +287,7 @@ class Contact_Form_7_Integration extends Forms_Integration
                 'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => self::ENTRY_CAPABILITY,
                 'requires'     => static fn () => self::requires_flamingo(),
-                'description'  => 'List a form\'s Flamingo-stored submissions, newest first, with paging (page_size default 20, max 100, plus offset) and a status filter (inbox, the default, plus spam and trash, which Flamingo keeps out of the default listing). form_id is required and is resolved to the form\'s Flamingo channel term; a form whose channel binding is missing is refused rather than answered with an unscoped listing. Requires the Flamingo plugin and the edit_users capability because submissions are user data',
+                'description'  => 'List a form\'s Flamingo-stored submissions, newest first (sender name, sender email and subject are MASKED; get-entry returns one in full), with paging (page_size default 20, max 100, plus offset) and a status filter (inbox, the default, plus spam and trash, which Flamingo keeps out of the default listing). form_id is required and is resolved to the form\'s Flamingo channel term; a form whose channel binding is missing is refused rather than answered with an unscoped listing. Requires the Flamingo plugin and the edit_users capability because submissions are user data',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -328,7 +335,7 @@ class Contact_Form_7_Integration extends Forms_Integration
                     $out      = [];
                     foreach ($messages as $msg) {
                         if ($msg instanceof \Flamingo_Inbound_Message) {
-                            $out[] = self::shape_entry($msg, false);
+                            $out[] = self::shape_entry($msg, false, true);
                         }
                     }
 
@@ -344,6 +351,7 @@ class Contact_Form_7_Integration extends Forms_Integration
 
                     return [
                         'entries' => $out,
+                        'masked'  => true,
                         'total'   => (int) \Flamingo_Inbound_Message::count($count_query),
                     ];
                 },

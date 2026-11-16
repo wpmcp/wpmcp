@@ -76,6 +76,14 @@ class FormidableIntegrationTest extends \WP_UnitTestCase
         $this->assertNull($this->integration->handle_read([ 'operation' => 'get-entry', 'args' => [ 'entry_id' => 999 ] ])['result']['entry']);
     }
 
+    public function test_list_entries_returns_summary_rows_with_no_personal_data(): void
+    {
+        $json = wp_json_encode($this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => 5 ] ])['result']);
+        foreach ([ 'Ada', '"ip"', 'values' ] as $leak) {
+            $this->assertStringNotContainsString($leak, $json);
+        }
+    }
+
     public function test_there_is_no_status_write_because_formidable_models_no_entry_status(): void
     {
         $names = array_column($this->integration->catalog()['operations'], 'name');

@@ -174,7 +174,7 @@ class MetFormIntegrationTest extends \WP_UnitTestCase
 
         $this->assertSame(2, $out['result']['total']);
         $this->assertSame($second, $out['result']['entries'][0]['id'], 'Newest first');
-        $this->assertSame('grace@example.test', $out['result']['entries'][0]['values']['email']);
+        $this->assertSame('g***@example.test', $out['result']['entries'][0]['values']['email']);
 
         $paged = $this->integration->handle_read([
             'operation' => 'list-entries',
@@ -182,6 +182,25 @@ class MetFormIntegrationTest extends \WP_UnitTestCase
         ]);
         $this->assertCount(1, $paged['result']['entries']);
         $this->assertSame($this->entry_id, $paged['result']['entries'][0]['id']);
+    }
+
+    public function test_list_entries_masks_personal_values_but_get_entry_stays_full(): void
+    {
+        $list = $this->integration->handle_read([
+            'operation' => 'list-entries',
+            'args'      => [ 'form_id' => $this->form_id ],
+        ])['result'];
+        $this->assertTrue($list['masked']);
+        $entry = $list['entries'][0];
+        $this->assertSame('a***@example.test', $entry['values']['email']);
+        $this->assertSame('A***', $entry['values']['name']);
+        $this->assertSame($this->entry_id, $entry['id']);
+        $this->assertSame($this->form_id, $entry['form_id']);
+        $this->assertStringNotContainsString('ada@example.test', wp_json_encode($list));
+
+        $one = $this->integration->handle_read([ 'operation' => 'get-entry', 'args' => [ 'entry_id' => $this->entry_id ] ])['result'];
+        $this->assertArrayNotHasKey('masked', $one);
+        $this->assertSame('ada@example.test', $one['entry']['values']['email']);
     }
 
     public function test_get_entry_and_missing_entry(): void

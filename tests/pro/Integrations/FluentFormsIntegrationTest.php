@@ -100,6 +100,14 @@ class FluentFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('{wp.admin_email}', $notes[0]['send_to']['email']);
     }
 
+    public function test_list_entries_returns_summary_rows_with_no_personal_data(): void
+    {
+        $json = wp_json_encode($this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => $this->form_id ] ])['result']);
+        foreach ([ 'ada@example.test', '203.0.113.9', 'response', '"ip"' ] as $leak) {
+            $this->assertStringNotContainsString($leak, $json);
+        }
+    }
+
     public function test_list_entries_leaves_trashed_out_unless_asked(): void
     {
         $default = $this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => $this->form_id ] ])['result'];
