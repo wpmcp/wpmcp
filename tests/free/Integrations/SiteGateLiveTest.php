@@ -134,26 +134,26 @@ class SiteGateLiveTest extends \WP_UnitTestCase
     private function check_maintenance(): void
     {
         $this->assertTrue(class_exists('MTNC'));
-        $options = \MTNC::get_instance()->get_options();
+        $options = \MTNC::getInstance()->get_options();
         foreach ([ 'status', 'show_logged_in', 'ip_whitelist', 'blockse', 'direct_access_link', 'site_password', 'header_text' ] as $key) {
             $this->assertArrayHasKey($key, $options, "the reader relies on options.{$key}");
         }
         $this->assertFalse($this->gate()['active']);
 
         $options['status'] = '1';
-        $this->assertTrue(\MTNC::get_instance()->update_options('options', $options));
+        $this->assertTrue(\MTNC::getInstance()->update_options('options', $options));
 
         $gate = $this->gate();
         $this->assertTrue($gate['active']);
         $this->assertSame($options['blockse'] ? 503 : 200, $gate['http_status']);
         $this->assertSame('every logged-in user' === $gate['bypass']['logged_in_users'], '1' === (string) $options['show_logged_in']);
-        $this->assertSame('1', (string) \MTNC::get_instance()->get_options()['status'], 'the plugin reads back what the reader saw');
+        $this->assertSame('1', (string) \MTNC::getInstance()->get_options()['status'], 'the plugin reads back what the reader saw');
     }
 
     private function check_cmp_coming_soon_maintenance(): void
     {
         $this->assertTrue(class_exists('CMP_Coming_Soon_and_Maintenance'));
-        $cmp = \CMP_Coming_Soon_and_Maintenance::get_instance();
+        $cmp = \CMP_Coming_Soon_and_Maintenance::instance();
         $this->assertSame('0', $cmp->cmp_active());
         $this->assertFalse($this->gate()['active']);
 
@@ -172,7 +172,10 @@ class SiteGateLiveTest extends \WP_UnitTestCase
 
     private function check_coming_soon(): void
     {
-        $this->assertTrue(function_exists('seedprod_lite_save_settings'));
+        // SeedProd always loads its front door class; its settings save
+        // (app/settings.php) is loaded only inside is_admin(), see seedprod_save().
+        $this->assertTrue(class_exists('SeedProd_Lite_Render'));
+        $this->assertTrue(defined('SEEDPROD_PLUGIN_PATH'));
         $this->assertFalse($this->gate()['active']);
 
         $page = self::factory()->post->create([ 'post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Soon', 'post_content_filtered' => wp_json_encode([ 'access_by_role' => [ 'administrator' ] ]) ]);
@@ -202,12 +205,20 @@ class SiteGateLiveTest extends \WP_UnitTestCase
 
         (new Rollback_Operation())->handle([ 'operation_id' => $out['operation_id'] ]);
         $this->assertFalse($this->gate()['active']);
-        $this->assertSame('', $this->toggle('disable-site-gate', [ 'plugin' => 'coming-soon' ])['error']['code'] ?? '', 'nothing left to disable after the undo');
+        $this->assertSame('no_change', $this->toggle('disable-site-gate', [ 'plugin' => 'coming-soon' ])['error']['code'] ?? '', 'nothing left to disable after the undo');
     }
 
-    /** Run SeedProd's own settings save the way its screen calls it. */
+    /**
+     * Run SeedProd's own settings save the way its screen calls it. The plugin
+     * requires app/settings.php only when is_admin() (admin-ajax.php, where its
+     * screen posts); a test request is not admin, so load that file the same way.
+     */
     private function seedprod_save(array $settings): bool
     {
+        if (! function_exists('seedprod_lite_save_settings')) {
+            require_once SEEDPROD_PLUGIN_PATH . 'app/settings.php';
+        }
+        $this->assertTrue(function_exists('seedprod_lite_save_settings'), 'SeedProd still defines its settings save in app/settings.php');
         $_REQUEST['_ajax_nonce'] = wp_create_nonce('seedprod_nonce');
         $_POST['settings']       = wp_slash(wp_json_encode($settings));
         add_filter('wp_doing_ajax', '__return_true');
