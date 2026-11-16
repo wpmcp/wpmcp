@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Rest;
 
+use WPMCP\Tools\Meta\Secret_Options;
 use WPMCP\Tools\WooCommerce\Gateway_Secrets;
 
 if (! defined('ABSPATH')) {
@@ -91,7 +92,7 @@ class Call_Rest
         // A payment gateway write that sends a credential back masked, as
         // a read showed it, leaves the stored one alone (issue #507).
         if (! in_array($method, self::READ_METHODS, true)) {
-            $params = Gateway_Secrets::unmask_rest_params($route, $params);
+            $params = Secret_Options::unmask_rest_params($route, Gateway_Secrets::unmask_rest_params($route, $params));
         }
         if (! empty($params)) {
             if (in_array($method, self::READ_METHODS, true)) {
@@ -112,6 +113,20 @@ class Call_Rest
         $matched = (string) $response->get_matched_route();
         if (Gateway_Secrets::is_gateway_route('' !== $matched ? $matched : $route)) {
             $body = Gateway_Secrets::mask_rest_body($body);
+        }
+
+        // Registered credential options (and anything under /wp/v2/settings)
+        // come back masked by the same registry get-option uses (issue #865).
+        $body = Secret_Options::mask_rest_body('' !== $matched ? $matched : $route, $body);
+        if (is_array($body) && is_array($body['responses'] ?? null) && 1 === preg_match('#^/batch/v\d+/?$#i', $route)) {
+            // /batch/v1 wraps each sub-response: mask every one by the path it was sent to.
+            $requests = is_array($params['requests'] ?? null) ? array_values($params['requests']) : [];
+            foreach (array_values($body['responses']) as $i => $item) {
+                $path = (string) wp_parse_url((string) ($requests[ $i ]['path'] ?? ''), PHP_URL_PATH);
+                if (is_array($item) && array_key_exists('body', $item) && '' !== $path) {
+                    $body['responses'][ $i ]['body'] = Secret_Options::mask_rest_body($path, $item['body']);
+                }
+            }
         }
 
         return [

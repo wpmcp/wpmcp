@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Database;
 
 use WPMCP\Tools\Content\Content_Guard;
+use WPMCP\Tools\Meta\Secret_Options;
 use WPMCP\Tools\WooCommerce\Gateway_Secrets;
 
 if (! defined('ABSPATH')) {
@@ -435,6 +436,62 @@ class Database_Guard
      * @return array<int, mixed>
      */
     public static function mask_gateway_secrets(array $rows): array
+    {
+        return self::mask_option_rows(self::mask_gateway_rows($rows));
+    }
+
+    /**
+     * wp_options rows with the credentials the secret registry and key-name
+     * heuristic cover masked in option_value (issue #865, Secret_Options):
+     * the same rule get-option applies, for a row that names its option.
+     * Runs after the gateway pass, which needs the raw values to scrub.
+     *
+     * @param array<int, mixed> $rows
+     * @return array<int, mixed>
+     */
+    private static function mask_option_rows(array $rows): array
+    {
+        foreach ($rows as $index => $row) {
+            if (is_array($row) && isset($row['option_name'], $row['option_value']) && is_string($row['option_name']) && is_string($row['option_value'])) {
+                $rows[ $index ]['option_value'] = Secret_Options::mask_row_value($row['option_name'], $row['option_value']);
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * Rows of a query that reads option_value (or sitemeta's meta_value) with
+     * every string cell masked by the key-name heuristic, whatever the cell
+     * is called: a select of the value column alone, or aliased, carries no
+     * option_name to match the registry against. The plain-lookup guard has
+     * already refused registered options, so the names left need only the
+     * heuristic. Only for a query guard_option_value_read() let through.
+     *
+     * @param array<int, mixed> $rows
+     * @return array<int, mixed>
+     */
+    public static function mask_option_value_cells(array $rows): array
+    {
+        foreach ($rows as $index => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            foreach ($row as $column => $cell) {
+                if (is_string($cell)) {
+                    $rows[ $index ][ $column ] = Secret_Options::mask_row_value('', $cell);
+                }
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * The payment gateway pass of mask_gateway_secrets().
+     *
+     * @param array<int, mixed> $rows
+     * @return array<int, mixed>
+     */
+    private static function mask_gateway_rows(array $rows): array
     {
         if (! function_exists('WC') || ! class_exists('WC_Payment_Gateway')) {
             return $rows;
@@ -1050,7 +1107,7 @@ class Database_Guard
             foreach ([true, false] as $strict_double_dash) {
                 $tokens = self::lex_tokens($sql, $no_backslash_escapes, $strict_double_dash);
                 if (null === $tokens) {
-                    $reads = $reads || false !== stripos($sql, 'option');
+                    $reads = $reads || false !== stripos($sql, 'option') || false !== stripos($sql, 'sitemeta');
                     continue;
                 }
                 $reads = $reads || self::tokens_read_option_value($tokens);
@@ -1065,8 +1122,8 @@ class Database_Guard
             'option_value_read_blocked',
             'query reads option_value from the options table only as a plain lookup of named options: '
             . "SELECT ... FROM <options table> WHERE option_name = '<name>' (or IN (...)), for options get-option "
-            . 'would return. Payment gateway settings and other sensitive options are not readable here; use '
-            . 'get-option, which masks gateway credentials.'
+            . 'would return. Payment gateway settings, registered credential options and other sensitive options '
+            . 'are not readable here; use get-option, which masks credentials.'
         );
     }
 
@@ -1085,6 +1142,39 @@ class Database_Guard
         return 1 === preg_match('/^' . preg_quote($prefix, '/') . '(\d+_)?options$/', $table);
     }
 
+    /**
+     * Whether $table is the network's sitemeta table: on multisite it holds
+     * the network-wide options (get_site_option()), such as a backup
+     * plugin's remote storage credentials (issue #865).
+     */
+    public static function is_sitemeta_table(string $table): bool
+    {
+        global $wpdb;
+        $table = strtolower(trim($table));
+        if ('' === $table) {
+            return false;
+        }
+        if (isset($wpdb->sitemeta) && strtolower((string) $wpdb->sitemeta) === $table) {
+            return true;
+        }
+        $prefix = strtolower((string) ($wpdb->base_prefix ?? $wpdb->prefix ?? 'wp_'));
+        return $table === $prefix . 'sitemeta';
+    }
+
+    /** Whether the SQL names an options or sitemeta table and can read its value column. */
+    public static function reads_option_value(string $sql): bool
+    {
+        foreach ([false, true] as $no_backslash_escapes) {
+            foreach ([true, false] as $strict_double_dash) {
+                $tokens = self::lex_tokens($sql, $no_backslash_escapes, $strict_double_dash);
+                if (null === $tokens ? false !== stripos($sql, 'option') || false !== stripos($sql, 'sitemeta') : self::tokens_read_option_value($tokens)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /** @param array<int, array{0: string, 1: string}> $tokens */
     private static function tokens_read_option_value(array $tokens): bool
     {
@@ -1094,8 +1184,8 @@ class Database_Guard
         foreach ($tokens as $token) {
             [ $type, $value ] = $token;
             if ('id' === $type) {
-                $names_options = $names_options || self::is_options_table($value);
-                $reads_value   = $reads_value || 'option_value' === $value;
+                $names_options = $names_options || self::is_options_table($value) || self::is_sitemeta_table($value);
+                $reads_value   = $reads_value || 'option_value' === $value || 'meta_value' === $value;
             }
             if ('p' === $type && '*' === $value && null !== $previous) {
                 // A wildcard column list: after SELECT, DISTINCT, ALL, a
@@ -1115,18 +1205,23 @@ class Database_Guard
         $name    = "'[A-Za-z0-9_.:\\-]+'";
         $pattern = '/^\s*SELECT\s+(?<cols>[A-Za-z0-9_`.,()*+\-\s]+?)\s+FROM\s+`?(?<table>[A-Za-z0-9_$]+)`?'
             . '(?:\s+(?:AS\s+)?`?(?<alias>[A-Za-z_][A-Za-z0-9_]*)`?)?'
-            . '\s+WHERE\s+(?:`?[A-Za-z_][A-Za-z0-9_]*`?\.)?`?option_name`?\s*'
+            . '\s+WHERE\s+(?:`?[A-Za-z_][A-Za-z0-9_]*`?\.)?`?(?:option_name|meta_key)`?\s*'
             . '(?:=\s*(?<one>' . $name . ')|IN\s*\((?<list>\s*' . $name . '(?:\s*,\s*' . $name . ')*\s*)\))'
             . '(?:\s+LIMIT\s+\d+(?:\s*,\s*\d+)?)?\s*;?\s*$/i';
         if (1 !== preg_match($pattern, $sql, $m)) {
             return false;
         }
-        if (! self::is_options_table($m['table'])) {
+        if (! self::is_options_table($m['table']) && ! self::is_sitemeta_table($m['table'])) {
             return false;
         }
         if (1 === preg_match('/\b(select|from|where|union|into|having|join)\b/i', $m['cols'])) {
             return false;
         }
+        // A function over the value column (REVERSE, TO_BASE64, CONCAT) defeats
+        // the result mask. Harmless for an option with nothing to mask (the
+        // check below), refused for one that holds a credential. COUNT(*) is fine.
+        $cols = preg_replace('/\bCOUNT\s*\(\s*\*\s*\)/i', '', $m['cols']);
+        $transforms = false !== strpos((string) $cols, '(');
         $alias = strtolower((string) ($m['alias'] ?? ''));
         if (in_array($alias, [ 'where', 'join', 'inner', 'left', 'right', 'cross', 'natural', 'straight_join' ], true)) {
             return false;
@@ -1135,12 +1230,36 @@ class Database_Guard
         preg_match_all("/'([^']*)'/", (string) ($m['one'] ?? '') . (string) ($m['list'] ?? ''), $names);
         foreach ($names[1] as $option) {
             $gateway = function_exists('WC') && null !== Gateway_Secrets::gateway_for_option($option);
-            $secret  = \WPMCP\Tools\Meta\Option_Guard::is_denylisted($option) || $gateway;
+            // A registered credential option (issue #865) is read through
+            // get-option, which masks it; a value-only select would not.
+            $secret = \WPMCP\Tools\Meta\Option_Guard::is_denylisted($option) || $gateway || Secret_Options::is_registered($option);
             if ($secret || 1 === preg_match('/^woocommerce_.+_settings$/i', $option)) {
+                return false;
+            }
+            if ($transforms && self::transform_may_leak($m['table'], $option)) {
                 return false;
             }
         }
         return [] !== $names[1];
+    }
+
+    /**
+     * Whether a function over the value column of $option in $table could
+     * return a credential the result mask would not see. Only the current
+     * site's options table is checked, against the stored row itself (not
+     * get_option(), which option filters can change); any other options
+     * table, sitemeta included, is refused, since its rows cannot be vouched
+     * for from here.
+     */
+    private static function transform_may_leak(string $table, string $option): bool
+    {
+        global $wpdb;
+        if (strtolower($table) !== strtolower((string) $wpdb->options)) {
+            return true;
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the stored row, read raw so no option filter alters it; the name is a validated literal bound by prepare().
+        $raw = $wpdb->get_var($wpdb->prepare('SELECT option_value FROM %i WHERE option_name = %s', $wpdb->options, $option));
+        return null !== $raw && Secret_Options::mask_registered($option, $raw) !== $raw;
     }
 
     /**
