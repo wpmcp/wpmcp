@@ -402,6 +402,7 @@ bin/test-local.sh --live-lms            # only the Tutor LMS and LifterLMS live 
 bin/test-local.sh --live-crm            # only the FluentCRM and MailPoet live group
 bin/test-local.sh --live-helpdesk       # only the BetterDocs, Fluent Support and Awesome Support live group
 bin/test-local.sh --live-activity-log   # only the WP Activity Log and Simple History live group (both downloaded from WordPress.org)
+bin/test-local.sh --live-action-scheduler   # only the Action Scheduler live group (the standalone plugin, downloaded from WordPress.org; WPMCP_LIVE_ACTION_SCHEDULER=1 is what it sets)
 bin/test-local.sh --live-amelia         # only the Amelia Lite live group
 bin/test-local.sh --live-wp-mail-smtp   # only the WP Mail SMTP live group
 WPMCP_MEMBERPRESS_SRC=/path/to/memberpress bin/test-local.sh --live-memberpress   # only the MemberPress live group, against a local MemberPress copy

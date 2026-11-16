@@ -28,6 +28,7 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
         'wpmcp_ws_form_active',
         'wpmcp_wp_activity_log_active',
         'wpmcp_simple_history_active',
+        'wpmcp_action_scheduler_active',
     ];
 
     private Registrar $original;
