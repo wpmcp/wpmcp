@@ -405,6 +405,8 @@ bin/test-local.sh --live-activity-log   # only the WP Activity Log and Simple Hi
 bin/test-local.sh --live-action-scheduler   # only the Action Scheduler live group (the standalone plugin, downloaded from WordPress.org; WPMCP_LIVE_ACTION_SCHEDULER=1 is what it sets)
 bin/test-local.sh --live-amelia         # only the Amelia Lite live group
 bin/test-local.sh --live-wp-mail-smtp   # only the WP Mail SMTP live group
+bin/test-local.sh --live-fluent-smtp    # only the FluentSMTP live group (downloads the plugin)
+bin/test-local.sh --live-post-smtp      # only the Post SMTP live group (downloads the plugin)
 WPMCP_MEMBERPRESS_SRC=/path/to/memberpress bin/test-local.sh --live-memberpress   # only the MemberPress live group, against a local MemberPress copy
 WPMCP_ELEMENTOR_PRO_SRC=/path/to/elementor-pro bin/test-local.sh --live-elementor-pro   # only the Elementor Pro live group, against a local Elementor Pro copy
 WPMCP_WP_ROCKET_SRC=/path/to/wp-rocket WPMCP_PERFMATTERS_SRC=/path/to/perfmatters WPMCP_FLYING_PRESS_SRC=/path/to/flying-press bin/test-local.sh --live-cache-settings   # only the cache settings live groups, against local copies (any one is enough)

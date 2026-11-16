@@ -83,6 +83,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // Code Snippets' own recently deactivated list, put back by a
             // snippet activation's rollback (issue #576).
             'recently_active_snippets',
+            // Post SMTP's settings, whose from address and name the
+            // set-post-smtp-from op changes (issue #696).
+            'postman_options',
         ],
         'transient'      => [
             'scrape_key_*',

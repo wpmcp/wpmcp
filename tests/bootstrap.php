@@ -412,6 +412,16 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'wp-mail-smtp/wp_mail_smtp.php' );
     }
 
+    // The live FluentSMTP and Post SMTP jobs (issue #696, WPMCP_LIVE_FLUENT_SMTP=1
+    // or WPMCP_LIVE_POST_SMTP=1). One per install: both define wp_mail(), and
+    // the stub-backed tests define stand-ins for their settings API.
+    if ( getenv( 'WPMCP_LIVE_FLUENT_SMTP' ) ) {
+        wpmcp_maybe_require_plugin( 'fluent-smtp/fluent-smtp.php' );
+    }
+    if ( getenv( 'WPMCP_LIVE_POST_SMTP' ) ) {
+        wpmcp_maybe_require_plugin( 'post-smtp/postman-smtp.php' );
+    }
+
     // The live Code Snippets job (issue #576, WPMCP_LIVE_CODE_SNIPPETS=1) runs
     // the Code Snippets ops through the real Code Snippets. Loaded only on
     // request: the stub-backed tests define a stand-in for its API.

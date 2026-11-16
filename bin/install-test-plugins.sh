@@ -203,6 +203,21 @@ if [ "${WPMCP_LIVE_WP_MAIL_SMTP:-}" = "1" ]; then
 	)
 fi
 
+# The live FluentSMTP and Post SMTP jobs (issue #696) run their ops through the
+# real plugins, downloaded from wordpress.org. Exclusive and separate: both
+# define wp_mail(), and the stub-backed tests define stand-ins for their
+# settings functions and classes.
+if [ "${WPMCP_LIVE_FLUENT_SMTP:-}" = "1" ]; then
+	PLUGINS=(
+		"fluent-smtp:fluent-smtp.php"
+	)
+fi
+if [ "${WPMCP_LIVE_POST_SMTP:-}" = "1" ]; then
+	PLUGINS=(
+		"post-smtp:postman-smtp.php"
+	)
+fi
+
 # The live Code Snippets job (issue #576) runs the Code Snippets ops through
 # the real Code Snippets, so its own validator, caches and hooks run.
 # Exclusive too: the stub-backed Code Snippets tests define a stand-in for
