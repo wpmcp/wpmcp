@@ -79,6 +79,11 @@
 #      BeBuilder pages are read and edited by uid, still render through
 #      BeTheme's own builder with their local styles rebuilt, its item
 #      catalog is read, and every write rolls back.
+#  17c. Runs the live Bricks group (issue #914) when WPMCP_BRICKS_SRC names a
+#      local copy of the Bricks theme (commercial, so not downloadable here),
+#      installed as a theme and made the active one: a page written through
+#      the tool gets Bricks' editor mode, renders through Bricks, has its CSS
+#      file rebuilt, and undo puts back the layout, the mode and the CSS.
 #  18. Runs the live WPBakery group (issue #639) when WPMCP_WPBAKERY_SRC names
 #      a local copy of WPBakery Page Builder (commercial too): its element
 #      catalog, templates and design options are read from the real plugin,
@@ -233,6 +238,11 @@
 #                                     (real BetterDocs, Fluent Support and Awesome Support)
 #   bin/test-local.sh --live-activity-log only the live activity log group
 #                                     (real WP Activity Log and Simple History)
+#   bin/test-local.sh --live-site-gate only the live site gate group
+#                                     (the real SeedProd, WP Maintenance Mode, Under Construction,
+#                                     Maintenance and CMP plugins, one at a time)
+#   bin/test-local.sh --live-email-log only the live email log group
+#                                     (real WP Mail Logging, Check and Log Email and Email Log)
 #   bin/test-local.sh --live-funnelkit only the live FunnelKit group (real Funnel Builder + WooCommerce)
 #   bin/test-local.sh --live-amelia   only the live Amelia group (real Amelia Lite)
 #   bin/test-local.sh --live-polylang only the live Polylang group (real Polylang and Elementor)
@@ -244,6 +254,7 @@
 #   bin/test-local.sh --live-cornerstone only the live Cornerstone group (needs WPMCP_CORNERSTONE_SRC)
 #   bin/test-local.sh --live-divi     only the live Divi group (needs WPMCP_DIVI_SRC)
 #   bin/test-local.sh --live-betheme  only the live BeTheme group (needs WPMCP_BETHEME_SRC)
+#   bin/test-local.sh --live-bricks   only the live Bricks group (needs WPMCP_BRICKS_SRC)
 #   bin/test-local.sh --live-memberpress only the live MemberPress group (needs WPMCP_MEMBERPRESS_SRC)
 #   bin/test-local.sh --live-elementor-pro only the live Elementor Pro group (needs WPMCP_ELEMENTOR_PRO_SRC)
 #   bin/test-local.sh --live-cache-settings only the live cache settings groups (needs at least one of WPMCP_WP_ROCKET_SRC, WPMCP_PERFMATTERS_SRC, WPMCP_FLYING_PRESS_SRC)
@@ -313,6 +324,9 @@
 #   WPMCP_BETHEME_SRC    a local BeTheme theme directory for the live
 #                        BeTheme group; without it that group is not run,
 #                        except under --live-betheme, where it is an error
+#   WPMCP_BRICKS_SRC     a local Bricks theme directory for the live Bricks
+#                        group; without it that group is not run, except
+#                        under --live-bricks, where it is an error
 #   WPMCP_CORNERSTONE_SRC a local Cornerstone plugin directory for the live
 #                        Cornerstone group; without it that group is not run,
 #                        except under --live-cornerstone, where it is an error
@@ -414,6 +428,8 @@ only_live_code_snippets=false
 only_live_crm=false
 only_live_helpdesk=false
 only_live_activity_log=false
+only_live_site_gate=false
+only_live_email_log=false
 only_live_funnelkit=false
 only_live_polylang=false
 only_live_breakdance=false
@@ -424,6 +440,7 @@ only_live_cornerstone=false
 only_live_oxygen=false
 only_live_divi=false
 only_live_betheme=false
+only_live_bricks=false
 only_live_memberpress=false
 only_live_amelia=false
 only_live_wc_subscriptions=false
@@ -458,6 +475,8 @@ while [ $# -gt 0 ]; do
 		--live-crm) only_live_crm=true ;;
 		--live-helpdesk) only_live_helpdesk=true ;;
 		--live-activity-log) only_live_activity_log=true ;;
+		--live-site-gate) only_live_site_gate=true ;;
+		--live-email-log) only_live_email_log=true ;;
 		--live-funnelkit) only_live_funnelkit=true ;;
 		--live-polylang) only_live_polylang=true ;;
 		--live-breakdance) only_live_breakdance=true ;;
@@ -468,6 +487,7 @@ while [ $# -gt 0 ]; do
 		--live-oxygen) only_live_oxygen=true ;;
 		--live-divi) only_live_divi=true ;;
 		--live-betheme) only_live_betheme=true ;;
+		--live-bricks) only_live_bricks=true ;;
 		--live-memberpress) only_live_memberpress=true ;;
 		--live-amelia) only_live_amelia=true ;;
 		--live-wc-subscriptions) only_live_wc_subscriptions=true ;;
@@ -527,7 +547,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_rank_math" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_helpdesk" = true ] || [ "$only_live_activity_log" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_betheme" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_cornerstone" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ] || [ "$only_live_ws_form" = true ] || [ "$only_live_links" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_rank_math" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_helpdesk" = true ] || [ "$only_live_activity_log" = true ] || [ "$only_live_site_gate" = true ] || [ "$only_live_email_log" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_betheme" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_cornerstone" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ] || [ "$only_live_ws_form" = true ] || [ "$only_live_links" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -540,6 +560,8 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_crm" = false ] || LEGS+=("live-crm ${only_wp:-$default_wp}")
 	[ "$only_live_helpdesk" = false ] || LEGS+=("live-helpdesk ${only_wp:-$default_wp}")
 	[ "$only_live_activity_log" = false ] || LEGS+=("live-activity-log ${only_wp:-$default_wp}")
+	[ "$only_live_site_gate" = false ] || LEGS+=("live-site-gate ${only_wp:-$default_wp}")
+	[ "$only_live_email_log" = false ] || LEGS+=("live-email-log ${only_wp:-$default_wp}")
 	[ "$only_live_funnelkit" = false ] || LEGS+=("live-funnelkit ${only_wp:-$default_wp}")
 	[ "$only_live_polylang" = false ] || LEGS+=("live-polylang ${only_wp:-$default_wp}")
 	[ "$only_live_breakdance" = false ] || LEGS+=("live-breakdance ${only_wp:-$default_wp}")
@@ -550,6 +572,7 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_oxygen" = false ] || LEGS+=("live-oxygen ${only_wp:-$default_wp}")
 	[ "$only_live_divi" = false ] || LEGS+=("live-divi ${only_wp:-$default_wp}")
 	[ "$only_live_betheme" = false ] || LEGS+=("live-betheme ${only_wp:-$default_wp}")
+	[ "$only_live_bricks" = false ] || LEGS+=("live-bricks ${only_wp:-$default_wp}")
 	[ "$only_live_memberpress" = false ] || LEGS+=("live-memberpress ${only_wp:-$default_wp}")
 	[ "$only_live_amelia" = false ] || LEGS+=("live-amelia ${only_wp:-$default_wp}")
 	[ "$only_live_wc_subscriptions" = false ] || LEGS+=("live-wc-subscriptions ${only_wp:-$default_wp}")
@@ -591,7 +614,7 @@ else
 		LEGS+=("multisite $default_wp none")
 	fi
 	if [ "$targeted" = false ]; then
-		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-rank-math $default_wp" "live-links $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-helpdesk $default_wp" "live-activity-log $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp")
+		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-rank-math $default_wp" "live-links $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-helpdesk $default_wp" "live-activity-log $default_wp" "live-site-gate $default_wp" "live-email-log $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
 		fi
@@ -615,6 +638,9 @@ else
 		fi
 		if [ -n "${WPMCP_BETHEME_SRC:-}" ]; then
 			LEGS+=("live-betheme $default_wp")
+		fi
+		if [ -n "${WPMCP_BRICKS_SRC:-}" ]; then
+			LEGS+=("live-bricks $default_wp")
 		fi
 		if [ -n "${WPMCP_MEMBERPRESS_SRC:-}" ]; then
 			LEGS+=("live-memberpress $default_wp")
@@ -773,6 +799,10 @@ install_flavor() {
 	[ "${WPMCP_LIVE_HELPDESK:-}" = 1 ] && flavor="-helpdesk-live"
 	# And WPMCP_LIVE_ACTIVITY_LOG=1 and WP Activity Log with Simple History.
 	[ "${WPMCP_LIVE_ACTIVITY_LOG:-}" = 1 ] && flavor="-activity-log-live"
+	# And WPMCP_LIVE_SITE_GATE=1 and the five coming soon and maintenance plugins.
+	[ "${WPMCP_LIVE_SITE_GATE:-}" = 1 ] && flavor="-site-gate-live"
+	# And WPMCP_LIVE_EMAIL_LOG=1 and the three email log plugins.
+	[ "${WPMCP_LIVE_EMAIL_LOG:-}" = 1 ] && flavor="-email-log-live"
 	# And WPMCP_LIVE_FUNNELKIT=1 and Funnel Builder with WooCommerce.
 	[ "${WPMCP_LIVE_FUNNELKIT:-}" = 1 ] && flavor="-funnelkit-live"
 	# And WPMCP_LIVE_AMELIA=1 and Amelia Lite.
@@ -793,6 +823,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_DIVI:-}" = 1 ] && flavor="-divi-live"
 	# And WPMCP_LIVE_BETHEME=1 and the local BeTheme copy.
 	[ "${WPMCP_LIVE_BETHEME:-}" = 1 ] && flavor="-betheme-live"
+	# And WPMCP_LIVE_BRICKS=1 and the local Bricks theme copy.
+	[ "${WPMCP_LIVE_BRICKS:-}" = 1 ] && flavor="-bricks-live"
 	# And WPMCP_LIVE_MEMBERPRESS=1 and the local MemberPress copy.
 	[ "${WPMCP_LIVE_MEMBERPRESS:-}" = 1 ] && flavor="-memberpress-live"
 	# And WPMCP_LIVE_WC_SUBSCRIPTIONS=1, WooCommerce and the local Subscriptions copy.
@@ -1520,6 +1552,43 @@ run_live_activity_log() {
 	unset WPMCP_LIVE_ACTIVITY_LOG
 }
 
+# The live site gate group (issue #903), the same way: its own install with
+# the five real coming soon and maintenance plugins from wordpress.org, its
+# own database, and --fail-on-skipped. The plugins all claim the front door, so
+# each gets its own PHPUnit run with only that plugin loaded.
+run_live_site_gate() {
+	local version=$1 dir core config slug
+	export WPMCP_LIVE_SITE_GATE=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-site-gate-live" "$core")
+	RUN_CONFIGS+=("$config")
+	for slug in coming-soon wp-maintenance-mode under-construction-page maintenance cmp-coming-soon-maintenance; do
+		say "PHPUnit live site gate group on WordPress $version (real $slug)"
+		WPMCP_SITE_GATE_PLUGIN="$slug" WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+			"$PHP" vendor/bin/phpunit --group site-gate-live --fail-on-skipped || { unset WPMCP_LIVE_SITE_GATE; return 1; }
+	done
+	unset WPMCP_LIVE_SITE_GATE
+}
+
+# The live email log group (issue #905), the same way: its own install with
+# the real WP Mail Logging, Check and Log Email and Email Log from
+# wordpress.org, its own database, and --fail-on-skipped.
+run_live_email_log() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_EMAIL_LOG=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-email-log-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live email log group on WordPress $version (real WP Mail Logging, Check and Log Email and Email Log)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group email-log-live --fail-on-skipped
+	unset WPMCP_LIVE_EMAIL_LOG
+}
+
 # The live FunnelKit group (issue #500), the same way: its own install with
 # the real Funnel Builder and WooCommerce, its own database, and
 # --fail-on-skipped.
@@ -1739,6 +1808,24 @@ run_live_betheme() {
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
 		"$PHP" vendor/bin/phpunit --group betheme-live --fail-on-skipped
 	unset WPMCP_LIVE_BETHEME
+}
+
+# The live Bricks group (issue #914), the same way, with the Bricks theme
+# copy from WPMCP_BRICKS_SRC: its own install, its own database and
+# --fail-on-skipped. tests/bootstrap.php switches to the theme.
+run_live_bricks() {
+	local version=$1 dir core config
+	[ -f "${WPMCP_BRICKS_SRC:-}/style.css" ] || die "the live Bricks group needs WPMCP_BRICKS_SRC, a directory holding the Bricks theme"
+	export WPMCP_LIVE_BRICKS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-bricks-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Bricks group on WordPress $version (real Bricks from $WPMCP_BRICKS_SRC)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group bricks-live --fail-on-skipped
+	unset WPMCP_LIVE_BRICKS
 }
 
 # The live MemberPress group (issue #668), the same way, with the MemberPress
@@ -2074,6 +2161,8 @@ run_leg_body() {
 		live-crm) run_live_crm "$wp" ;;
 		live-helpdesk) run_live_helpdesk "$wp" ;;
 		live-activity-log) run_live_activity_log "$wp" ;;
+		live-site-gate) run_live_site_gate "$wp" ;;
+		live-email-log) run_live_email_log "$wp" ;;
 		live-funnelkit) run_live_funnelkit "$wp" ;;
 		live-polylang) run_live_polylang "$wp" ;;
 		live-breakdance) run_live_breakdance "$wp" ;;
@@ -2084,6 +2173,7 @@ run_leg_body() {
 		live-oxygen) run_live_oxygen "$wp" ;;
 		live-divi) run_live_divi "$wp" ;;
 		live-betheme) run_live_betheme "$wp" ;;
+		live-bricks) run_live_bricks "$wp" ;;
 		live-memberpress) run_live_memberpress "$wp" ;;
 		live-elementor-pro) run_live_elementor_pro "$wp" ;;
 		live-cache-settings) run_live_cache_settings "$wp" ;;

@@ -13,6 +13,7 @@ use WPMCP\Tools\Builders\Avada_Cache;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
 use WPMCP\Tools\Builders\BeTheme_Cache;
 use WPMCP\Tools\Builders\Breakdance_Cache;
+use WPMCP\Tools\Builders\Bricks_Cache;
 use WPMCP\Tools\Builders\Builder_Design_Refresh;
 use WPMCP\Tools\Builders\Oxygen_Classic_Cache;
 use WPMCP\Tools\Builders\Elementor_Cache;
@@ -2310,6 +2311,15 @@ class Rollback_Service
                     Breakdance_Cache::regenerate($object_id, $engine_builder);
                     break;
                 }
+            }
+        }
+
+        // Bricks' page CSS file is rebuilt from the restored layout (issue
+        // #914); its rows, editor mode included, came back with the post's meta.
+        foreach ([Bricks_Cache::CONTENT_KEY, Bricks_Cache::HEADER_KEY, Bricks_Cache::FOOTER_KEY, Bricks_Cache::EDITOR_MODE_KEY] as $bricks_key) {
+            if (isset($snapshotted_meta[ $bricks_key ]) || isset($current_meta[ $bricks_key ])) {
+                Bricks_Cache::regenerate($object_id);
+                break;
             }
         }
 
