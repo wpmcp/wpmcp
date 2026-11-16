@@ -174,6 +174,26 @@ class WPFormsConfigTest extends \WP_UnitTestCase
         $this->assertSame('message', $this->settings($this->form)['confirmations'][1]['type']);
     }
 
+    public function test_a_caller_without_unfiltered_html_keeps_the_form_json_intact(): void
+    {
+        // A sub-site admin on a network has no unfiltered_html; core's
+        // content_save_pre kses must not run over the form's JSON.
+        $deny = static fn ($caps, $cap) => 'unfiltered_html' === $cap ? [ 'do_not_allow' ] : $caps;
+        add_filter('map_meta_cap', $deny, 10, 2);
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $this->assertFalse(current_user_can('unfiltered_html'));
+        kses_init(); // core adds the save kses on set_current_user; redo it for this caller
+
+        $out = $this->write('update-confirmation', [ 'form_id' => $this->legacy, 'confirmation_id' => '1', 'message' => '<p>Hi <a href="https://example.com/?a=1">there</a></p><script>alert(1)</script>' ]);
+
+        $this->assertSame('<p>Hi <a href="https://example.com/?a=1">there</a></p>alert(1)', $out['result']['changes']['message']['after']);
+        $this->assertNotNull(json_decode((string) get_post($this->legacy)->post_content, true), 'the stored form must still be valid JSON');
+        $this->assertSame('<p>Hi <a href="https://example.com/?a=1">there</a></p>alert(1)', $this->settings($this->legacy)['confirmations'][1]['message']);
+        remove_filter('map_meta_cap', $deny, 10);
+        kses_remove_filters();
+        kses_init();
+    }
+
     public function test_message_is_kses_filtered_and_a_legacy_form_gets_its_confirmation_written(): void
     {
         add_filter('wpmcp_enable_forms_write', '__return_true');

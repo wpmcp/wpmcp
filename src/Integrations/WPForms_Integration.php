@@ -396,8 +396,21 @@ class WPForms_Integration extends Forms_Integration
     /** Save a changed form through Save_Filters::update_post, the way WPForms stores it (JSON, slashed). */
     private static function save_form_data(\WP_Post $post, array $data): void
     {
+        // The form is JSON in post_content. For a caller without unfiltered_html
+        // (a sub-site administrator on a network, or DISALLOW_UNFILTERED_HTML),
+        // content_save_pre runs wp_filter_post_kses over that JSON as if it were
+        // HTML and corrupts it ("<\/p>" is dropped). WPForms lifts those filters
+        // for its own form saves (WPForms_Form_Handler::remove_form_content_filters),
+        // so this does too, and gives such a caller the same kses on the decoded
+        // values instead, so no tag is allowed that the post kses would not allow.
+        if (! current_user_can('unfiltered_html')) {
+            $data = map_deep($data, static fn ($value) => is_string($value) ? wp_kses_post($value) : $value);
+        }
         $json   = function_exists('wpforms_encode') ? wpforms_encode($data) : wp_slash(wp_json_encode($data));
-        $result = \WPMCP\Safety\Save_Filters::update_post([ 'ID' => $post->ID, 'post_content' => $json ], true);
+        $result = \WPMCP\Safety\Save_Filters::without(
+            [ 'content_save_pre' ],
+            static fn () => \WPMCP\Safety\Save_Filters::update_post([ 'ID' => $post->ID, 'post_content' => $json ], true)
+        );
         if (is_wp_error($result) || ! $result) {
             throw new Operation_Error('update_failed', 'WPForms did not save the form.', [ 'form_id' => (int) $post->ID ]);
         }
