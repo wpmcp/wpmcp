@@ -361,6 +361,23 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'simple-history/index.php' );
     }
 
+    // The live site gate job (issue #903, WPMCP_LIVE_SITE_GATE=1) reads and
+    // toggles the real coming soon and maintenance plugins, one per PHPUnit
+    // run (WPMCP_SITE_GATE_PLUGIN names it): they all claim the front door.
+    if ( getenv( 'WPMCP_LIVE_SITE_GATE' ) && getenv( 'WPMCP_SITE_GATE_PLUGIN' ) ) {
+        $wpmcp_gate_files = [
+            'coming-soon'                 => 'coming-soon/coming-soon.php',
+            'wp-maintenance-mode'         => 'wp-maintenance-mode/wp-maintenance-mode.php',
+            'under-construction-page'     => 'under-construction-page/under-construction.php',
+            'maintenance'                 => 'maintenance/maintenance.php',
+            'cmp-coming-soon-maintenance' => 'cmp-coming-soon-maintenance/niteo-cmp.php',
+        ];
+        $wpmcp_gate_slug = (string) getenv( 'WPMCP_SITE_GATE_PLUGIN' );
+        if ( isset( $wpmcp_gate_files[ $wpmcp_gate_slug ] ) ) {
+            wpmcp_maybe_require_plugin( $wpmcp_gate_files[ $wpmcp_gate_slug ] );
+        }
+    }
+
     // The live FunnelKit job (issue #500, WPMCP_LIVE_FUNNELKIT=1) runs the
     // FunnelKit funnel writes through the free Funnel Builder's own REST
     // controllers, beside the WooCommerce loaded above. Loaded only on

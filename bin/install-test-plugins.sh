@@ -20,6 +20,8 @@
 # and Awesome Support only (bin/test-local.sh --live-helpdesk), or, with
 # WPMCP_LIVE_ACTIVITY_LOG=1, WP Activity Log and Simple History only
 # (bin/test-local.sh --live-activity-log), or, with
+# WPMCP_LIVE_SITE_GATE=1, the five coming soon and maintenance plugins only
+# (bin/test-local.sh --live-site-gate), or, with
 # WPMCP_LIVE_AMELIA=1, Amelia Lite only
 # (bin/test-local.sh --live-amelia), or, with WPMCP_LIVE_FUNNELKIT=1,
 # WooCommerce and FunnelKit Funnel Builder only (bin/test-local.sh
@@ -246,6 +248,21 @@ if [ "${WPMCP_LIVE_ACTIVITY_LOG:-}" = "1" ]; then
 	PLUGINS=(
 		"wp-security-audit-log:wp-security-audit-log.php"
 		"simple-history:index.php"
+	)
+fi
+
+# The live site gate job (issue #903) reads and toggles the real coming soon
+# and maintenance plugins, all free on wordpress.org. They are installed
+# together but loaded one at a time (WPMCP_SITE_GATE_PLUGIN in
+# tests/bootstrap.php), since they all want the front door. Exclusive too: the
+# stub-backed tests describe each plugin's settings from a fixture.
+if [ "${WPMCP_LIVE_SITE_GATE:-}" = "1" ]; then
+	PLUGINS=(
+		"coming-soon:coming-soon.php"
+		"wp-maintenance-mode:wp-maintenance-mode.php"
+		"under-construction-page:under-construction.php"
+		"maintenance:maintenance.php"
+		"cmp-coming-soon-maintenance:niteo-cmp.php"
 	)
 fi
 
