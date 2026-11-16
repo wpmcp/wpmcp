@@ -188,6 +188,36 @@ abstract class Cache_Settings_Adapter
         return [];
     }
 
+    /** @return array{object_type: string, object_id: string} the undo point a set op takes. */
+    public function snapshot_target(): array
+    {
+        return [ 'object_type' => 'option', 'object_id' => $this->option() ];
+    }
+
+    /** @param string[] $names Whether a rollback that restored $names restored this plugin's settings. */
+    public function owns_options(array $names): bool
+    {
+        return in_array($this->option(), $names, true);
+    }
+
+    /** Whether the plugin purges one post or one URL (a purge-<plugin>-cache op is offered). */
+    public function supports_targeted_purge(): bool
+    {
+        return false;
+    }
+
+    /** @return array<string, mixed> */
+    public function purge_post(int $post_id): array
+    {
+        return [];
+    }
+
+    /** @return array<string, mixed> */
+    public function purge_url(string $url): array
+    {
+        return [];
+    }
+
     /** After a rollback put this plugin's option back: refresh what the plugin derived from it. */
     public function after_restore(): void
     {
