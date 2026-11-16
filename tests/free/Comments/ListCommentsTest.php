@@ -42,7 +42,7 @@ class ListCommentsTest extends \WP_UnitTestCase
         $row = $out['comments'][0];
         $this->assertSame('First', $row['content']);
         $this->assertSame('Ada', $row['author']);
-        $this->assertSame('ada@example.com', $row['author_email']);
+        $this->assertSame('a***@example.com', $row['author_email']);
         $this->assertSame('approved', $row['status']);
         $this->assertSame($post_id, $row['post_id']);
     }

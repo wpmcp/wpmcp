@@ -2018,10 +2018,11 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-comments',
             'free',
-            'List comments, optionally by post and status, with paging',
+            'List comments by post and status (emails, IPs masked). view:akismet gives Akismet status and spam/pending counts',
             [
                 'type'       => 'object',
                 'properties' => [
+                    'view'     => [ 'type' => 'string', 'enum' => [ 'akismet' ] ],
                     'post_id'  => [ 'type' => 'integer' ],
                     'status'   => [ 'type' => 'string' ],
                     'per_page' => [ 'type' => 'integer' ],
@@ -2052,7 +2053,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/moderate-comment',
             'free',
-            'Set a comment\'s status: approve, unapprove, spam, trash or untrash. Reversible',
+            'Set a comment\'s status: approve, unapprove, spam, not_spam (Akismet learns), trash or untrash. Reversible',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2091,15 +2092,16 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-comment',
             'free',
-            'Permanently delete a comment. Off until the wpmcp_enable_delete_comment filter opts in; needs confirm:true. Rollback restores it under a new ID',
+            'Permanently delete a comment, or empty_spam:true for up to 100 spam. Off until the wpmcp_enable_delete_comment filter opts in; needs confirm:true. Rollback restores under a new ID',
             [
                 'type'       => 'object',
                 'properties' => [
                     'id'         => [ 'type' => 'integer' ],
+                    'empty_spam' => [ 'type' => 'boolean' ],
                     'confirm'    => [ 'type' => 'boolean' ],
                     'session_id' => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'id', 'confirm' ],
+                'required'   => [ 'confirm' ],
             ],
             [$delete_comment, 'handle'],
             'moderate_comments',

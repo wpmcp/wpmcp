@@ -27,6 +27,7 @@ class Moderate_Comment
         'spam'      => 'spam',
         'trash'     => 'trash',
         'untrash'   => 'approve',
+        'not_spam'  => 'unspam',
     ];
 
     public function handle(array $args): array
@@ -38,7 +39,7 @@ class Moderate_Comment
 
         $action = (string) ($args['status'] ?? '');
         if (! isset(self::ACTIONS[ $action ])) {
-            throw new \InvalidArgumentException('Unknown status. Use approve, unapprove, spam, trash or untrash.');
+            throw new \InvalidArgumentException('Unknown status. Use approve, unapprove, spam, not_spam, trash or untrash.');
         }
 
         if (! get_comment($id)) {
@@ -57,9 +58,18 @@ class Moderate_Comment
                 // 'untrash' has a dedicated core function; every other action
                 // is a plain status set. Both restore the comment to a normal
                 // state where needed and return false on failure.
-                $result = ('untrash' === $action)
-                    ? wp_untrash_comment($id)
-                    : wp_set_comment_status($id, self::ACTIONS[ $action ]);
+                // spam and not_spam go through wp_spam_comment() and
+                // wp_unspam_comment(), which fire spam_comment / unspam_comment;
+                // Akismet listens there to learn from the correction (#718).
+                if ('untrash' === $action) {
+                    $result = wp_untrash_comment($id);
+                } elseif ('spam' === $action) {
+                    $result = wp_spam_comment($id);
+                } elseif ('not_spam' === $action) {
+                    $result = wp_unspam_comment($id);
+                } else {
+                    $result = wp_set_comment_status($id, self::ACTIONS[ $action ]);
+                }
                 if (! $result) {
                     throw new \RuntimeException('Could not change the comment status.');
                 }
