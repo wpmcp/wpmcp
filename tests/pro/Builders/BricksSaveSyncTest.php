@@ -1,11 +1,13 @@
 <?php
 
 namespace Bricks {
-    if (! class_exists('Bricks\\Assets_Files')) {
+    if (! defined('BRICKS_VERSION') && ! class_exists('Bricks\\Assets_Files')) {
         /**
          * Stand-in for Bricks' CSS file generator, recording the calls wpmcp
          * makes. Only reached when the wpmcp_bricks_active filter says the
-         * theme is loaded.
+         * theme is loaded. Never declared beside the real theme (the live
+         * Bricks leg): Bricks' autoloader cannot resolve this class, so a
+         * class_exists() check alone would let the stand-in shadow it.
          */
         class Assets_Files // phpcs:ignore
         {

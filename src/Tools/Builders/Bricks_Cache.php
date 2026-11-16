@@ -120,7 +120,9 @@ final class Bricks_Cache
      * Rebuild what Bricks derives from the page's layout, the way its
      * save_post hook does: the page's CSS file (a no-op inside Bricks unless
      * CSS loading is set to external files) and the cached template list. A
-     * no-op when Bricks is not loaded: nothing serves those files then.
+     * no-op when Bricks is not loaded: nothing serves those files then. Bricks
+     * loads Assets_Files only when CSS loading is set to external files
+     * (Assets::__construct), so its absence means inline CSS: nothing to rebuild.
      */
     public static function regenerate(int $post_id): void
     {

@@ -94,6 +94,18 @@ class BricksLiveTest extends \WP_UnitTestCase
         unset($before_css);
     }
 
+    public function test_inline_css_loading_writes_the_page_without_a_css_file(): void
+    {
+        \Bricks\Database::$global_settings['cssLoading'] = 'inline';
+        $id = self::factory()->post->create(['post_type' => 'page', 'post_status' => 'publish']);
+
+        $out = (new Update_Builder_Content())->handle(['post_id' => $id, 'builder' => 'bricks', 'content' => wp_json_encode(self::NEW)]);
+        $this->assertIsArray($out, is_wp_error($out) ? $out->get_error_code() . ': ' . $out->get_error_message() : '');
+
+        $this->assertTrue(\Bricks\Helpers::render_with_bricks($id));
+        $this->assertSame('', $this->css_file($id), 'inline CSS loading keeps no page CSS file');
+    }
+
     public function test_a_post_type_bricks_does_not_edit_is_refused(): void
     {
         $id  = self::factory()->post->create(['post_type' => 'post']);

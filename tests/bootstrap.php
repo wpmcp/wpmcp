@@ -197,6 +197,13 @@ tests_add_filter( 'muplugins_loaded', function () {
     if ( getenv( 'WPMCP_LIVE_BRICKS' ) && is_dir( WP_CONTENT_DIR . '/themes/bricks' ) ) {
         add_filter( 'pre_option_template', static fn () => 'bricks' );
         add_filter( 'pre_option_stylesheet', static fn () => 'bricks' );
+        // CSS loading set to external files, as a site using them stores it,
+        // before Bricks reads its settings: Bricks loads its CSS file
+        // generator (includes/assets/files.php) only from Assets' constructor
+        // in that mode, and its autoloader cannot find that class otherwise.
+        $wpmcp_bricks_files = static fn ( $settings ) => array_merge( is_array( $settings ) ? $settings : [], [ 'cssLoading' => 'file' ] );
+        add_filter( 'option_bricks_global_settings', $wpmcp_bricks_files );
+        add_filter( 'default_option_bricks_global_settings', $wpmcp_bricks_files );
     }
 
     // The live theme add-on job (issue #656, WPMCP_LIVE_THEME_PRO=astra,
