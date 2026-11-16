@@ -9,7 +9,8 @@ if (! defined('ABSPATH')) {
 /**
  * Read-only: list comments as safe summary rows, optionally filtered by post
  * and moderation status, with paging. Commenter emails and IPs are masked in
- * list rows (masked:true, issue #718); get-comment returns them in full.
+ * list rows (masked:true, issue #718); get-comment returns them in full only
+ * at manage_options.
  *
  * view:'akismet' returns Akismet's status (active, whether a key is
  * configured, never the key itself), its strictness and spam counters from
