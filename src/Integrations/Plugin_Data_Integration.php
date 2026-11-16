@@ -37,6 +37,10 @@ if (! defined('ABSPATH')) {
  *    counts and masked visitor IPs, and created, changed and trashed (off
  *    until wpmcp_enable_pretty_links_write or
  *    wpmcp_enable_thirstyaffiliates_write), each write undoable.
+ *  - Issue #687 adds the Site Reviews ops (Site_Reviews_Pack): reviews
+ *    listed (reviewer emails and IPs masked), read one at a time and
+ *    summarised, and approved, unapproved, trashed or replied to (off until
+ *    wpmcp_enable_site_reviews_write), each write under a post snapshot.
  *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS,
  *    LifterLMS and LearnDash course, section, lesson and quiz trees with
  *    snapshotted writes, and read-only enrollments (LearnDash also enrolls,
@@ -76,6 +80,11 @@ if (! defined('ABSPATH')) {
  *    masked in lists, replied to, noted and set to a status, each ticket
  *    write off until wpmcp_enable_helpdesk_write and snapshotted as a
  *    'helpdesk_ticket' image (Helpdesk_Pack).
+ *  - Issue #702 adds the Action Scheduler ops (Action_Scheduler_Pack): queue
+ *    actions listed with args masked and read one at a time with their log,
+ *    and pending actions canceled (undoable, as an 'action_scheduler'
+ *    snapshot) or run now (not undoable, confirm:true), both off until
+ *    wpmcp_enable_action_scheduler_write.
  *
  * The pair registers only while at least one of them is loaded (the LMS
  * and TablePress ops only on an install that may run the paid tier), and
@@ -102,7 +111,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Site_Reviews_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
@@ -121,7 +130,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, WP Mail Logging, Check and Log Email and Email Log emails'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
@@ -147,9 +156,11 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'BuddyPress', false, BuddyPress_Pack::operations() ],
             [ 'WS Form', false, WS_Form_Pack::operations() ],
             [ 'WP Activity Log, Simple History', true, Activity_Log_Pack::operations() ],
+            [ 'Action Scheduler', false, Action_Scheduler_Pack::operations() ],
             [ 'WP Mail Logging, Check and Log Email, Email Log', true, Email_Log_Pack::operations() ],
             [ 'Pretty Links', false, Pretty_Links_Pack::operations() ],
             [ 'ThirstyAffiliates', false, Thirsty_Affiliates_Pack::operations() ],
+            [ 'Site Reviews', false, Site_Reviews_Pack::operations() ],
         ];
         foreach (LMS_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
@@ -188,9 +199,11 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Code_Snippets_Pack::operations(),
             WS_Form_Pack::operations(),
             Activity_Log_Pack::operations(),
+            Action_Scheduler_Pack::operations(),
             Email_Log_Pack::operations(),
             Pretty_Links_Pack::operations(),
             Thirsty_Affiliates_Pack::operations(),
+            Site_Reviews_Pack::operations(),
             BuddyPress_Pack::operations(),
             LMS_Pack::operations(),
             TablePress_Pack::operations(),

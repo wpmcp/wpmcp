@@ -81,12 +81,18 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // Avada's global options, written by the Avada design_system
             // scope on the builder pair (issue #637).
             'fusion_options',
+            // LiteSpeed Cache's own settings, one option per id, written by
+            // set-litespeed-settings on the theme pair (issue #933).
+            'litespeed.conf.*',
             // WPBakery's saved templates, written by the builder pair's
             // templates scope (issue #639).
             'wpb_js_templates',
             // Code Snippets' own recently deactivated list, put back by a
             // snippet activation's rollback (issue #576).
             'recently_active_snippets',
+            // Post SMTP's settings, whose from address and name the
+            // set-post-smtp-from op changes (issue #696).
+            'postman_options',
         ],
         'transient'      => [
             'scrape_key_*',

@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\BuddyPress_Rows_Snapshot;
 use WPMCP\Safety\Snapshot_Store;
 
@@ -124,7 +125,7 @@ final class BuddyPress_Pack
             ],
             'buddypress-list-group-members'   => [
                 'mode'         => 'read',
-                'description'  => 'List a BuddyPress group\'s members (user id, name, role admin/mod/member/banned/pending, title). Private groups for their members only; pending and banned rows for group admins. Email only for callers with list_users',
+                'description'  => 'List a BuddyPress group\'s members (user id, name MASKED, role admin/mod/member/banned/pending, title). Private groups for their members only; pending and banned rows for group admins. Email, MASKED, only for callers with list_users',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -139,7 +140,7 @@ final class BuddyPress_Pack
             ],
             'buddypress-list-activity'        => [
                 'mode'         => 'read',
-                'description'  => 'List BuddyPress activity items newest first, with content; filter by component, type or user_id. Hidden and spam items are listed for moderators only. Email only for callers with list_users; activity meta is never returned',
+                'description'  => 'List BuddyPress activity items newest first, with content; author, emails and IPs in the text MASKED; filter by component, type or user_id. Hidden and spam items are listed for moderators only. On BuddyBoss, others get only items they may see (public, loggedin, own onlyme, friends), published and unsuspended; media, document and video items are not listed. Email only for callers with list_users; activity meta is never returned',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -434,8 +435,8 @@ final class BuddyPress_Pack
         $sql                 = implode(' AND ', $where);
 
         // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $sql holds only literals and placeholders, matched by the spread values.
-        $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE {$sql}", $table, ...$vals));
-        $rows  = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE {$sql} ORDER BY date_created DESC, id DESC LIMIT %d OFFSET %d", $table, ...array_merge($vals, [ $per_page, $offset ])), ARRAY_A);
+        $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i a WHERE {$sql}", $table, ...$vals));
+        $rows  = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i a WHERE {$sql} ORDER BY date_created DESC, id DESC LIMIT %d OFFSET %d", $table, ...array_merge($vals, [ $per_page, $offset ])), ARRAY_A);
         // phpcs:enable
 
         return [
@@ -469,7 +470,7 @@ final class BuddyPress_Pack
 
         // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $sql holds only literals and placeholders, matched by the spread values.
         $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE {$sql}", $table, $group));
-        $rows  = $offset < $total ? (array) $wpdb->get_results($wpdb->prepare("SELECT id, user_id, is_admin, is_mod, user_title, date_modified, is_confirmed, is_banned FROM %i WHERE {$sql} ORDER BY id ASC LIMIT %d OFFSET %d", $table, $group, $per_page, $offset), ARRAY_A) : [];
+        $rows  = $offset < $total ? (array) $wpdb->get_results($wpdb->prepare("SELECT id, user_id, is_admin, is_mod, user_title, date_modified, is_confirmed, is_banned FROM %i a WHERE {$sql} ORDER BY id ASC LIMIT %d OFFSET %d", $table, $group, $per_page, $offset), ARRAY_A) : [];
         // phpcs:enable
 
         // Current membership requests follow the member rows, as pending.
@@ -495,14 +496,14 @@ final class BuddyPress_Pack
             }
             $members[] = [
                 'user_id'       => $user['id'],
-                'name'          => $user['name'],
+                'name'          => Masking::value($user['name']),
                 'role'          => $role,
                 'title'         => (string) $row['user_title'],
                 'date_modified' => (string) $row['date_modified'],
-            ] + (array_key_exists('email', $user) ? [ 'email' => $user['email'] ] : []);
+            ] + (array_key_exists('email', $user) ? [ 'email' => Masking::value($user['email']) ] : []);
         }
 
-        return [ 'group_id' => $group, 'total' => $total, 'members' => $members ];
+        return [ 'group_id' => $group, 'total' => $total, 'masked' => true, 'members' => $members ];
     }
 
     /**
@@ -855,6 +856,132 @@ final class BuddyPress_Pack
         ];
     }
 
+    /** Probe results per table and column, for the life of the request. @var array<string, bool> */
+    private static array $schema_seen = [];
+
+    /** Whether this is BuddyBoss Platform (its schema always has the privacy, status and suspend parts). */
+    private static function is_buddyboss(): bool
+    {
+        return (bool) apply_filters('wpmcp_buddyboss_active', defined('BP_PLATFORM_VERSION'));
+    }
+
+    /**
+     * Whether a column or table of BuddyPress's own schema exists. On BuddyBoss
+     * Platform the answer is always yes, so the read rules never depend on a
+     * probe that can fail: if the schema were somehow missing, the list query
+     * errors and returns nothing instead of returning private items. Elsewhere
+     * the probe is cached per request.
+     */
+    private static function has_schema(string $table, ?string $column = null): bool
+    {
+        global $wpdb;
+        if (self::is_buddyboss()) {
+            return true;
+        }
+        $key = $table . '|' . ( $column ?? '' );
+        if (! isset(self::$schema_seen[ $key ])) {
+            $suppress = $wpdb->suppress_errors(true);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- probing a third-party table's live shape, cached in $schema_seen.
+            $columns = (array) $wpdb->get_col($wpdb->prepare('SHOW COLUMNS FROM %i', $table));
+            $wpdb->suppress_errors($suppress);
+            self::$schema_seen[ $key ] = null === $column ? [] !== $columns : in_array($column, $columns, true);
+        }
+        return self::$schema_seen[ $key ];
+    }
+
+    /**
+     * The extra read rules BuddyBoss Platform puts on the activity table, as
+     * SQL conditions for a caller who is not a moderator: per-item privacy
+     * (public, loggedin, their own onlyme, friends only for friends), the
+     * published status and bp_suspend moderation. BuddyBoss's own queries
+     * enforce these (bp-activity-filters.php, BP_Suspend_Activity), and the
+     * pack reads the table directly, so it must apply them itself. Each rule is
+     * added only when its column or table exists, so stock BuddyPress, which
+     * has neither, is unchanged. Replies follow the item they sit under.
+     *
+     * @param array<int, mixed> $vals placeholder values, appended in order
+     * @return string[]
+     */
+    private static function platform_activity_conditions(string $activity_table, array &$vals): array
+    {
+        $own = static function (string $alias) use ($activity_table, &$vals): ?string {
+            $rules = [];
+            if (self::has_schema($activity_table, 'status')) {
+                $rules[] = "{$alias}.status = 'published'";
+            }
+            if (self::has_schema($activity_table, 'privacy')) {
+                $user    = get_current_user_id();
+                $friends = [ $user ];
+                if (function_exists('friends_get_friend_user_ids') && $user > 0) {
+                    $friends = array_merge($friends, array_map('intval', (array) friends_get_friend_user_ids($user)));
+                }
+                $friends = array_values(array_unique(array_filter($friends)));
+                $levels  = $user > 0 ? "'public', 'loggedin'" : "'public'";
+                $rule    = "( {$alias}.privacy IN ({$levels})";
+                if ($user > 0) {
+                    // Group-only items only in their own group (the group access rule below then applies).
+                    $rule .= " OR ( {$alias}.privacy = 'grouponly' AND {$alias}.component = 'groups' )";
+                    $rule .= " OR ( {$alias}.privacy = 'onlyme' AND {$alias}.user_id = %d )";
+                    $vals[] = $user;
+                    if ([] !== $friends) {
+                        $rule .= " OR ( {$alias}.privacy = 'friends' AND {$alias}.user_id IN (" . implode(', ', array_fill(0, count($friends), '%d')) . ') )';
+                        array_push($vals, ...$friends);
+                    }
+                }
+                $rules[] = $rule . ' )';
+            }
+            $suspend = self::prefix_table('bp_suspend');
+            if (self::has_schema($suspend)) {
+                $rules[] = "NOT EXISTS ( SELECT 1 FROM %i s WHERE s.item_id = {$alias}.id AND s.item_type = ( CASE WHEN {$alias}.type = 'activity_comment' THEN 'activity_comment' ELSE 'activity' END ) AND ( s.hide_sitewide = 1 OR s.hide_parent = 1 OR s.user_suspended = 1 ) )";
+                $vals[]  = $suspend;
+            }
+            return [] === $rules ? null : implode(' AND ', $rules);
+        };
+
+        $item = $own('a');
+        if (null === $item) {
+            return [];
+        }
+        // $own() pushed the values for 'a'; build the parent rule against alias 'r'
+        // into its own value list so the placeholders stay in SQL order.
+        $outer = $vals;
+        $vals  = [];
+        $root  = $own('r');
+        $root_vals = $vals;
+        $vals  = $outer;
+        $out   = [ $item ];
+        if (null !== $root) {
+            $out[] = "NOT ( a.type = 'activity_comment' AND a.item_id IN ( SELECT r.id FROM %i r WHERE NOT ( {$root} ) ) )";
+            $vals[] = $activity_table;
+            array_push($vals, ...$root_vals);
+        }
+        return $out;
+    }
+
+    private static function prefix_table(string $name): string
+    {
+        return BuddyPress_Rows_Snapshot::prefix() . $name;
+    }
+
+    /**
+     * A listed activity item with the author's name and email masked, also
+     * where the name sits inside the item's action text, and every email or
+     * IP address in the action and the content masked.
+     *
+     * @param array<string, mixed> $item
+     * @return array<string, mixed>
+     */
+    private static function mask_activity(array $item): array
+    {
+        $name = (string) ($item['user']['name'] ?? '');
+        $item['user'] = Masking::keys((array) $item['user'], [ 'name', 'email' ]);
+        foreach ([ 'action', 'content' ] as $field) {
+            $text = '' === $name ? (string) $item[ $field ] : str_replace($name, (string) $item['user']['name'], (string) $item[ $field ]);
+            $item[ $field ] = Activity_Log_Pack::mask_text($text);
+        }
+        return $item;
+    }
+
     private static function list_activity(array $args): array
     {
         global $wpdb;
@@ -870,6 +997,7 @@ final class BuddyPress_Pack
         $table = BuddyPress_Rows_Snapshot::table('bp_activity');
         if (! self::is_moderator()) {
             $where[] = 'hide_sitewide = 0 AND is_spam = 0';
+            array_push($where, ...self::platform_activity_conditions($table, $vals));
             if (true === self::requirement('groups')) {
                 // Activity in a group the caller cannot access, and replies
                 // under it, as bp_activity_user_can_read() decides: an item
@@ -889,16 +1017,16 @@ final class BuddyPress_Pack
         $sql                 = implode(' AND ', $where);
 
         // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $sql holds only literals and placeholders, matched by the spread values.
-        $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i WHERE {$sql}", $table, ...$vals));
-        $rows  = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE {$sql} ORDER BY date_recorded DESC, id DESC LIMIT %d OFFSET %d", $table, ...array_merge($vals, [ $per_page, $offset ])), ARRAY_A);
+        $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i a WHERE {$sql}", $table, ...$vals));
+        $rows  = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i a WHERE {$sql} ORDER BY date_recorded DESC, id DESC LIMIT %d OFFSET %d", $table, ...array_merge($vals, [ $per_page, $offset ])), ARRAY_A);
         // phpcs:enable
 
         $users = [];
         $items = [];
         foreach ($rows as $row) {
-            $items[] = self::activity_view($row, $users);
+            $items[] = self::mask_activity(self::activity_view($row, $users));
         }
-        return [ 'total' => $total, 'activity' => $items ];
+        return [ 'total' => $total, 'masked' => true, 'activity' => $items ];
     }
 
     private static function hide_activity(int $id, bool $hidden, string $operation): array

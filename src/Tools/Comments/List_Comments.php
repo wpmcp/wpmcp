@@ -8,10 +8,15 @@ if (! defined('ABSPATH')) {
 
 /**
  * Read-only: list comments as safe summary rows, optionally filtered by post
- * and moderation status, with paging. Comments are generally public content,
- * so the author name, email, url and body are returned as stored; this tool
- * adds no new exposure beyond what WordPress already renders. It never touches
- * Safe_Mutation (reads have nothing to roll back).
+ * and moderation status, with paging. Commenter emails and IPs are masked in
+ * list rows by the shared Privacy\Masking rule (masked: true, issues #718 and
+ * the list masking audit); name, url, body and status stay readable for
+ * moderation, and get-comment returns them in full only at manage_options.
+ *
+ * view:'akismet' returns Akismet's status (active, whether a key is
+ * configured, never the key itself), its strictness and spam counters from
+ * its options, plus the site's spam and pending comment counts.
+ * It never touches Safe_Mutation (reads have nothing to roll back).
  */
 class List_Comments
 {
@@ -28,6 +33,10 @@ class List_Comments
 
     public function handle(array $args): array
     {
+        if ('akismet' === ($args['view'] ?? '')) {
+            return self::akismet_status();
+        }
+
         $per_page = max(1, min(100, (int) ($args['per_page'] ?? 20)));
         $page     = max(1, (int) ($args['page'] ?? 1));
         $post_id  = (int) ($args['post_id'] ?? 0);
@@ -54,7 +63,7 @@ class List_Comments
 
         $rows = [];
         foreach ((array) $comments as $comment) {
-            $rows[] = Comment_View::row($comment);
+            $rows[] = Comment_View::list_row($comment);
         }
 
         return [
@@ -62,6 +71,33 @@ class List_Comments
             'total'    => $total,
             'page'     => $page,
             'post_id'  => $post_id,
+            'masked'   => true,
+        ];
+    }
+
+    /**
+     * Akismet status from its own options. The API key is reported only as
+     * configured yes/no; it never leaves this method.
+     */
+    public static function akismet_status(): array
+    {
+        // Filterable like every pack's presence check, so tests never stub the real class.
+        $active = (bool) apply_filters('wpmcp_akismet_active', defined('AKISMET_VERSION') || class_exists('Akismet'));
+        $key    = defined('WPCOM_API_KEY') ? (string) constant('WPCOM_API_KEY') : (string) get_option('wordpress_api_key', '');
+        $counts = wp_count_comments();
+
+        return [
+            'akismet' => [
+                'active'            => $active,
+                'version'           => defined('AKISMET_VERSION') ? (string) constant('AKISMET_VERSION') : null,
+                'key_configured'    => '' !== trim($key),
+                'strict'            => '1' === (string) get_option('akismet_strictness', '0'),
+                'spam_caught_total' => (int) get_option('akismet_spam_count', 0),
+            ],
+            'counts'  => [
+                'spam'    => (int) ($counts->spam ?? 0),
+                'pending' => (int) ($counts->moderated ?? 0),
+            ],
         ];
     }
 }

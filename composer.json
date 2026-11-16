@@ -35,6 +35,7 @@
     "lint:wpcs:update-baseline": "php bin/check-phpcs-baseline.php --update",
     "compliance": "php tools/compliance/bin/compliance.php --profile=distribution",
     "compliance:wporg": "php tools/compliance/bin/compliance.php --profile=wporg-free --no-artifact",
+    "check:flavors": "bash bin/check-flavors.sh",
     "build:wporg": "bash scripts/build-wporg-release.sh",
     "build:woo": "bash scripts/build-woo-release.sh"
   },

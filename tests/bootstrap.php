@@ -87,6 +87,14 @@ tests_add_filter( 'muplugins_loaded', function () {
     if ( getenv( 'WPMCP_LIVE_FORMS' ) ) {
         wpmcp_maybe_require_plugin( 'contact-form-7/wp-contact-form-7.php' );
         wpmcp_maybe_require_plugin( 'flamingo/flamingo.php' );
+        // Issues #674 and #675: the free form plugins the notification,
+        // confirmation and entry-delete ops are verified against.
+        wpmcp_maybe_require_plugin( 'wpforms-lite/wpforms.php' );
+        wpmcp_maybe_require_plugin( 'formidable/formidable.php' );
+        wpmcp_maybe_require_plugin( 'ninja-forms/ninja-forms.php' );
+        wpmcp_maybe_require_plugin( 'fluentform/fluentform.php' );
+        wpmcp_maybe_require_plugin( 'forminator/forminator.php' );
+        wpmcp_maybe_require_plugin( 'sureforms/sureforms.php' );
     }
 
     // The live blocks job (issue #287, WPMCP_LIVE_BLOCKS=1) renders blocks
@@ -361,6 +369,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'simple-history/index.php' );
     }
 
+    // The live Action Scheduler job (issue #702, WPMCP_LIVE_ACTION_SCHEDULER=1)
+    // runs the Action Scheduler ops against the standalone plugin from
+    // wordpress.org. Loaded only on request, and WooCommerce is not installed
+    // in that job, so the copy that loads is the standalone one.
+    if ( getenv( 'WPMCP_LIVE_ACTION_SCHEDULER' ) ) {
+        wpmcp_maybe_require_plugin( 'action-scheduler/action-scheduler.php' );
+    }
+
     // The live site gate job (issue #903, WPMCP_LIVE_SITE_GATE=1) reads and
     // toggles the real coming soon and maintenance plugins, one per PHPUnit
     // run (WPMCP_SITE_GATE_PLUGIN names it): they all claim the front door.
@@ -440,11 +456,28 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'thirstyaffiliates/thirstyaffiliates.php' );
     }
 
+    // The live Site Reviews job (issue #687, WPMCP_LIVE_SITE_REVIEWS=1) runs
+    // the Site Reviews ops through the real free plugin. Loaded only on
+    // request: the stub-backed tests build its tables from fixtures.
+    if ( getenv( 'WPMCP_LIVE_SITE_REVIEWS' ) ) {
+        wpmcp_maybe_require_plugin( 'site-reviews/site-reviews.php' );
+    }
+
     // The live WP Mail SMTP job (WPMCP_LIVE_WP_MAIL_SMTP=1) runs the WP Mail
     // SMTP ops through the real plugin. Loaded only on request: the
     // stub-backed WP Mail SMTP tests define a stand-in for its Options class.
     if ( getenv( 'WPMCP_LIVE_WP_MAIL_SMTP' ) ) {
         wpmcp_maybe_require_plugin( 'wp-mail-smtp/wp_mail_smtp.php' );
+    }
+
+    // The live FluentSMTP and Post SMTP jobs (issue #696, WPMCP_LIVE_FLUENT_SMTP=1
+    // or WPMCP_LIVE_POST_SMTP=1). One per install: both define wp_mail(), and
+    // the stub-backed tests define stand-ins for their settings API.
+    if ( getenv( 'WPMCP_LIVE_FLUENT_SMTP' ) ) {
+        wpmcp_maybe_require_plugin( 'fluent-smtp/fluent-smtp.php' );
+    }
+    if ( getenv( 'WPMCP_LIVE_POST_SMTP' ) ) {
+        wpmcp_maybe_require_plugin( 'post-smtp/postman-smtp.php' );
     }
 
     // The live Code Snippets job (issue #576, WPMCP_LIVE_CODE_SNIPPETS=1) runs
@@ -547,6 +580,15 @@ tests_add_filter( 'init', function () {
     }
 }, 20 );
 
+// The live FluentSMTP job's email log table, built by FluentSMTP's own
+// activator (its DB migrator) once per run, before any test transaction
+// starts. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_FLUENT_SMTP' ) && class_exists( '\\FluentMail\\Includes\\Activator' ) ) {
+        \FluentMail\Includes\Activator::handle( false );
+    }
+}, 1 );
+
 // The live CRM job's tables, built by FluentCRM's and MailPoet's own
 // activation routines once per run, before any test transaction starts.
 // FluentCRM reads its options table from init priority 5, so its tables are
@@ -617,6 +659,16 @@ tests_add_filter( 'init', function () {
         \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationSettingsHook::init();
     }
 }, 1 );
+
+// The live Site Reviews job's tables, built by Site Reviews' own Tables class
+// once per run, before any test transaction starts, and its role capabilities
+// (the harness activates no plugin). A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_SITE_REVIEWS' ) && function_exists( 'glsr' ) ) {
+        glsr( \GeminiLabs\SiteReviews\Database\Tables::class )->createTables();
+        glsr( \GeminiLabs\SiteReviews\Role::class )->resetAll();
+    }
+}, 20 );
 
 // The live Code Snippets job's table, built by Code Snippets' own DB class
 // once per run, before any test transaction starts. A no-op everywhere else.

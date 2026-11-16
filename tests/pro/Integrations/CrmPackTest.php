@@ -37,7 +37,7 @@ require_once __DIR__ . '/../../support/crm-doubles.php';
  */
 class CrmPackTest extends \WP_UnitTestCase
 {
-    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active' ];
+    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active', 'wpmcp_action_scheduler_active' ];
 
     private const LISTS = 'FluentCrm\\App\\Models\\Lists';
 
@@ -253,6 +253,34 @@ class CrmPackTest extends \WP_UnitTestCase
     // ---------------------------------------------------------------
     // Reads
     // ---------------------------------------------------------------
+
+    public function test_fluentcrm_list_contacts_masks_personal_data_and_get_contact_stays_full(): void
+    {
+        $ada = $this->fc_contact('ada@example.com', 'subscribed', [ 'first_name' => 'Ada', 'last_name' => 'Lovelace' ]);
+
+        $out = $this->ok($this->read('fluentcrm-list-contacts'));
+        $this->assertTrue($out['masked']);
+        $this->assertSame('a***@example.com', $out['contacts'][0]['email']);
+        $this->assertSame('A***', $out['contacts'][0]['first_name']);
+        $this->assertSame('L***', $out['contacts'][0]['last_name']);
+        $this->assertSame($ada, $out['contacts'][0]['id']);
+        $this->assertSame([ $ada ], array_column($this->ok($this->read('fluentcrm-list-contacts', [ 'search' => 'ada@example.com' ]))['contacts'], 'id'), 'search still matches the real value');
+
+        $one = $this->ok($this->read('fluentcrm-get-contact', [ 'id' => $ada ]));
+        $this->assertSame('ada@example.com', $one['email']);
+        $this->assertSame('Ada', $one['first_name']);
+    }
+
+    public function test_mailpoet_list_contacts_masks_personal_data(): void
+    {
+        $this->mp_contact('ada@example.com', 'subscribed', [ 'first_name' => 'Ada', 'last_name' => 'Lovelace' ]);
+
+        $out = $this->ok($this->read('mailpoet-list-contacts'));
+        $this->assertTrue($out['masked']);
+        $this->assertSame('a***@example.com', $out['contacts'][0]['email']);
+        $this->assertSame('A***', $out['contacts'][0]['first_name']);
+        $this->assertSame('L***', $out['contacts'][0]['last_name']);
+    }
 
     public function test_fluentcrm_reads_contacts_lists_tags_fields_campaigns_and_automations(): void
     {

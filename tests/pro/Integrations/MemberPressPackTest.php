@@ -44,7 +44,7 @@ class MemberPressPackTest extends \WP_UnitTestCase
     ];
 
     /** The other plugin-data plugins, off so only MemberPress decides whether the pair is available. */
-    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active' ];
+    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active', 'wpmcp_action_scheduler_active' ];
 
     private int $admin;
 
@@ -283,7 +283,11 @@ class MemberPressPackTest extends \WP_UnitTestCase
         $row = array_column($all['members'], null, 'user_id')[ $ada ];
         $this->assertSame([ 'user_id', 'user_login', 'display_name', 'email', 'active_memberships', 'inactive_memberships', 'transactions', 'active_subscriptions', 'total_spent', 'member_since' ], array_keys($row));
         $this->assertSame([ $gold, $silver ], $row['active_memberships']);
-        $this->assertSame('ada@example.org', $row['email']);
+        $this->assertTrue($all['masked']);
+        $this->assertSame('a***@example.org', $row['email']);
+        $this->assertSame('A***', $row['display_name']);
+        $this->assertSame('a***', $row['user_login']);
+        $this->assertStringNotContainsString('ada@example.org', wp_json_encode($all));
 
         $active = $this->ok($this->read('memberpress-list-members', [ 'membership_id' => $gold, 'status' => 'active' ]))['result'];
         $this->assertSame([ $ada ], array_column($active['members'], 'user_id'));
@@ -437,6 +441,64 @@ class MemberPressPackTest extends \WP_UnitTestCase
         Rollback_Service::restore_session($out['session_id']);
         $this->assertSame('trash', get_post_status($id));
         $this->assertSame([], wpmcp_test_memberpress_conditions($id), 'the access rows the create wrote are removed');
+    }
+
+    /**
+     * Issue #867: MemberPress reads its rules from a cached list it rebuilds
+     * only on a wp-admin save, so a rule written over MCP must rebuild it
+     * itself, and so must the undo.
+     */
+    public function test_a_rule_written_over_mcp_is_enforced_at_once_and_its_undo_lifts_it(): void
+    {
+        $gold  = $this->membership('Gold');
+        $other = self::factory()->post->create([ 'post_type' => 'page', 'post_title' => 'Other' ]);
+        $page  = self::factory()->post->create([ 'post_type' => 'page', 'post_title' => 'Lounge' ]);
+        $this->rule('single_page', (string) $other, [ [ 'membership', $gold ] ]);
+        $this->assertFalse(wpmcp_test_memberpress_locked($page), 'the cached rule list is primed without the new rule');
+
+        $out = $this->ok($this->write('memberpress-create-rule', [
+            'type' => 'single_page', 'content' => (string) $page, 'status' => 'publish',
+            'access' => [ [ 'type' => 'membership', 'condition' => (string) $gold ] ],
+        ]));
+        $this->assertTrue(wpmcp_test_memberpress_locked($page), 'a created rule is enforced without a wp-admin save');
+
+        Rollback_Service::restore_session($out['session_id']);
+        $this->assertFalse(wpmcp_test_memberpress_locked($page), 'undoing the create lifts the protection');
+    }
+
+    public function test_a_rule_update_that_changes_content_or_status_is_enforced_at_once_and_its_undo_restores_the_old_list(): void
+    {
+        $gold = $this->membership('Gold');
+        $a    = self::factory()->post->create([ 'post_type' => 'page', 'post_title' => 'A' ]);
+        $b    = self::factory()->post->create([ 'post_type' => 'page', 'post_title' => 'B' ]);
+        $rule = $this->rule('single_page', (string) $a, [ [ 'membership', $gold ] ]);
+        $this->assertTrue(wpmcp_test_memberpress_locked($a));
+        $this->assertFalse(wpmcp_test_memberpress_locked($b));
+
+        $out = $this->ok($this->write('memberpress-update-rule', [ 'id' => $rule, 'content' => (string) $b ]));
+        $this->assertTrue(wpmcp_test_memberpress_locked($b));
+        $this->assertFalse(wpmcp_test_memberpress_locked($a));
+        Rollback_Service::restore_session($out['session_id']);
+        $this->assertTrue(wpmcp_test_memberpress_locked($a));
+        $this->assertFalse(wpmcp_test_memberpress_locked($b));
+
+        $off = $this->ok($this->write('memberpress-update-rule', [ 'id' => $rule, 'status' => 'draft' ]));
+        $this->assertFalse(wpmcp_test_memberpress_locked($a), 'a rule taken to draft stops applying');
+        Rollback_Service::restore_session($off['session_id']);
+        $this->assertTrue(wpmcp_test_memberpress_locked($a));
+    }
+
+    public function test_membership_writes_rebuild_memberpress_s_cached_membership_list(): void
+    {
+        $this->membership('Existing');
+        $ids = static fn (): array => array_map(static fn ($m): int => (int) $m->ID, \MeprCptModel::all('MeprProduct'));
+        $this->assertCount(1, $ids());
+
+        $out = $this->ok($this->write('memberpress-create-membership', [ 'title' => 'Gold', 'status' => 'publish' ]));
+        $new = $out['result']['membership']['id'];
+        $this->assertContains($new, $ids());
+        Rollback_Service::restore_session($out['session_id']);
+        $this->assertNotContains($new, $ids());
     }
 
     public function test_update_rule_replaces_access_and_rollback_session_puts_the_old_rows_and_meta_back(): void

@@ -35,6 +35,10 @@ class Delete_Comment
             throw new \WPMCP\MCP\Opt_In_Required('The delete-comment tool is disabled.', 'wpmcp_enable_delete_comment');
         }
 
+        if (true === ($args['empty_spam'] ?? null)) {
+            return $this->empty_spam($args);
+        }
+
         $id = (int) ($args['id'] ?? 0);
         if ($id <= 0 || ! get_comment($id)) {
             throw new \InvalidArgumentException('Comment not found.');
@@ -71,6 +75,62 @@ class Delete_Comment
             'deleted'       => true,
             'id_preserved'  => false,
             'warning'       => 'Rollback restores the comment content, author, status and meta, but WordPress cannot reuse the original comment ID, so a resurrected comment gets a new ID.',
+        ];
+    }
+
+    /**
+     * Empty spam (issue #718): permanently delete up to 100 spam comments per
+     * call, each snapshotted first through Safe_Mutation so every one can be
+     * resurrected by rollback (with a new ID, as for a single delete).
+     * Needs the same opt-in as delete-comment plus confirm:true.
+     */
+    private function empty_spam(array $args): array
+    {
+        if (true !== ($args['confirm'] ?? null)) {
+            throw new \WPMCP\MCP\Confirmation_Required('Emptying spam permanently deletes spam comments. Pass confirm:true to proceed.');
+        }
+
+        $ids = get_comments([
+            'status' => 'spam',
+            'fields' => 'ids',
+            'number' => 100,
+            'orderby' => 'comment_ID',
+            'order'  => 'ASC',
+        ]);
+
+        $operation_ids = [];
+        $deleted       = [];
+        foreach ((array) $ids as $id) {
+            $id = (int) $id;
+            if (! current_user_can('edit_comment', $id)) {
+                continue;
+            }
+            $out = Safe_Mutation::run(
+                [
+                    'object_type' => 'comment',
+                    'object_id'   => $id,
+                    'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                    'tool_name'   => 'delete-comment',
+                    'args'        => [ 'id' => $id, 'empty_spam' => true, 'confirm' => true ],
+                ],
+                function () use ($id): void {
+                    if (! wp_delete_comment($id, true)) {
+                        throw new \RuntimeException('Could not delete spam comment ' . (int) $id . '.');
+                    }
+                }
+            );
+            $operation_ids[] = $out['operation_id'];
+            $deleted[]       = $id;
+        }
+
+        $remaining = (int) get_comments([ 'status' => 'spam', 'count' => true ]);
+
+        return [
+            'deleted_count' => count($deleted),
+            'deleted_ids'   => $deleted,
+            'operation_ids' => $operation_ids,
+            'remaining'     => $remaining,
+            'id_preserved'  => false,
         ];
     }
 }

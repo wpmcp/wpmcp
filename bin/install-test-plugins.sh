@@ -5,21 +5,25 @@
 #
 # Installs Elementor, WooCommerce, Advanced Custom Fields, Yoast SEO, and
 # Polylang from the wordpress.org plugin repository or, with WPMCP_LIVE_FORMS=1,
-# Contact Form 7 and Flamingo only (bin/test-local.sh --live-forms), or, with
+# Contact Form 7, Flamingo and the free WPForms, Formidable, Ninja Forms,
+# Fluent Forms, Forminator and SureForms only (bin/test-local.sh --live-forms), or, with
 # WPMCP_LIVE_BLOCKS=1, Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks
 # only (bin/test-local.sh --live-blocks), or, with WPMCP_LIVE_BUDDYPRESS=1,
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
 # WPMCP_LIVE_BBPRESS=1, bbPress only (bin/test-local.sh --live-bbpress), or, with
 # WPMCP_LIVE_TABLEPRESS=1, TablePress only (bin/test-local.sh --live-tablepress), or,
 # with WPMCP_LIVE_LINKS=1, Pretty Links and ThirstyAffiliates only (bin/test-local.sh
-# --live-links), or,
+# --live-links), or, with WPMCP_LIVE_SITE_REVIEWS=1, Site Reviews only
+# (bin/test-local.sh --live-site-reviews), or,
 # with WPMCP_LIVE_CODE_SNIPPETS=1, Code Snippets only (bin/test-local.sh
 # --live-code-snippets), or,
 # with WPMCP_LIVE_CRM=1, FluentCRM and MailPoet only (bin/test-local.sh
 # --live-crm), or, with WPMCP_LIVE_HELPDESK=1, BetterDocs, Fluent Support
 # and Awesome Support only (bin/test-local.sh --live-helpdesk), or, with
 # WPMCP_LIVE_ACTIVITY_LOG=1, WP Activity Log and Simple History only
-# (bin/test-local.sh --live-activity-log), or, with
+# (bin/test-local.sh --live-activity-log), or, with WPMCP_LIVE_ACTION_SCHEDULER=1,
+# the standalone Action Scheduler only (bin/test-local.sh
+# --live-action-scheduler), or, with
 # WPMCP_LIVE_SITE_GATE=1, the five coming soon and maintenance plugins only
 # (bin/test-local.sh --live-site-gate), or, with WPMCP_LIVE_EMAIL_LOG=1,
 # WP Mail Logging, Check and Log Email and Email Log only
@@ -118,6 +122,14 @@ if [ "${WPMCP_LIVE_FORMS:-}" = "1" ]; then
 	PLUGINS=(
 		"contact-form-7:wp-contact-form-7.php"
 		"flamingo:flamingo.php"
+		# Issues #674 and #675: the free form plugins whose notification,
+		# confirmation and entry-delete ops run against the real thing.
+		"wpforms-lite:wpforms.php"
+		"formidable:formidable.php"
+		"ninja-forms:ninja-forms.php"
+		"fluentform:fluentform.php"
+		"forminator:forminator.php"
+		"sureforms:sureforms.php"
 	)
 fi
 
@@ -197,6 +209,15 @@ if [ "${WPMCP_LIVE_LINKS:-}" = "1" ]; then
 	)
 fi
 
+# The live Site Reviews job (issue #687) runs the Site Reviews ops through the
+# real free plugin. Exclusive too: the stub-backed tests build its tables from
+# fixtures and fake its presence.
+if [ "${WPMCP_LIVE_SITE_REVIEWS:-}" = "1" ]; then
+	PLUGINS=(
+		"site-reviews:site-reviews.php"
+	)
+fi
+
 # The live WP Mail SMTP job runs the WP Mail SMTP ops on the theme pair
 # through the real plugin, its Options class, encryption and constants.
 # Exclusive too: the stub-backed WP Mail SMTP tests define a stand-in for its
@@ -204,6 +225,21 @@ fi
 if [ "${WPMCP_LIVE_WP_MAIL_SMTP:-}" = "1" ]; then
 	PLUGINS=(
 		"wp-mail-smtp:wp_mail_smtp.php"
+	)
+fi
+
+# The live FluentSMTP and Post SMTP jobs (issue #696) run their ops through the
+# real plugins, downloaded from wordpress.org. Exclusive and separate: both
+# define wp_mail(), and the stub-backed tests define stand-ins for their
+# settings functions and classes.
+if [ "${WPMCP_LIVE_FLUENT_SMTP:-}" = "1" ]; then
+	PLUGINS=(
+		"fluent-smtp:fluent-smtp.php"
+	)
+fi
+if [ "${WPMCP_LIVE_POST_SMTP:-}" = "1" ]; then
+	PLUGINS=(
+		"post-smtp:postman-smtp.php"
 	)
 fi
 
@@ -250,6 +286,16 @@ if [ "${WPMCP_LIVE_ACTIVITY_LOG:-}" = "1" ]; then
 	PLUGINS=(
 		"wp-security-audit-log:wp-security-audit-log.php"
 		"simple-history:index.php"
+	)
+fi
+
+# The live Action Scheduler job (issue #702) runs the Action Scheduler ops
+# against the standalone plugin from wordpress.org, which WooCommerce is not
+# part of, so the copy that loads is the standalone one. Exclusive too: the
+# normal run uses the copy WooCommerce bundles.
+if [ "${WPMCP_LIVE_ACTION_SCHEDULER:-}" = "1" ]; then
+	PLUGINS=(
+		"action-scheduler:action-scheduler.php"
 	)
 fi
 

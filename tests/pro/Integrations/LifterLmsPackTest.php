@@ -190,7 +190,9 @@ class LifterLmsPackTest extends \WP_UnitTestCase
         $this->assertSame('enrolled', $rows[ $alice ]['status']);
         $this->assertSame('cancelled', $rows[ $bob ]['status']);
         $this->assertSame('2026-09-01 10:00:00', $rows[ $alice ]['enrolled_at']);
-        $this->assertSame('bob@example.com', $rows[ $bob ]['email']);
+        $this->assertSame('b***@example.com', $rows[ $bob ]['email'], 'a list masks the email');
+        $this->assertSame('B***', $rows[ $bob ]['display_name'], 'a list masks the name');
+        $this->assertTrue($out['masked']);
 
         $only = $this->ok($this->read('lifterlms-list-enrollments', [ 'course_id' => $course, 'status' => 'enrolled' ]))['result'];
         $this->assertSame([ $alice ], array_column($only['enrollments'], 'user_id'));

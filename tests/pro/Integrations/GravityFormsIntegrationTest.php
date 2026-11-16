@@ -136,11 +136,49 @@ class GravityFormsIntegrationTest extends \WP_UnitTestCase
 
         $spam = $this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => 1, 'status' => 'spam' ] ]);
         $this->assertSame(1, $spam['result']['total']);
-        $this->assertSame('Spammer', $spam['result']['entries'][0]['1']);
+        $this->assertSame('S***', $spam['result']['entries'][0]['1']);
 
         $paged = $this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => 1, 'page_size' => 1, 'offset' => 1 ] ]);
         $this->assertCount(1, $paged['result']['entries']);
         $this->assertSame(2, $paged['result']['total']);
+    }
+
+    public function test_list_entries_masks_field_values_and_personal_meta_but_keeps_ids_dates_status_and_payment(): void
+    {
+        $id = \GFAPI::seed_entry(1, [
+            '1'              => 'Grace',
+            '2'              => 'grace@example.com',
+            'ip'             => '203.0.113.7',
+            'user_agent'     => 'Mozilla/5.0',
+            'source_url'     => 'https://example.com/contact?email=grace@example.com',
+            'created_by'     => '42',
+            'payment_status' => 'Paid',
+            'payment_amount' => '19.00',
+        ], 'active', '2026-03-03 10:00:00');
+
+        $out = $this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => 1 ] ])['result'];
+        $this->assertTrue($out['masked']);
+        $row = array_values(array_filter($out['entries'], static fn ($e) => (int) $e['id'] === $id))[0];
+        $this->assertSame('G***', $row['1']);
+        $this->assertSame('g***@example.com', $row['2']);
+        $this->assertSame('2***', $row['ip']);
+        $this->assertSame('M***', $row['user_agent']);
+        $this->assertSame('h***@example.com', $row['source_url']);
+        $this->assertSame('4***', $row['created_by']);
+        $this->assertSame('1', $row['form_id']);
+        $this->assertSame('active', $row['status']);
+        $this->assertSame('2026-03-03 10:00:00', $row['date_created']);
+        $this->assertSame('Paid', $row['payment_status']);
+        $this->assertSame('19.00', $row['payment_amount']);
+        $json = wp_json_encode($out);
+        foreach ([ 'grace@example.com', 'Grace', '203.0.113.7', 'Mozilla' ] as $leak) {
+            $this->assertStringNotContainsString($leak, $json);
+        }
+
+        $one = $this->integration->handle_read([ 'operation' => 'get-entry', 'args' => [ 'entry_id' => $id ] ])['result'];
+        $this->assertArrayNotHasKey('masked', $one);
+        $this->assertSame('grace@example.com', $one['entry']['2']);
+        $this->assertSame('203.0.113.7', $one['entry']['ip']);
     }
 
     public function test_get_entry_and_notes(): void

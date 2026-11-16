@@ -96,6 +96,7 @@ class PluginDataIntegrationTest extends \WP_UnitTestCase
         foreach (self::ACTIVE_FILTERS as $filter) {
             remove_all_filters($filter);
         }
+        remove_all_filters('wpmcp_action_scheduler_active');
         remove_all_filters('wpmcp_enable_jetengine_write');
         remove_all_filters('wpmcp_enable_pods_write');
         unregister_post_type('book');
@@ -131,6 +132,8 @@ class PluginDataIntegrationTest extends \WP_UnitTestCase
             remove_all_filters($filter);
             add_filter($filter, '__return_false');
         }
+        // WooCommerce bundles Action Scheduler, so it is loaded in this suite.
+        add_filter('wpmcp_action_scheduler_active', '__return_false');
         $this->assertFalse($integration->is_available());
         $this->assertFalse($integration->should_register());
 
@@ -172,7 +175,8 @@ class PluginDataIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('pods_inactive', $this->error_code($this->read('pods-list-fields', [ 'post_type' => 'post' ])));
         $this->assertArrayNotHasKey('error', $this->read('translatepress-list-languages'));
 
-        // With none of the three loaded the whole pair is unavailable.
+        // With none of the three loaded the whole pair is unavailable (WooCommerce bundles Action Scheduler, so it is off too).
+        add_filter('wpmcp_action_scheduler_active', '__return_false');
         remove_all_filters('wpmcp_translatepress_active');
         add_filter('wpmcp_translatepress_active', '__return_false');
         $this->assertSame('integration_unavailable', $this->error_code($this->read('translatepress-list-languages')));

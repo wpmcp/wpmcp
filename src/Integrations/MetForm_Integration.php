@@ -3,6 +3,7 @@
 namespace WPMCP\Integrations;
 
 use WPMCP\Tools\Content\Readable_Posts;
+use WPMCP\Privacy\Masking;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -185,7 +186,7 @@ class MetForm_Integration extends Forms_Integration
                 'mode'         => 'read',
                 'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
                 'capability'   => self::ENTRY_CAPABILITY,
-                'description'  => 'List a MetForm form\'s entries, newest first, with paging (page_size default 20, max 100) and their stored field values',
+                'description'  => 'List a MetForm form\'s entries, newest first, with paging (page_size default 20, max 100) and their stored field values MASKED (get-entry returns one in full)',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -206,12 +207,13 @@ class MetForm_Integration extends Forms_Integration
                             'id'         => (int) $post->ID,
                             'form_id'    => $form_id,
                             'created_at' => (string) $post->post_date,
-                            'values'     => self::values((int) $post->ID),
+                            'values'     => Masking::value(self::values((int) $post->ID)),
                         ];
                     }
                     return [
                         'form_id' => $form_id,
                         'entries' => $entries,
+                        'masked'  => true,
                         'total'   => (int) $query->found_posts,
                         'paging'  => [ 'offset' => $offset, 'page_size' => $page_size ],
                     ];
@@ -245,11 +247,9 @@ class MetForm_Integration extends Forms_Integration
                 'mode'               => 'destructive',
                 'objects'            => [ 'entry_id' => 'entry' ],
                 // Issue #66: entry deletion is off by default across every
-                // forms adapter. A site opts in with the
-                // wpmcp_integration_op_enabled filter.
-                'enabled_by_default' => false,
+                // forms adapter (#675: one shared switch, write_flags()).
                 'capability'         => 'manage_options',
-                'description'  => 'Delete one MetForm entry. Default-off (opt in via the wpmcp_integration_op_enabled filter); requires confirm:true. Reversible: a MetForm entry is a metform-entry post, so it is snapshotted (row plus postmeta) before deletion and can be resurrected at its original id with rollback-operation using the returned operation_id',
+                'description'  => 'Delete one MetForm entry. Default-off (opt in with wpmcp_enable_forms_write); requires confirm:true. Reversible: a MetForm entry is a metform-entry post, so it is snapshotted (row plus postmeta) before deletion and can be resurrected at its original id with rollback-operation using the returned operation_id',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
@@ -270,7 +270,7 @@ class MetForm_Integration extends Forms_Integration
                     'object_type' => 'post',
                     'object_id'   => (int) $args['entry_id'],
                 ],
-            ],
+            ] + self::write_flags(),
         ];
     }
 }

@@ -26,8 +26,10 @@
 #      (issue #488), so the floor is tested on every push, then the suite on
 #      the default WordPress installed as a multisite network (WP_MULTISITE=1,
 #      issue #530), also without coverage.
-#   5. Runs the live forms group (issue #66): the Contact Form 7 adapter
-#      against a real Contact Form 7 and Flamingo, on a separate install,
+#   5. Runs the live forms group (issues #66, #674, #675): the Contact Form 7
+#      adapter against a real Contact Form 7 and Flamingo, plus the notification,
+#      confirmation and entry-delete ops against the real free WPForms,
+#      Formidable, Ninja Forms, Fluent Forms, Forminator and SureForms, on a separate install,
 #      because the harness doubles stand down once the real classes load.
 #   6. Runs the live blocks group (issue #287): blocks inserted through the
 #      block-suites tools, rendered with the real Kadence Blocks,
@@ -42,6 +44,8 @@
 #      through the real TablePress, on its own install too.
 #   9b. Runs the live links group (issue #682): the Pretty Links and
 #      ThirstyAffiliates ops through the real free plugins, on its own install.
+#   9b. Runs the live Site Reviews group (issue #687): the Site Reviews ops
+#      through the real free plugin, on its own install.
 #   9b. Runs the live Code Snippets group (issue #576): the Code Snippets
 #      ops through the real Code Snippets, every write rolled back and only
 #      a no-op snippet ever activated, on its own install too.
@@ -232,12 +236,15 @@
 #   bin/test-local.sh --live-tablepress only the live TablePress group (real TablePress)
 #   bin/test-local.sh --live-rank-math  only the live Rank Math group (real Rank Math SEO)
 #   bin/test-local.sh --live-links    only the live Pretty Links and ThirstyAffiliates group (real plugins)
+#   bin/test-local.sh --live-site-reviews only the live Site Reviews group (real plugin)
 #   bin/test-local.sh --live-code-snippets only the live Code Snippets group (real Code Snippets)
 #   bin/test-local.sh --live-crm      only the live CRM group (real FluentCRM and MailPoet)
 #   bin/test-local.sh --live-helpdesk only the live knowledge base and support desk group
 #                                     (real BetterDocs, Fluent Support and Awesome Support)
 #   bin/test-local.sh --live-activity-log only the live activity log group
 #                                     (real WP Activity Log and Simple History)
+#   bin/test-local.sh --live-action-scheduler only the live Action Scheduler group
+#                                     (the standalone Action Scheduler from WordPress.org)
 #   bin/test-local.sh --live-site-gate only the live site gate group
 #                                     (the real SeedProd, WP Maintenance Mode, Under Construction,
 #                                     Maintenance and CMP plugins, one at a time)
@@ -265,6 +272,8 @@
 #                                     WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC, WPMCP_GP_PREMIUM_SRC)
 #   bin/test-local.sh --live-wc-bookings only the live WooCommerce Bookings group (needs WPMCP_WC_BOOKINGS_SRC)
 #   bin/test-local.sh --live-wp-mail-smtp only the live WP Mail SMTP group (real WP Mail SMTP)
+#   bin/test-local.sh --live-fluent-smtp  only the live FluentSMTP group (real FluentSMTP, downloaded)
+#   bin/test-local.sh --live-post-smtp    only the live Post SMTP group (real Post SMTP, downloaded)
 #   bin/test-local.sh --live-adapter  only the adapter leg (both suites on the released MCP Adapter plugin)
 #   bin/test-local.sh -- --filter Foo PHPUnit arguments, default WordPress only; skips lint,
 #                                     drift, coverage, the floor leg and the live groups,
@@ -424,10 +433,12 @@ only_live_lms=false
 only_live_tablepress=false
 only_live_rank_math=false
 only_live_links=false
+only_live_site_reviews=false
 only_live_code_snippets=false
 only_live_crm=false
 only_live_helpdesk=false
 only_live_activity_log=false
+only_live_action_scheduler=false
 only_live_site_gate=false
 only_live_email_log=false
 only_live_funnelkit=false
@@ -450,6 +461,8 @@ only_live_cache_settings=false
 only_live_jet_elements=false
 only_live_ws_form=false
 only_live_wp_mail_smtp=false
+only_live_fluent_smtp=false
+only_live_post_smtp=false
 only_live_adapter=false
 only_live_theme_pro=false
 only_multisite=false
@@ -471,10 +484,12 @@ while [ $# -gt 0 ]; do
 		--live-tablepress) only_live_tablepress=true ;;
 		--live-rank-math) only_live_rank_math=true ;;
 		--live-links) only_live_links=true ;;
+		--live-site-reviews) only_live_site_reviews=true ;;
 		--live-code-snippets) only_live_code_snippets=true ;;
 		--live-crm) only_live_crm=true ;;
 		--live-helpdesk) only_live_helpdesk=true ;;
 		--live-activity-log) only_live_activity_log=true ;;
+		--live-action-scheduler) only_live_action_scheduler=true ;;
 		--live-site-gate) only_live_site_gate=true ;;
 		--live-email-log) only_live_email_log=true ;;
 		--live-funnelkit) only_live_funnelkit=true ;;
@@ -497,6 +512,8 @@ while [ $# -gt 0 ]; do
 		--live-jet-elements) only_live_jet_elements=true ;;
 		--live-ws-form) only_live_ws_form=true ;;
 		--live-wp-mail-smtp) only_live_wp_mail_smtp=true ;;
+		--live-fluent-smtp) only_live_fluent_smtp=true ;;
+		--live-post-smtp) only_live_post_smtp=true ;;
 		--live-adapter) only_live_adapter=true ;;
 		--live-theme-pro) only_live_theme_pro=true ;;
 		--multisite) only_multisite=true ;;
@@ -547,7 +564,7 @@ targeted=false
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
-if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_rank_math" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_helpdesk" = true ] || [ "$only_live_activity_log" = true ] || [ "$only_live_site_gate" = true ] || [ "$only_live_email_log" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_betheme" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_cornerstone" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ] || [ "$only_live_ws_form" = true ] || [ "$only_live_links" = true ]; then
+if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_live_buddypress" = true ] || [ "$only_live_wp_mail_smtp" = true ] || [ "$only_live_fluent_smtp" = true ] || [ "$only_live_post_smtp" = true ] || [ "$only_live_bbpress" = true ] || [ "$only_live_lms" = true ] || [ "$only_live_tablepress" = true ] || [ "$only_live_rank_math" = true ] || [ "$only_live_site_reviews" = true ] || [ "$only_live_code_snippets" = true ] || [ "$only_live_crm" = true ] || [ "$only_live_helpdesk" = true ] || [ "$only_live_activity_log" = true ] || [ "$only_live_site_gate" = true ] || [ "$only_live_email_log" = true ] || [ "$only_live_polylang" = true ] || [ "$only_live_funnelkit" = true ] || [ "$only_live_breakdance" = true ] || [ "$only_live_memberpress" = true ] || [ "$only_live_divi" = true ] || [ "$only_live_betheme" = true ] || [ "$only_live_wpbakery" = true ] || [ "$only_live_thrive" = true ] || [ "$only_live_cornerstone" = true ] || [ "$only_live_avada" = true ] || [ "$only_live_oxygen" = true ] || [ "$only_live_amelia" = true ] || [ "$only_live_wc_subscriptions" = true ] || [ "$only_live_elementor_pro" = true ] || [ "$only_live_jet_elements" = true ] || [ "$only_live_adapter" = true ] || [ "$only_live_theme_pro" = true ] || [ "$only_live_wc_bookings" = true ] || [ "$only_live_cache_settings" = true ] || [ "$only_live_ws_form" = true ] || [ "$only_live_links" = true ] || [ "$only_live_action_scheduler" = true ]; then
 	[ "$only_live_forms" = false ] || LEGS+=("live-forms ${only_wp:-$default_wp}")
 	[ "$only_live_blocks" = false ] || LEGS+=("live-blocks ${only_wp:-$default_wp}")
 	[ "$only_live_buddypress" = false ] || LEGS+=("live-buddypress ${only_wp:-$default_wp}")
@@ -556,10 +573,12 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_tablepress" = false ] || LEGS+=("live-tablepress ${only_wp:-$default_wp}")
 	[ "$only_live_rank_math" = false ] || LEGS+=("live-rank-math ${only_wp:-$default_wp}")
 	[ "$only_live_links" = false ] || LEGS+=("live-links ${only_wp:-$default_wp}")
+	[ "$only_live_site_reviews" = false ] || LEGS+=("live-site-reviews ${only_wp:-$default_wp}")
 	[ "$only_live_code_snippets" = false ] || LEGS+=("live-code-snippets ${only_wp:-$default_wp}")
 	[ "$only_live_crm" = false ] || LEGS+=("live-crm ${only_wp:-$default_wp}")
 	[ "$only_live_helpdesk" = false ] || LEGS+=("live-helpdesk ${only_wp:-$default_wp}")
 	[ "$only_live_activity_log" = false ] || LEGS+=("live-activity-log ${only_wp:-$default_wp}")
+	[ "$only_live_action_scheduler" = false ] || LEGS+=("live-action-scheduler ${only_wp:-$default_wp}")
 	[ "$only_live_site_gate" = false ] || LEGS+=("live-site-gate ${only_wp:-$default_wp}")
 	[ "$only_live_email_log" = false ] || LEGS+=("live-email-log ${only_wp:-$default_wp}")
 	[ "$only_live_funnelkit" = false ] || LEGS+=("live-funnelkit ${only_wp:-$default_wp}")
@@ -583,6 +602,8 @@ if [ "$only_live_forms" = true ] || [ "$only_live_blocks" = true ] || [ "$only_l
 	[ "$only_live_ws_form" = false ] || LEGS+=("live-ws-form ${only_wp:-$default_wp}")
 	[ "$only_live_jet_elements" = false ] || LEGS+=("live-jet-elements ${only_wp:-$default_wp}")
 	[ "$only_live_wp_mail_smtp" = false ] || LEGS+=("live-wp-mail-smtp ${only_wp:-$default_wp}")
+	[ "$only_live_fluent_smtp" = false ] || LEGS+=("live-fluent-smtp ${only_wp:-$default_wp}")
+	[ "$only_live_post_smtp" = false ] || LEGS+=("live-post-smtp ${only_wp:-$default_wp}")
 	[ "$only_live_adapter" = false ] || LEGS+=("live-adapter ${only_wp:-$default_wp}")
 elif [ "$only_multisite" = true ]; then
 	LEGS+=("multisite ${only_wp:-$default_wp} none")
@@ -614,7 +635,7 @@ else
 		LEGS+=("multisite $default_wp none")
 	fi
 	if [ "$targeted" = false ]; then
-		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-rank-math $default_wp" "live-links $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-helpdesk $default_wp" "live-activity-log $default_wp" "live-site-gate $default_wp" "live-email-log $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp")
+		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-rank-math $default_wp" "live-links $default_wp" "live-site-reviews $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-helpdesk $default_wp" "live-activity-log $default_wp" "live-action-scheduler $default_wp" "live-site-gate $default_wp" "live-email-log $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp" "live-fluent-smtp $default_wp" "live-post-smtp $default_wp")
 		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
 			LEGS+=("live-breakdance $default_wp")
 		fi
@@ -791,6 +812,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_RANK_MATH:-}" = 1 ] && flavor="-rank-math-live"
 	# And WPMCP_LIVE_LINKS=1 and Pretty Links with ThirstyAffiliates.
 	[ "${WPMCP_LIVE_LINKS:-}" = 1 ] && flavor="-links-live"
+	# And WPMCP_LIVE_SITE_REVIEWS=1 and Site Reviews.
+	[ "${WPMCP_LIVE_SITE_REVIEWS:-}" = 1 ] && flavor="-site-reviews-live"
 	# And WPMCP_LIVE_CODE_SNIPPETS=1 and Code Snippets.
 	[ "${WPMCP_LIVE_CODE_SNIPPETS:-}" = 1 ] && flavor="-code-snippets-live"
 	# And WPMCP_LIVE_CRM=1 and FluentCRM and MailPoet.
@@ -799,6 +822,8 @@ install_flavor() {
 	[ "${WPMCP_LIVE_HELPDESK:-}" = 1 ] && flavor="-helpdesk-live"
 	# And WPMCP_LIVE_ACTIVITY_LOG=1 and WP Activity Log with Simple History.
 	[ "${WPMCP_LIVE_ACTIVITY_LOG:-}" = 1 ] && flavor="-activity-log-live"
+	# And WPMCP_LIVE_ACTION_SCHEDULER=1 and the standalone Action Scheduler.
+	[ "${WPMCP_LIVE_ACTION_SCHEDULER:-}" = 1 ] && flavor="-action-scheduler-live"
 	# And WPMCP_LIVE_SITE_GATE=1 and the five coming soon and maintenance plugins.
 	[ "${WPMCP_LIVE_SITE_GATE:-}" = 1 ] && flavor="-site-gate-live"
 	# And WPMCP_LIVE_EMAIL_LOG=1 and the three email log plugins.
@@ -844,6 +869,9 @@ install_flavor() {
 	[ "${WPMCP_LIVE_JET_ELEMENTS:-}" = 1 ] && flavor="-jet-elements-live"
 	# And WPMCP_LIVE_WP_MAIL_SMTP=1 and WP Mail SMTP.
 	[ "${WPMCP_LIVE_WP_MAIL_SMTP:-}" = 1 ] && flavor="-wp-mail-smtp-live"
+	# And WPMCP_LIVE_FLUENT_SMTP=1 or WPMCP_LIVE_POST_SMTP=1 and that plugin (each replaces wp_mail, so never together).
+	[ "${WPMCP_LIVE_FLUENT_SMTP:-}" = 1 ] && flavor="-fluent-smtp-live"
+	[ "${WPMCP_LIVE_POST_SMTP:-}" = 1 ] && flavor="-post-smtp-live"
 	echo "$flavor"
 }
 
@@ -1365,7 +1393,7 @@ run_live_forms() {
 	RUN_CORES+=("$core")
 	config=$(db_config "$dir" "$version-forms-live" "$core")
 	RUN_CONFIGS+=("$config")
-	say "PHPUnit live forms group on WordPress $version (real Contact Form 7 + Flamingo)"
+	say "PHPUnit live forms group on WordPress $version (real Contact Form 7, Flamingo, WPForms Lite, Formidable, Ninja Forms, Fluent Forms, Forminator, SureForms)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
 		"$PHP" vendor/bin/phpunit --group forms-live --fail-on-skipped
 	unset WPMCP_LIVE_FORMS
@@ -1486,6 +1514,38 @@ run_live_wp_mail_smtp() {
 	unset WPMCP_LIVE_WP_MAIL_SMTP
 }
 
+# The live FluentSMTP and Post SMTP groups (issue #696), the same way: each has
+# its own install with the real plugin downloaded from wordpress.org, its own
+# database, and --fail-on-skipped. Separate installs because both plugins
+# define wp_mail().
+run_live_fluent_smtp() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_FLUENT_SMTP=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-fluent-smtp-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live FluentSMTP group on WordPress $version (real FluentSMTP)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group fluent-smtp-live --fail-on-skipped
+	unset WPMCP_LIVE_FLUENT_SMTP
+}
+
+run_live_post_smtp() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_POST_SMTP=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-post-smtp-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Post SMTP group on WordPress $version (real Post SMTP)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group post-smtp-live --fail-on-skipped
+	unset WPMCP_LIVE_POST_SMTP
+}
+
 # The live Code Snippets group (issue #576), the same way: its own install
 # with the real Code Snippets, its own database, and --fail-on-skipped.
 run_live_code_snippets() {
@@ -1550,6 +1610,24 @@ run_live_activity_log() {
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
 		"$PHP" vendor/bin/phpunit --group activity-log-live --fail-on-skipped
 	unset WPMCP_LIVE_ACTIVITY_LOG
+}
+
+# The live Action Scheduler group (issue #702), the same way: its own install
+# with the standalone Action Scheduler from wordpress.org (no WooCommerce, so
+# the standalone copy is the one that runs), its own database, and
+# --fail-on-skipped.
+run_live_action_scheduler() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_ACTION_SCHEDULER=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-action-scheduler-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Action Scheduler group on WordPress $version (the standalone Action Scheduler)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group action-scheduler-live --fail-on-skipped
+	unset WPMCP_LIVE_ACTION_SCHEDULER
 }
 
 # The live site gate group (issue #903), the same way: its own install with
@@ -1902,6 +1980,22 @@ run_live_links() {
 	unset WPMCP_LIVE_LINKS
 }
 
+# The live Site Reviews group (issue #687), the same way: its own install with
+# the real Site Reviews, its own database, --fail-on-skipped.
+run_live_site_reviews() {
+	local version=$1 dir core config
+	export WPMCP_LIVE_SITE_REVIEWS=1
+	dir=$(install_wp "$version")
+	core=$(checkout_core "$dir")
+	RUN_CORES+=("$core")
+	config=$(db_config "$dir" "$version-site-reviews-live" "$core")
+	RUN_CONFIGS+=("$config")
+	say "PHPUnit live Site Reviews group on WordPress $version (real Site Reviews)"
+	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
+		"$PHP" vendor/bin/phpunit --group site-reviews-live --fail-on-skipped
+	unset WPMCP_LIVE_SITE_REVIEWS
+}
+
 # The live WS Form group (issue #676), the same way, with WS Form PRO copied
 # from WPMCP_WS_FORM_SRC: its own install, its own database and
 # --fail-on-skipped.
@@ -2157,10 +2251,12 @@ run_leg_body() {
 		live-tablepress) run_live_tablepress "$wp" ;;
 		live-rank-math) run_live_rank_math "$wp" ;;
 		live-links) run_live_links "$wp" ;;
+		live-site-reviews) run_live_site_reviews "$wp" ;;
 		live-code-snippets) run_live_code_snippets "$wp" ;;
 		live-crm) run_live_crm "$wp" ;;
 		live-helpdesk) run_live_helpdesk "$wp" ;;
 		live-activity-log) run_live_activity_log "$wp" ;;
+		live-action-scheduler) run_live_action_scheduler "$wp" ;;
 		live-site-gate) run_live_site_gate "$wp" ;;
 		live-email-log) run_live_email_log "$wp" ;;
 		live-funnelkit) run_live_funnelkit "$wp" ;;
@@ -2184,6 +2280,8 @@ run_leg_body() {
 		live-theme-pro) run_live_theme_pro "$wp" ;;
 		live-wc-bookings) run_live_wc_bookings "$wp" ;;
 		live-wp-mail-smtp) run_live_wp_mail_smtp "$wp" ;;
+		live-fluent-smtp) run_live_fluent_smtp "$wp" ;;
+		live-post-smtp) run_live_post_smtp "$wp" ;;
 		live-adapter) run_live_adapter "$wp" ;;
 		*) die "unknown leg: $kind" ;;
 	esac

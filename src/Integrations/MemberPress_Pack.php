@@ -3,6 +3,7 @@
 namespace WPMCP\Integrations;
 
 use WPMCP\MCP\Registrar;
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Plugin_Table_Rows_Snapshot;
 use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Safety\Safe_Mutation;
@@ -39,6 +40,13 @@ if (! defined('ABSPATH')) {
  *    fields and every meta key), and a rule whose access is replaced under
  *    the same rows image, one session per call, so rollback-session undoes
  *    the whole call.
+ * MemberPress answers "is this protected" from a cached list of its rules
+ * (transient mepr_all_models_for_class_meprrule, kept a year) that it
+ * rebuilds on save_post only inside wp-admin (MeprCptCtrl::
+ * update_all_models_for_class_transient(), issue #867). An MCP request is not
+ * an admin request, so every write here rebuilds the rule and membership
+ * lists itself the way that handler does, and so does every rollback that
+ * puts a rule or membership post or its access rows back or trashes one.
  * Nothing here moves money: there is no refund, charge, or transaction or
  * subscription write. Nothing is deleted: a membership or rule can be taken
  * to draft, and a created one's undo is the trash.
@@ -243,7 +251,7 @@ final class MemberPress_Pack
             'memberpress-list-members'      => $base + [
                 'mode'         => 'read',
                 'objects'      => $own('membership_id'),
-                'description'  => 'List MemberPress members newest first: user id, login, display name, email, active and inactive membership ids, transaction and subscription counts, total spent. status: active, inactive, expired, none or all (default); membership_id filters; search matches login, email or name. Personal data. Read-only',
+                'description'  => 'List MemberPress members newest first: user id, login, display name, email, active and inactive membership ids, transaction and subscription counts, total spent. Login, name and email are masked (masked: true); use get-user for full values. status: active, inactive, expired, none or all (default); membership_id filters; search matches login, email or name. Read-only',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -602,9 +610,9 @@ final class MemberPress_Pack
         foreach ((array) $rows as $row) {
             $members[] = [
                 'user_id'              => (int) $row['user_id'],
-                'user_login'           => (string) $row['user_login'],
-                'display_name'         => (string) $row['display_name'],
-                'email'                => (string) $row['user_email'],
+                'user_login'           => Masking::value((string) $row['user_login']),
+                'display_name'         => Masking::value((string) $row['display_name']),
+                'email'                => Masking::email((string) $row['user_email']),
                 'active_memberships'   => self::id_list($row['memberships'] ?? ''),
                 'inactive_memberships' => self::id_list($row['inactive_memberships'] ?? ''),
                 'transactions'         => (int) ($row['txn_count'] ?? 0),
@@ -613,7 +621,7 @@ final class MemberPress_Pack
                 'member_since'         => $row['created_at'] ?? null,
             ];
         }
-        return [ 'members' => $members, 'total' => $total, 'page' => $page, 'per_page' => $per_page ];
+        return [ 'members' => $members, 'total' => $total, 'page' => $page, 'per_page' => $per_page, 'masked' => true ];
     }
 
     /** The transaction columns a caller sees; the gateway's raw response is never one of them. */
@@ -993,6 +1001,7 @@ final class MemberPress_Pack
     {
         [$id, $op] = self::insert(self::MEMBERSHIP_TYPE, $args, $context, (string) $args['title'], (string) ($args['content'] ?? ''));
         self::write_meta($id, self::MEMBERSHIP_FIELDS + self::MEMBERSHIP_STORED, $args, true);
+        self::refresh_caches();
         return [ 'result' => [ 'membership' => self::membership($id) ], 'operation_ids' => [ $op ] ];
     }
 
@@ -1002,6 +1011,7 @@ final class MemberPress_Pack
         $id = (int) $args['id'];
         self::update_post_fields($id, $args);
         self::write_meta($id, self::MEMBERSHIP_FIELDS, $args, false);
+        self::refresh_caches();
         return [ 'membership' => self::membership($id) ];
     }
 
@@ -1066,6 +1076,7 @@ final class MemberPress_Pack
         update_post_meta($id, self::RULE_CONTENT_KEY, wp_slash('partial' === $args['type'] ? '' : (string) ($args['content'] ?? '')));
         self::write_meta($id, self::RULE_FIELDS + $stored, $args, true);
         $ops[] = self::snapshotted(Plugin_Table_Rows_Snapshot::TYPE, Plugin_Table_Rows_Snapshot::key('mepr_rule_access', 'conditions', [ $id ]), $context, $args, static fn () => self::store_access($id, (array) $args['access']));
+        self::refresh_caches();
         return [ 'result' => [ 'rule' => self::rule($id) ], 'operation_ids' => $ops ];
     }
 
@@ -1090,7 +1101,55 @@ final class MemberPress_Pack
         if (array_key_exists('access', $args)) {
             $ops[] = self::snapshotted(Plugin_Table_Rows_Snapshot::TYPE, Plugin_Table_Rows_Snapshot::key('mepr_rule_access', 'conditions', [ $id ]), $context, $args, static fn () => self::store_access($id, (array) $args['access']));
         }
+        self::refresh_caches();
         return [ 'result' => [ 'rule' => self::rule($id) ], 'operation_ids' => $ops ];
+    }
+    /**
+     * Drop MemberPress's cached rule and membership lists so it rebuilds them
+     * on next use; its own save_post handler rebuilds them in wp-admin (MeprCptCtrl::
+     * update_all_models_for_class_transient()), which skips an MCP request.
+     * Without it a rule written here reads back right but protects nothing
+     * until someone presses Save Rule (issue #867). A no-op while MemberPress
+     * is not loaded, and for a list the site keeps uncached.
+     */
+    public static function refresh_caches(): void
+    {
+        // The data is already saved: a failure here must never abort a write or an undo.
+        try {
+            if (! class_exists('MeprCptModel')) {
+                return;
+            }
+            // MeprCptModel::all() keeps each list in this transient and rebuilds it when it is gone.
+            foreach ([ 'MeprRule', 'MeprProduct' ] as $model) {
+                delete_transient('mepr_all_models_for_class_' . strtolower($model));
+            }
+            // MeprRule::get_rules() also keeps its rule objects in a static for the request (public in 1.14.3).
+            if (class_exists('MeprRule') && property_exists('MeprRule', 'all_rules') && (new \ReflectionProperty('MeprRule', 'all_rules'))->isPublic()) {
+                \MeprRule::$all_rules = null;
+            }
+        } catch (\Throwable $e) {
+            error_log('WP MCP: could not refresh MemberPress rule caches: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- a failed cache refresh must be visible without failing the write.
+        }
+    }
+
+    /**
+     * A rule or membership post was put back by a rollback
+     * (wpmcp_rollback_post_restored) or trashed (trashed_post): rebuild the
+     * lists, since MemberPress's own handler does not run outside wp-admin.
+     */
+    public static function after_post_change($post_id): void
+    {
+        if (in_array(get_post_type((int) $post_id), [ self::RULE_TYPE, self::MEMBERSHIP_TYPE ], true)) {
+            self::refresh_caches();
+        }
+    }
+
+    /** A rollback put a rule's access rows back (wpmcp_rollback_table_rows_restored). */
+    public static function after_rows_restored($kind): void
+    {
+        if ('mepr_rule_access' === $kind) {
+            self::refresh_caches();
+        }
     }
     // phpcs:enable
 }

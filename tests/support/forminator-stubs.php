@@ -69,6 +69,56 @@ if (! class_exists('Forminator_API')) {
         /** Force delete_entry() to report failure. */
         public static bool $delete_fails = false;
 
+        /**
+         * The two real Forminator entry tables (frmt_form_entry and
+         * frmt_form_entry_meta, columns trimmed to what the integration and a
+         * snapshot touch). DDL: call from set_up_before_class. With them
+         * installed, an entry is only found while its entry row exists, and
+         * seed_rows() writes the rows a delete removes.
+         */
+        public static function install_tables(): void
+        {
+            global $wpdb;
+            $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}frmt_form_entry (
+                entry_id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+                entry_type varchar(191) NOT NULL DEFAULT 'custom-forms',
+                form_id bigint(20) unsigned NOT NULL,
+                status varchar(20) NOT NULL DEFAULT 'active',
+                date_created datetime NOT NULL DEFAULT '2026-01-01 00:00:00',
+                PRIMARY KEY  (entry_id)
+            )");
+            $wpdb->query("CREATE TABLE IF NOT EXISTS {$wpdb->prefix}frmt_form_entry_meta (
+                meta_id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+                entry_id bigint(20) unsigned NOT NULL,
+                meta_key varchar(191) DEFAULT NULL,
+                meta_value longtext NULL,
+                PRIMARY KEY  (meta_id)
+            )");
+        }
+
+        public static function uninstall_tables(): void
+        {
+            global $wpdb;
+            $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}frmt_form_entry_meta");
+            $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}frmt_form_entry");
+        }
+
+        public static function tables_installed(): bool
+        {
+            global $wpdb;
+            return $wpdb->prefix . 'frmt_form_entry' === $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->prefix . 'frmt_form_entry'));
+        }
+
+        /** Write one entry's rows into the real tables (entry row plus one meta row per value). */
+        public static function seed_rows(int $entry_id, int $form_id, array $meta): void
+        {
+            global $wpdb;
+            $wpdb->insert($wpdb->prefix . 'frmt_form_entry', [ 'entry_id' => $entry_id, 'form_id' => $form_id ]);
+            foreach ($meta as $key => $value) {
+                $wpdb->insert($wpdb->prefix . 'frmt_form_entry_meta', [ 'entry_id' => $entry_id, 'meta_key' => (string) $key, 'meta_value' => (string) $value ]);
+            }
+        }
+
         public static function reset(): void
         {
             self::$forms        = [];
@@ -104,6 +154,12 @@ if (! class_exists('Forminator_API')) {
             $entry = self::$entries[(int) $entry_id] ?? null;
             if (! $entry || (int) $entry->form_id !== (int) $form_id) {
                 return null;
+            }
+            if (self::tables_installed()) {
+                global $wpdb;
+                if (! $wpdb->get_var($wpdb->prepare("SELECT entry_id FROM {$wpdb->prefix}frmt_form_entry WHERE entry_id = %d", (int) $entry_id))) {
+                    return null;
+                }
             }
             return $entry;
         }

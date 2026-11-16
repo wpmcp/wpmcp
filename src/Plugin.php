@@ -493,6 +493,13 @@ final class Plugin
         // A block suite write dropped the suite's cached per-post CSS; its
         // rollback does too (issue #287). Hooked on the post restore action.
         [\WPMCP\Integrations\Block_Suite::class, 'refresh_after_restore', 'wpmcp_rollback_post_restored'],
+        // MemberPress rebuilds its cached rule and membership lists only on a
+        // wp-admin save, so an undo that restores or trashes a rule or
+        // membership post, or puts a rule's access rows back, rebuilds them
+        // as the write did (issue #867).
+        [\WPMCP\Integrations\MemberPress_Pack::class, 'after_post_change', 'wpmcp_rollback_post_restored'],
+        [\WPMCP\Integrations\MemberPress_Pack::class, 'after_post_change', 'trashed_post'],
+        [\WPMCP\Integrations\MemberPress_Pack::class, 'after_rows_restored', 'wpmcp_rollback_table_rows_restored'],
         // A TablePress write dropped the table's render cache, and TablePress
         // keeps its table id map in memory; a rollback of either drops the
         // cache and refreshes the map (issue #481).
@@ -508,6 +515,9 @@ final class Plugin
         // An undo of set-permalink-structure rebuilds the rewrite rules for
         // the restored structure and bases, as the write did (issue #785).
         [\WPMCP\Integrations\Core_Site_Pack::class, 'after_options_restored'],
+        // An undo that would change a synced pattern other people's posts
+        // place is refused for a user who cannot edit those posts (#711).
+        [\WPMCP\Integrations\Core_Patterns_Pack::class, 'restore_refusal', 'wpmcp_rollback_post_refusal'],
         // An undo of a cache plugin settings write lets the plugin rebuild
         // what it derives from its settings, as its own save does (#692).
         [\WPMCP\Integrations\Cache_Settings_Pack::class, 'after_options_restored'],
@@ -531,7 +541,7 @@ final class Plugin
         foreach ($refreshers ?? self::ROLLBACK_REFRESHERS as $refresher) {
             [$class, $method] = $refresher;
             if (class_exists($class)) {
-                add_action($refresher[2] ?? 'wpmcp_rollback_options_restored', [$class, $method]);
+                add_action($refresher[2] ?? 'wpmcp_rollback_options_restored', [$class, $method], 10, 2);
             }
         }
     }
@@ -1927,7 +1937,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-users',
             'free',
-            'List WordPress users as safe summary rows (id, username, display name, email, roles, registration date). Never returns password hashes or other secrets',
+            'List WordPress users as safe summary rows (id, username, display name, email, roles, registration date). Display name and email are masked (masked: true): use get-user for full values. Never returns password hashes or other secrets',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2018,10 +2028,11 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-comments',
             'free',
-            'List comments, optionally by post and status, with paging',
+            'List comments by post and status (emails, IPs masked). view:akismet gives Akismet status and spam/pending counts',
             [
                 'type'       => 'object',
                 'properties' => [
+                    'view'     => [ 'type' => 'string', 'enum' => [ 'akismet' ] ],
                     'post_id'  => [ 'type' => 'integer' ],
                     'status'   => [ 'type' => 'string' ],
                     'per_page' => [ 'type' => 'integer' ],
@@ -2052,7 +2063,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/moderate-comment',
             'free',
-            'Set a comment\'s status: approve, unapprove, spam, trash or untrash. Reversible',
+            'Set a comment\'s status: approve, unapprove, spam, not_spam (Akismet learns), trash or untrash. Reversible',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2091,15 +2102,16 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-comment',
             'free',
-            'Permanently delete a comment. Off until the wpmcp_enable_delete_comment filter opts in; needs confirm:true. Rollback restores it under a new ID',
+            'Permanently delete a comment, or empty_spam:true for up to 100 spam. Off until the wpmcp_enable_delete_comment filter opts in; needs confirm:true. Rollback restores under a new ID',
             [
                 'type'       => 'object',
                 'properties' => [
                     'id'         => [ 'type' => 'integer' ],
+                    'empty_spam' => [ 'type' => 'boolean' ],
                     'confirm'    => [ 'type' => 'boolean' ],
                     'session_id' => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'id', 'confirm' ],
+                'required'   => [ 'confirm' ],
             ],
             [$delete_comment, 'handle'],
             'moderate_comments',

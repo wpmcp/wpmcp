@@ -20,6 +20,13 @@
 # cannot produce a zip.
 set -euo pipefail
 
+# --check-only: run just the strip and the class-reference gates (4 and 4a
+# below) in a throwaway stage and exit, with no composer install, zip or
+# Plugin Check. `composer check:flavors` calls this so a developer sees the
+# CI "names a class it does not ship" failure locally in seconds.
+CHECK_ONLY=0
+[ "${1:-}" = "--check-only" ] && CHECK_ONLY=1
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FLAVOR="$ROOT/scripts/flavors/wporg"
 SLUG="wpmcp"
@@ -55,6 +62,31 @@ sed "s/{{VERSION}}/$VERSION/g" "$FLAVOR/readme.txt" > "$STAGE/readme.txt"
 
 php "$FLAVOR/strip.php" "$STAGE"
 
+fail() { echo "ERROR: $1" >&2; exit 1; }
+
+# Gates 4 and 4a, defined once so the full build and --check-only run the
+# same commands. Every WPMCP class the shipped code names must still exist,
+# resolved against composer's authoritative classmap (the map WordPress
+# autoloads from), shared with the woo build via scripts/lib/class-ref-gate.php.
+class_ref_gates() {
+  php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --strings \
+    || fail "the $SLUG build names a class it does not ship"
+  # 4a. The same tree through the hook scan the woo build relies on.
+  php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --hooks \
+    || fail "a hook in the $SLUG build names a class it does not ship"
+}
+
+if [ "$CHECK_ONLY" = 1 ]; then
+  # The gates only read the classmap, so a manifest with just the autoload
+  # rule gives the same map without installing any dependency.
+  # shellcheck source=scripts/lib/stage-classmap.sh
+  . "$ROOT/scripts/lib/stage-classmap.sh"
+  stage_classmap "$STAGE"
+  class_ref_gates
+  echo "ok: the $SLUG build names no class it does not ship"
+  exit 0
+fi
+
 # The licensing SDK is a composer dependency of the full plugin, so it has to
 # leave composer.json too, not just vendor/. File_Type_Check errors on a
 # vendor/ directory with no composer.json beside it, so the pruned manifest
@@ -68,7 +100,6 @@ rm -f "$STAGE/composer.lock"
 # Each of these re-derives its answer from the staged tree. None of them
 # trusts the strip script to have done its job.
 
-fail() { echo "ERROR: $1" >&2; exit 1; }
 
 # 1. Syntax. A textual transform that produces an unparsable file must never
 #    reach a zip.
@@ -310,13 +341,7 @@ exit(1);
 #    from at runtime. Shared with the woo build (scripts/lib/class-ref-gate.php):
 #    imports with an alias, a comma list or group use, new, static calls,
 #    ::class and string callables.
-php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --strings \
-  || fail "the $SLUG build names a class it does not ship"
-# 4a. The same tree through the hook scan the woo build relies on. Gate 4
-#     already fails on any dangling name, so this is belt and braces here,
-#     kept so both builds hold the hook-callback invariant explicitly.
-php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --hooks \
-  || fail "a hook in the $SLUG build names a class it does not ship"
+class_ref_gates
 
 # 4b. Compatibility headers, re-derived from the staged files rather than
 #     from the checkout the strip ran over. `Tested up to` is a Plugin Check

@@ -285,6 +285,9 @@ class Theme_Integration extends Integration_Dispatcher
      * posts page, the permalink structure with its bases, a URL resolver
      * and a rewrite flush, every write snapshotted and off until the site
      * opts in.
+     * Issue #711 adds WordPress core's synced patterns (Core_Patterns_Pack):
+     * list, read and usage reads, plus snapshotted create, update and
+     * detach writes, off until the site opts in.
      *
      * @return array<string,array<string,mixed>>
      */
@@ -294,6 +297,7 @@ class Theme_Integration extends Integration_Dispatcher
             [ 'create-child-theme' => Child_Theme_Scaffolder::operation() ],
             Theme_Framework_Pack::operations($this->detect_framework()),
             Core_Site_Pack::operations(),
+            Core_Patterns_Pack::operations(),
             Ops_Status_Packs::operations(),
             Site_Gate_Pack::operations(),
             Cache_Settings_Pack::operations(),
