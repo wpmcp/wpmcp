@@ -62,7 +62,7 @@ class AmeliaPackTest extends \WP_UnitTestCase
     ];
 
     /** Every other plugin-data plugin, off so only Amelia decides whether the pair is available. */
-    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active', 'wpmcp_tablepress_active', 'wpmcp_fluentcrm_active', 'wpmcp_mailpoet_active' ];
+    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_tutor_active', 'wpmcp_lifterlms_active', 'wpmcp_tablepress_active', 'wpmcp_fluentcrm_active', 'wpmcp_mailpoet_active', 'wpmcp_action_scheduler_active' ];
 
     private const CAPS = [ 'amelia_read_services', 'amelia_read_employees', 'amelia_read_customers', 'amelia_read_appointments', 'amelia_read_events', 'amelia_write_services', 'amelia_write_customers', 'amelia_write_appointments', 'amelia_write_employees', 'amelia_write_events', 'amelia_delete_services', 'amelia_delete_employees', 'amelia_delete_customers' ];
 

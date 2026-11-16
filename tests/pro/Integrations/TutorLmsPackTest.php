@@ -45,7 +45,7 @@ class TutorLmsPackTest extends \WP_UnitTestCase
     ];
 
     /** The other plugin-data plugins, off so only this LMS decides whether the pair is available. */
-    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active' ];
+    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_buddypress_active', 'wpmcp_action_scheduler_active' ];
 
     private int $admin;
 

@@ -27,7 +27,7 @@ require_once __DIR__ . '/../../support/buddypress-tables.php';
  */
 class BuddyPressPackTest extends \WP_UnitTestCase
 {
-    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active' ];
+    private const OTHER_FILTERS = [ 'wpmcp_jetengine_active', 'wpmcp_pods_active', 'wpmcp_translatepress_active', 'wpmcp_action_scheduler_active' ];
 
     private const OPS = [
         'buddypress-list-groups'          => 'read',
