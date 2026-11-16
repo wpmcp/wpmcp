@@ -957,6 +957,18 @@ $plugin_edits = [
         '',
         1,
     ],
+    // The MemberPress pack's rollback refresher entries: the class they name is not in this build (issue #867).
+    [
+        "        // MemberPress rebuilds its cached rule and membership lists only on a\n"
+            . "        // wp-admin save, so an undo that restores or trashes a rule or\n"
+            . "        // membership post, or puts a rule's access rows back, rebuilds them\n"
+            . "        // as the write did (issue #867).\n"
+            . "        [\\WPMCP\\Integrations\\MemberPress_Pack::class, 'after_post_change', 'wpmcp_rollback_post_restored'],\n"
+            . "        [\\WPMCP\\Integrations\\MemberPress_Pack::class, 'after_post_change', 'trashed_post'],\n"
+            . "        [\\WPMCP\\Integrations\\MemberPress_Pack::class, 'after_rows_restored', 'wpmcp_rollback_table_rows_restored'],\n",
+        '',
+        1,
+    ],
     // The paid SEO registrations chained off the free SEO group (issue #67).
     ["\n        \$this->register_seo_pro_abilities(\$registrar);\n", "\n", 1],
 ];
