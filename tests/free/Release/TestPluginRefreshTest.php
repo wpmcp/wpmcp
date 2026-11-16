@@ -121,6 +121,8 @@ class TestPluginRefreshTest extends TestCase
 
         [, $gates] = $this->run_script('bin/install-test-plugins.sh', ['--list'], ['WP_CORE_DIR' => $core, 'WPMCP_LIVE_SITE_GATE' => '1']);
         $this->assertSame(['coming-soon coming-soon.php latest', 'wp-maintenance-mode wp-maintenance-mode.php latest', 'under-construction-page under-construction.php latest', 'maintenance maintenance.php latest', 'cmp-coming-soon-maintenance niteo-cmp.php latest'], explode("\n", trim($gates)));
+        [, $mail] = $this->run_script('bin/install-test-plugins.sh', ['--list'], ['WP_CORE_DIR' => $core, 'WPMCP_LIVE_EMAIL_LOG' => '1']);
+        $this->assertSame(['wp-mail-logging wp-mail-logging.php latest', 'check-email check-email.php latest', 'email-log email-log.php latest'], explode("\n", trim($mail)));
     }
 
     public function test_a_new_release_of_an_unpinned_plugin_keys_a_new_install(): void

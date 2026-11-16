@@ -378,6 +378,16 @@ tests_add_filter( 'muplugins_loaded', function () {
         }
     }
 
+    // The live email log job (issue #905, WPMCP_LIVE_EMAIL_LOG=1) runs the
+    // email log ops against the real WP Mail Logging, Check and Log Email
+    // and Email Log. Loaded only on request: the stub-backed tests build
+    // all three tables from a fixture.
+    if ( getenv( 'WPMCP_LIVE_EMAIL_LOG' ) ) {
+        wpmcp_maybe_require_plugin( 'wp-mail-logging/wp-mail-logging.php' );
+        wpmcp_maybe_require_plugin( 'check-email/check-email.php' );
+        wpmcp_maybe_require_plugin( 'email-log/email-log.php' );
+    }
+
     // The live FunnelKit job (issue #500, WPMCP_LIVE_FUNNELKIT=1) runs the
     // FunnelKit funnel writes through the free Funnel Builder's own REST
     // controllers, beside the WooCommerce loaded above. Loaded only on
@@ -575,6 +585,24 @@ tests_add_filter( 'init', function () {
     if ( getenv( 'WPMCP_LIVE_ACTIVITY_LOG' ) && class_exists( '\\WSAL\\Entities\\Occurrences_Entity' ) ) {
         \WSAL\Entities\Occurrences_Entity::create_table();
         \WSAL\Entities\Metadata_Entity::create_table();
+    }
+}, 1 );
+
+// The live email log job's tables, built by the plugins' own table managers
+// once per run, before any test transaction starts (WP Mail Logging creates
+// its own at load). A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( ! getenv( 'WPMCP_LIVE_EMAIL_LOG' ) ) {
+        return;
+    }
+    if ( function_exists( 'wpchill_check_email' ) && wpchill_check_email() ) {
+        wpchill_check_email()->table_manager->create_table_if_needed();
+    }
+    if ( function_exists( 'ck_mail_create_error_logs' ) ) {
+        ck_mail_create_error_logs();
+    }
+    if ( function_exists( 'email_log' ) && email_log() ) {
+        email_log()->table_manager->create_table_if_needed();
     }
 }, 1 );
 

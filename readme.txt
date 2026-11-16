@@ -38,6 +38,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Events, donations, memberships (read)
 * BuddyPress: groups, group members, activity moderation and extended profile fields
 * Activity logs (read): WP Activity Log and Simple History events listed with IP addresses and emails masked and read one at a time in full
+* Email logs (read): WP Mail Logging, Check and Log Email and Email Log emails listed with recipients masked and no bodies, and read one at a time with the body cut and reset or login links removed
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * WP Mail SMTP: the active mailer and from identity with credentials never returned, the Pro email log, a test send to your own address, and an undoable from name and address change
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable

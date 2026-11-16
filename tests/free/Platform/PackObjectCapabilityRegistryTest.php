@@ -52,6 +52,7 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
         'plugin-data:activitylog-list-activity:user_id' => 'an activity log event row (or a user or post id used as a filter) in the plugin\'s own table, behind manage_options (the logs hold personal data, masked in lists)',
         'plugin-data:activitylog-list-activity:object_id' => 'an activity log event row (or a user or post id used as a filter) in the plugin\'s own table, behind manage_options (the logs hold personal data, masked in lists)',
         'plugin-data:activitylog-get-activity:id' => 'an activity log event row (or a user or post id used as a filter) in the plugin\'s own table, behind manage_options (the logs hold personal data, masked in lists)',
+        'plugin-data:emaillog-get-email:id' => 'an email log row (or an id used as a filter) in the logging plugin\'s own table, behind manage_options (recipients and bodies are personal data, masked in lists)',
         'plugin-data:wsform-get-form:form_id' => 'a WS Form form row, behind manage_options (WS Form grants its own form capabilities to administrators only)',
         'plugin-data:wsform-list-fields:form_id' => 'a WS Form form row, behind manage_options (WS Form grants its own form capabilities to administrators only)',
         'plugin-data:wsform-list-actions:form_id' => 'a WS Form form row, behind manage_options (WS Form grants its own form capabilities to administrators only)',
