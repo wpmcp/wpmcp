@@ -206,6 +206,15 @@ class EmailLogPackTest extends \WP_UnitTestCase
         $this->assertSame('', Email_Log_Pack::mask_recipients(''));
     }
 
+    public function test_a_link_after_a_secret_word_stays_a_redacted_link_and_later_secrets_are_still_redacted(): void
+    {
+        $body = 'Reset your password: https://x.test/wp-login.php?action=rp&key=SENTINEL-KEY&login=ada Your verification code is 482913.';
+        $this->assertSame('Reset your password: [redacted-link] Your verification code is [redacted]', Email_Log_Pack::redact_links($body));
+        $this->assertSame('Your password is [redacted-link] now', Email_Log_Pack::redact_links('Your password is https://x.test/?token=T now'));
+        $this->assertSame('token=[redacted-link]', Email_Log_Pack::redact_links('token=https://x.test/reset/abc'));
+        $this->assertSame('password: [redacted]', Email_Log_Pack::redact_links('password: Hunter2'));
+    }
+
     public function test_filters_search_recipient_and_subject_escape_like_wildcards_and_page(): void
     {
         wpmcp_test_wpml_mail([ 'receiver' => 'ada@example.com', 'subject' => 'Order 100% received', 'timestamp' => '2026-11-10 09:00:00' ]);

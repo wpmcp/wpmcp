@@ -596,7 +596,9 @@ final class Email_Log_Pack
             static fn (array $m): string => self::link_is_sensitive($m[0]) ? self::REDACTED_LINK : $m[0],
             $text
         );
-        return (string) preg_replace('/\b(password|passcode|passwd|pwd|passphrase|code|otp|pin|token|secret|api[_ -]?key)\b((?:\s+is)?\s*[:=]?\s*)[^\s<]+/i', '$1$2[redacted]', $text);
+        // Links go first; the value pass then skips a [redacted-link] it lands on (the atomic
+        // separator group stops it backtracking onto the ":" or "is" instead).
+        return (string) preg_replace('/\b(password|passcode|passwd|pwd|passphrase|code|otp|pin|token|secret|api[_ -]?key)\b((?>(?:\s+is)?\s*[:=]?\s*))(?!\[redacted-link\])[^\s<]+/i', '$1$2[redacted]', $text);
     }
 
     /** The header block with credential headers blanked and secrets in values removed. */
