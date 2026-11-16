@@ -47,6 +47,8 @@ class CronHookRegistryTest extends \WP_UnitTestCase
         'src/Tools/Cron/Schedule_Event.php',
         // Undo of an Action Scheduler cancel re-creates the site's own action under its own hook.
         'src/Safety/Action_Scheduler_Snapshot.php',
+        // backup-now (#694) queues UpdraftPlus's own run hook; deactivating WP MCP must not cancel a backup.
+        'src/Integrations/UpdraftPlus_Status.php',
     ];
 
     public function test_every_scheduled_hook_is_in_the_registry(): void
@@ -64,7 +66,7 @@ class CronHookRegistryTest extends \WP_UnitTestCase
                 }
                 continue;
             }
-            if (! in_array($call['hook'], $registry, true)) {
+            if (! in_array($call['hook'], $registry, true) && ! in_array($call['file'], self::DYNAMIC_HOOK_FILES, true)) {
                 $missing[] = sprintf('%s:%d schedules "%s"', $call['file'], $call['line'], $call['hook']);
             }
         }

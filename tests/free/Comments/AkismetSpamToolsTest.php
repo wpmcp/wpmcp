@@ -51,7 +51,7 @@ class AkismetSpamToolsTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString('spammer@example.com', wp_json_encode($out));
         $this->assertStringNotContainsString('203.0.113.42', wp_json_encode($out));
         $this->assertSame('s***@example.com', $row['author_email']);
-        $this->assertSame('203.0.113.x', $row['author_ip']);
+        $this->assertSame('2***', $row['author_ip']);
     }
 
     public function test_akismet_view_reports_inactive_when_the_presence_filter_says_so(): void

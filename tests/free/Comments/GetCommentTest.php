@@ -56,7 +56,7 @@ class GetCommentTest extends \WP_UnitTestCase
 
         $this->assertTrue($out['masked']);
         $this->assertSame('s***@example.com', $out['author_email']);
-        $this->assertSame('203.0.113.x', $out['author_ip']);
+        $this->assertSame('2***', $out['author_ip']);
     }
 
     public function test_get_returns_full_email_and_ip_at_manage_options(): void

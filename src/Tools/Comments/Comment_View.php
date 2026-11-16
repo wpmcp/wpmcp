@@ -29,44 +29,6 @@ class Comment_View
         }
     }
 
-    /**
-     * List row with commenter email and IP masked (owner policy, issue #718):
-     * lists are masked, single reads stay full for manage_options.
-     */
-    public static function masked_row(\WP_Comment $comment): array
-    {
-        $row                 = self::row($comment);
-        $row['author_email'] = self::mask_email($row['author_email']);
-        $row['author_ip']    = self::mask_ip((string) $comment->comment_author_IP);
-        return $row;
-    }
-
-    public static function mask_email(string $email): string
-    {
-        $at = strrpos($email, '@');
-        if ('' === $email || false === $at) {
-            return '' === $email ? '' : '***';
-        }
-        return substr($email, 0, 1) . '***' . substr($email, $at);
-    }
-
-    public static function mask_ip(string $ip): string
-    {
-        if ('' === $ip) {
-            return '';
-        }
-        if (false !== strpos($ip, ':')) {
-            $parts = explode(':', $ip);
-            return implode(':', array_slice($parts, 0, 2)) . ':x';
-        }
-        $parts = explode('.', $ip);
-        if (4 !== count($parts)) {
-            return 'x';
-        }
-        $parts[3] = 'x';
-        return implode('.', $parts);
-    }
-
     public static function row(\WP_Comment $comment): array
     {
         return [
@@ -83,13 +45,22 @@ class Comment_View
     }
 
     /**
-     * A row for a LIST read: the author email is masked on the server
-     * (Privacy\Masking), because a list hands many commenters' emails to the
-     * model at once. Name, content and status stay readable for moderation.
-     * A single get-comment keeps the full email.
+     * A row for a LIST read, and for get-comment below manage_options: the
+     * author email and IP are masked on the server by the shared
+     * Privacy\Masking rule, because a list hands many commenters' data to the
+     * model at once (issue #718 and the list masking audit). Name, content and
+     * status stay readable for moderation.
      */
+    public static function masked_row(\WP_Comment $comment): array
+    {
+        $row              = self::row($comment);
+        $row['author_ip'] = (string) $comment->comment_author_IP;
+        return Masking::keys($row, [ 'author_email', 'author_ip' ]);
+    }
+
+    /** The list form of a comment row; see masked_row(). */
     public static function list_row(\WP_Comment $comment): array
     {
-        return Masking::keys(self::row($comment), [ 'author_email' ]);
+        return self::masked_row($comment);
     }
 }
