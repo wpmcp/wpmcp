@@ -27,6 +27,33 @@ class Wordfence_Api
         return defined('WORDFENCE_VERSION') ? (string) WORDFENCE_VERSION : null;
     }
 
+    /**
+     * Whether Wordfence's onboarding is done (no "installation is incomplete"
+     * notice), null when this Wordfence does not say.
+     */
+    public function installation_complete(): ?bool
+    {
+        if (class_exists('wfOnboardingController', false) && method_exists('wfOnboardingController', 'shouldShowAnyAttempt')) {
+            return ! \wfOnboardingController::shouldShowAnyAttempt();
+        }
+        return null;
+    }
+
+    /** The license tier only: none (no key registered), free or paid. Never the key. */
+    public function license_type(): string
+    {
+        if (! class_exists('wfConfig', false) || '' === (string) \wfConfig::get('apiKey')) {
+            return 'none';
+        }
+        if (class_exists('wfLicense', false) && method_exists('wfLicense', 'current')) {
+            $license = \wfLicense::current();
+            if (is_object($license) && method_exists($license, 'isPaid')) {
+                return $license->isPaid() ? 'paid' : 'free';
+            }
+        }
+        return \wfConfig::get('isPaid') ? 'paid' : 'free';
+    }
+
     /** @return mixed */
     public function config(string $key)
     {

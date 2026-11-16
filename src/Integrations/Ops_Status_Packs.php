@@ -72,7 +72,7 @@ final class Ops_Status_Packs
      * @param callable(array):array $handler
      * @return array<string,mixed>
      */
-    public static function read_op(string $description, callable $requires, callable $handler, array $properties = []): array
+    public static function read_op(string $description, callable $requires, callable $handler, array $properties = [], array $plain = []): array
     {
         return [
             'mode'         => 'read',
@@ -80,7 +80,7 @@ final class Ops_Status_Packs
             'description'  => $description,
             'input_schema' => [ 'type' => 'object', 'properties' => $properties ],
             'requires'     => $requires,
-            'handler'      => static fn (array $args): array => self::redact($handler($args)),
+            'handler'      => static fn (array $args): array => self::redact($handler($args), $plain),
         ];
     }
 
@@ -106,18 +106,23 @@ final class Ops_Status_Packs
      * kebab-case, dotted and camelCase all split), so "keywords" never
      * matches while api_key, apiKey, access_token and client_secret do.
      *
-     * @param array<mixed> $value
+     * Keys listed in $plain are exempt by exact name, for a value an adapter
+     * builds itself and knows is not a secret (a count such as
+     * max_forgot_password, a license tier name).
+     *
+     * @param array<mixed>  $value
+     * @param list<string> $plain
      * @return array<mixed>
      */
-    public static function redact(array $value): array
+    public static function redact(array $value, array $plain = []): array
     {
         $out = [];
         foreach ($value as $key => $item) {
-            if (is_string($key) && self::is_secret_key($key)) {
+            if (is_string($key) && ! in_array($key, $plain, true) && self::is_secret_key($key)) {
                 $out[ $key ] = self::REDACTED;
                 continue;
             }
-            $out[ $key ] = is_array($item) ? self::redact($item) : $item;
+            $out[ $key ] = is_array($item) ? self::redact($item, $plain) : $item;
         }
         return $out;
     }
