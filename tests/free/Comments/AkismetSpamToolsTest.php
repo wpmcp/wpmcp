@@ -54,11 +54,20 @@ class AkismetSpamToolsTest extends \WP_UnitTestCase
         $this->assertSame('203.0.113.x', $row['author_ip']);
     }
 
+    public function test_akismet_view_reports_inactive_when_the_presence_filter_says_so(): void
+    {
+        add_filter('wpmcp_akismet_active', '__return_false');
+
+        $out = (new List_Comments())->handle(['view' => 'akismet']);
+
+        $this->assertFalse($out['akismet']['active']);
+    }
+
     public function test_akismet_view_reports_status_without_the_key(): void
     {
-        if (! class_exists('Akismet')) {
-            eval('class Akismet {}');
-        }
+        // Drive the presence filter instead of stubbing the class: the test core
+        // ships the real akismet/class.akismet.php, which another test may load.
+        add_filter('wpmcp_akismet_active', '__return_true');
         update_option('wordpress_api_key', 'abc123secretkey');
         update_option('akismet_strictness', '1');
         update_option('akismet_spam_count', '57');

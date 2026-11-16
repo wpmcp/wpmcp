@@ -81,7 +81,8 @@ class List_Comments
      */
     public static function akismet_status(): array
     {
-        $active = defined('AKISMET_VERSION') || class_exists('Akismet');
+        // Filterable like every pack's presence check, so tests never stub the real class.
+        $active = (bool) apply_filters('wpmcp_akismet_active', defined('AKISMET_VERSION') || class_exists('Akismet'));
         $key    = defined('WPCOM_API_KEY') ? (string) constant('WPCOM_API_KEY') : (string) get_option('wordpress_api_key', '');
         $counts = wp_count_comments();
 
