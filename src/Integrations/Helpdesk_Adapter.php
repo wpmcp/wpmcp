@@ -108,7 +108,8 @@ abstract class Helpdesk_Adapter
 
     /**
      * An email with all but its first character of the local part hidden:
-     * jane.doe@example.com reads j***@example.com.
+     * jane.doe@example.com reads j***@example.com. Delegates to the shared
+     * Privacy\Masking rule; a value that is not an email reads ***.
      */
     public static function mask_email(string $email): string
     {
@@ -117,7 +118,7 @@ abstract class Helpdesk_Adapter
         if (false === $at || 0 === $at) {
             return '' === $email ? '' : '***';
         }
-        return substr($email, 0, 1) . '***' . substr($email, $at);
+        return Masking::email($email);
     }
 
     /** @return array<string, array<string, mixed>> */
