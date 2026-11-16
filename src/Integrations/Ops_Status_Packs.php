@@ -15,6 +15,8 @@ if (! defined('ABSPATH')) {
  * no top-level tools:
  *  - get-updraftplus-status (UpdraftPlus_Status)
  *  - get-duplicator-status (Duplicator_Status)
+ *  - list-updraftplus-backups and run-updraftplus-backup (UpdraftPlus_Status, #694)
+ *  - list-aio-wp-migration-backups (AIOWM_Status, #694)
  *  - get-solid-security-status (Solid_Security_Status)
  *  - get-monsterinsights-status (MonsterInsights_Status)
  *  - get-wordfence-status and the Wordfence lists and writes (Wordfence_Integration)
@@ -53,6 +55,7 @@ final class Ops_Status_Packs
         return array_merge(
             UpdraftPlus_Status::operations(),
             Duplicator_Status::operations(),
+            AIOWM_Status::operations(),
             Solid_Security_Status::operations(),
             MonsterInsights_Status::operations(),
             Wordfence_Integration::operations(),
