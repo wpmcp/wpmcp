@@ -320,7 +320,7 @@ class Formidable_Integration extends Forms_Integration
             $result = \FrmDb::save_settings($record, 'frm_actions');
         } else {
             $record['post_content'] = wp_slash(wp_json_encode($settings));
-            $result                 = wp_update_post($record, true);
+            $result                 = \WPMCP\Safety\Save_Filters::update_post($record, true);
         }
         if (is_wp_error($result) || ! $result) {
             throw new Operation_Error('update_failed', 'Formidable did not save the action.', [ 'action_id' => (int) $post->ID ]);
@@ -430,7 +430,7 @@ class Formidable_Integration extends Forms_Integration
         if (isset($args['page'])) {
             $settings['success_page_id'] = (string) (int) $args['page'];
         }
-        if (isset($args['redirect'])) {
+        if (isset($args['redirect']) && (string) $args['redirect'] !== $before['redirect']) {
             if (! preg_match('#^https?://[^\s]+$#i', (string) $args['redirect'])) {
                 return [ [ 'code' => 'invalid_confirmation', 'message' => 'A redirect confirmation needs an http or https url.', 'data' => [ 'form_id' => $form_id, 'confirmation_id' => (int) $args['confirmation_id'] ] ], null ];
             }
@@ -451,7 +451,7 @@ class Formidable_Integration extends Forms_Integration
         $shadow->post_status = $status;
         $shadow->post_title  = $title;
         $after   = self::confirmation_view($shadow, $settings);
-        $problem = self::confirmation_problem([ 'type' => $after['type'], 'message' => $after['message'], 'page' => $after['page'], 'url' => $after['redirect'] ]);
+        $problem = self::confirmation_problem([ 'type' => $after['type'], 'message' => $after['message'], 'page' => $after['page'], 'url' => $after['redirect'], 'url_unchanged' => 'redirect' === $before['type'] && $after['redirect'] === $before['redirect'] ]);
         if (null !== $problem) {
             return [ [ 'code' => 'invalid_confirmation', 'message' => $problem, 'data' => [ 'form_id' => $form_id, 'confirmation_id' => (int) $args['confirmation_id'] ] ], null ];
         }
@@ -527,6 +527,11 @@ class Formidable_Integration extends Forms_Integration
                     foreach ([ 'subject', 'message' ] as $field) {
                         if (isset($args[ $field ]) && '' === trim((string) $args[ $field ])) {
                             return $bad(sprintf('%s must not be empty.', ucfirst($field)));
+                        }
+                    }
+                    foreach ([ 'name' => 'Name', 'subject' => 'Subject' ] as $field => $label) {
+                        if (isset($args[ $field ]) && null !== ($problem = self::header_text_problem((string) $args[ $field ], $label))) {
+                            return $bad($problem);
                         }
                     }
                     foreach ([ 'from' => 'From', 'reply_to' => 'Reply-to' ] as $field => $label) {

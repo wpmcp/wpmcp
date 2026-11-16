@@ -295,4 +295,34 @@ class FormidableConfigTest extends \WP_UnitTestCase
         }
         $this->assertArrayNotHasKey('error', $this->write('delete-entry', [ 'entry_id' => 50 ], true));
     }
+
+    public function test_redirect_bypass_forms_are_refused_and_an_unchanged_tagged_url_can_stay(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $args = [ 'form_id' => 5, 'confirmation_id' => $this->confirm, 'type' => 'redirect' ];
+        foreach ([
+            'https://evil.test\\@example.org/?e=[25]',
+            'https://user@example.org/?e=[25]',
+            '//evil.test/?e=[25]',
+            'https://example.org.evil.test/?e=[25]',
+            'https://[25]/',
+        ] as $url) {
+            $this->assertSame('invalid_confirmation', $this->write('update-confirmation', $args + [ 'redirect' => $url ])['error']['code'] ?? null, $url);
+        }
+
+        // An existing off-site tagged redirect can be renamed or switched off.
+        $tagged = $this->action(5, 'on_submit', 'Tagged', [ 'success_action' => 'redirect', 'success_url' => 'https://partner.test/?e=[25]' ]);
+        \FrmFormAction::$actions[5][] = (object) [ 'ID' => $tagged, 'post_excerpt' => 'on_submit' ];
+        $this->assertArrayNotHasKey('error', $this->write('update-confirmation', [ 'form_id' => 5, 'confirmation_id' => $tagged, 'name' => 'Renamed', 'enabled' => false ]));
+        $this->assertSame('draft', get_post($tagged)->post_status);
+    }
+
+    public function test_line_breaks_in_name_and_subject_are_refused(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        foreach ([ 'name', 'subject' ] as $field) {
+            $out = $this->write('update-notification', [ 'form_id' => 5, 'notification_id' => $this->email, $field => "x\nBcc: evil@example.test" ]);
+            $this->assertSame('invalid_notification', $out['error']['code'], $field);
+        }
+    }
 }

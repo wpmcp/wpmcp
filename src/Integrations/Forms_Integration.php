@@ -397,6 +397,10 @@ abstract class Forms_Integration extends Integration_Dispatcher
                 return null;
             case 'redirect':
                 $url = (string) $final['url'];
+                if (! empty($final['url_unchanged'])) {
+                    // Renaming or switching off a confirmation that already redirects does not re-judge its url.
+                    return '' === $url || ! preg_match('#^https?://[^\s]+$#i', $url) ? 'A redirect confirmation needs an http or https url.' : null;
+                }
                 if (null !== ($tags = self::redirect_tag_problem($url))) {
                     return $tags;
                 }
@@ -421,12 +425,34 @@ abstract class Forms_Integration extends Integration_Dispatcher
         if (! preg_match('/[{}\[\]]/', $url)) {
             return null;
         }
-        if (preg_match('/[<>\x00-\x1f]/', $url)) {
-            return 'A redirect url must not contain markup or control characters.';
+        $bad = static fn (string $why): string => 'This redirect url is refused: ' . $why;
+
+        // Normalise before judging the host. A browser reads a backslash as a
+        // slash and ignores what precedes an @ in the authority, so a url that
+        // wp_parse_url() sees on this site can send the visitor elsewhere.
+        if (preg_match('/[<>\x00-\x20\x7f\\\\]/', $url)) {
+            return $bad('it contains whitespace, control characters, markup or a backslash.');
         }
-        $host = wp_parse_url($url, PHP_URL_HOST);
+        if (! preg_match('#^https?://([^/?\#]*)#i', $url, $m)) {
+            return $bad('it must start with http:// or https:// (no protocol-relative or scheme-less form).');
+        }
+        $authority = $m[1];
+        if ('' === $authority || str_contains($authority, '@')) {
+            return $bad('its host part is empty or carries user information (an @).');
+        }
+        if (preg_match('/[{}\[\]]/', $authority)) {
+            return $bad('a smart tag in the host part could name any host.');
+        }
+        // Outside the tags the url must survive esc_url_raw() untouched, and a
+        // tag may only use the characters the form plugins' own tags use.
+        $plain = preg_replace('/\{[A-Za-z0-9_:.="\' \-]+\}|\[[A-Za-z0-9_:.\-]+\]/', 'x', $url);
+        if (null === $plain || preg_match('/[{}\[\]]/', $plain) || esc_url_raw($plain) !== $plain) {
+            return $bad('a smart tag is malformed or the rest of the url has characters WordPress would strip.');
+        }
+
+        $host = wp_parse_url($plain, PHP_URL_HOST);
         $home = wp_parse_url(home_url(), PHP_URL_HOST);
-        if (is_string($host) && is_string($home) && 0 === strcasecmp($host, $home) && ! preg_match('/[{}\[\]]/', $host)) {
+        if (is_string($host) && is_string($home) && 0 === strcasecmp($host, $home)) {
             return null;
         }
         if (true === apply_filters('wpmcp_forms_allow_redirect_smart_tags', false, $url)) {
@@ -434,6 +460,12 @@ abstract class Forms_Integration extends Integration_Dispatcher
         }
 
         return 'A redirect to another site must not contain smart tags or shortcodes, which would send submitted values to that host (a site can allow it with wpmcp_forms_allow_redirect_smart_tags).';
+    }
+
+    /** Why a header-bound text (a subject, a sender name, a notification name) is refused, or null. */
+    protected static function header_text_problem(string $value, string $label): ?string
+    {
+        return preg_match('/[\r\n\0]/', $value) ? sprintf('%s must not contain line breaks.', $label) : null;
     }
 
     /**

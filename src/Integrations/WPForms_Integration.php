@@ -393,11 +393,11 @@ class WPForms_Integration extends Forms_Integration
         ];
     }
 
-    /** Save a changed form through wp_update_post, the way WPForms stores it (JSON, slashed). */
+    /** Save a changed form through Save_Filters::update_post, the way WPForms stores it (JSON, slashed). */
     private static function save_form_data(\WP_Post $post, array $data): void
     {
         $json   = function_exists('wpforms_encode') ? wpforms_encode($data) : wp_slash(wp_json_encode($data));
-        $result = wp_update_post([ 'ID' => $post->ID, 'post_content' => $json ], true);
+        $result = \WPMCP\Safety\Save_Filters::update_post([ 'ID' => $post->ID, 'post_content' => $json ], true);
         if (is_wp_error($result) || ! $result) {
             throw new Operation_Error('update_failed', 'WPForms did not save the form.', [ 'form_id' => (int) $post->ID ]);
         }
@@ -476,7 +476,7 @@ class WPForms_Integration extends Forms_Integration
         if (isset($args['page'])) {
             $next['page'] = (string) (int) $args['page'];
         }
-        if (isset($args['redirect'])) {
+        if (isset($args['redirect']) && (string) $args['redirect'] !== $before['redirect']) {
             // Judge what was given, before esc_url_raw() can turn "not a url" into one.
             if (! preg_match('#^https?://[^\s]+$#i', (string) $args['redirect'])) {
                 return [ [ 'code' => 'invalid_confirmation', 'message' => 'A redirect confirmation needs an http or https url.', 'data' => [ 'form_id' => (int) $post->ID, 'confirmation_id' => $id ] ], null ];
@@ -493,7 +493,7 @@ class WPForms_Integration extends Forms_Integration
             $next['redirect'] = $has_tags ? $raw_redirect : esc_url_raw($raw_redirect);
         }
         $after   = self::confirmation_view($id, $next);
-        $problem = self::confirmation_problem([ 'type' => $after['type'], 'message' => $after['message'], 'page' => $after['page'], 'url' => $after['redirect'] ]);
+        $problem = self::confirmation_problem([ 'type' => $after['type'], 'message' => $after['message'], 'page' => $after['page'], 'url' => $after['redirect'], 'url_unchanged' => 'redirect' === $before['type'] && $after['redirect'] === $before['redirect'] ]);
         if (null !== $problem) {
             return [ [ 'code' => 'invalid_confirmation', 'message' => $problem, 'data' => [ 'form_id' => (int) $post->ID, 'confirmation_id' => $id ] ], null ];
         }
@@ -572,6 +572,11 @@ class WPForms_Integration extends Forms_Integration
                     foreach ([ 'subject', 'message' ] as $field) {
                         if (isset($args[ $field ]) && '' === trim((string) $args[ $field ])) {
                             return $bad(sprintf('%s must not be empty.', ucfirst($field)));
+                        }
+                    }
+                    foreach ([ 'name' => 'Name', 'subject' => 'Subject', 'sender_name' => 'Sender name' ] as $field => $label) {
+                        if (isset($args[ $field ]) && null !== ($problem = self::header_text_problem((string) $args[ $field ], $label))) {
+                            return $bad($problem);
                         }
                     }
                     foreach ([ 'sender_address' => 'Sender address', 'replyto' => 'Reply-to' ] as $field => $label) {

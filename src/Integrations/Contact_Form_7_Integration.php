@@ -604,6 +604,9 @@ class Contact_Form_7_Integration extends Forms_Integration
                             return $bad(sprintf('%s must not be empty.', ucfirst($field)));
                         }
                     }
+                    if (isset($args['subject']) && null !== ($problem = self::header_text_problem((string) $args['subject'], 'Subject'))) {
+                        return $bad($problem);
+                    }
                     foreach ([ 'sender' => 'Sender', 'reply_to' => 'Reply-to' ] as $field => $label) {
                         if (isset($args[ $field ])) {
                             $problem = self::address_problem((string) $args[ $field ], $label, 'reply_to' === $field, true);

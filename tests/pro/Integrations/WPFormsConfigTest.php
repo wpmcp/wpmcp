@@ -241,4 +241,62 @@ class WPFormsConfigTest extends \WP_UnitTestCase
         $this->assertArrayNotHasKey('error', $this->write('update-confirmation', $args + [ 'redirect' => 'https://partner.test/?e=[email]' ]));
         remove_all_filters('wpmcp_forms_allow_redirect_smart_tags');
     }
+
+    public function test_redirect_bypass_forms_are_refused(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $args = [ 'form_id' => $this->form, 'confirmation_id' => '1', 'type' => 'redirect' ];
+        foreach ([
+            'https://evil.test\\@example.org/?e={field_id="1"}',
+            'https://evil.test\\\\@example.org/?e=[email]',
+            'https://user@example.org/?e=[email]',
+            'https://example.org@evil.test/?e=[email]',
+            '//evil.test/?e=[email]',
+            'https:///evil.test/?e=[email]',
+            'https://example.org.evil.test/?e=[email]',
+            'https://example.org%40evil.test/?e=[email]',
+            'https://example.org/?e=[email]<script>',
+            'https://[email]/',
+            'https://example.org/?e={bad tag',
+        ] as $url) {
+            $out = $this->write('update-confirmation', $args + [ 'redirect' => $url ]);
+            $this->assertSame('invalid_confirmation', $out['error']['code'] ?? null, $url);
+        }
+        $this->assertSame('message', $this->settings($this->form)['confirmations'][1]['type']);
+        $ok = $this->write('update-confirmation', $args + [ 'redirect' => home_url('/thanks?e={field_id="1"}') ]);
+        $this->assertArrayNotHasKey('error', $ok, wp_json_encode($ok));
+    }
+
+    public function test_a_confirmation_that_already_redirects_with_tags_can_be_renamed_or_switched_off(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $form = $this->seed([ 'confirmations' => [ 1 => [ 'name' => 'Old', 'type' => 'redirect', 'redirect' => 'https://partner.test/?e={field_id="1"}' ] ] ], 'Tagged');
+        $args = [ 'form_id' => $form, 'confirmation_id' => '1' ];
+
+        $this->assertArrayNotHasKey('error', $this->write('update-confirmation', $args + [ 'name' => 'Renamed' ]));
+        $this->assertArrayNotHasKey('error', $this->write('update-confirmation', $args + [ 'name' => 'Again', 'redirect' => 'https://partner.test/?e={field_id="1"}' ]), 'The same url given again is unchanged');
+        $this->assertSame('Again', $this->settings($form)['confirmations'][1]['name']);
+        $this->assertSame('invalid_confirmation', $this->write('update-confirmation', $args + [ 'redirect' => 'https://partner.test/?e={field_id="2"}' ])['error']['code'], 'A changed off-site tagged url is judged');
+    }
+
+    public function test_switching_a_dormant_tagged_url_on_is_judged(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $form = $this->seed([ 'confirmations' => [ 1 => [ 'name' => 'Msg', 'type' => 'message', 'message' => 'Thanks', 'redirect' => 'https://partner.test/?e={field_id="1"}' ] ] ], 'Dormant');
+        $out  = $this->write('update-confirmation', [ 'form_id' => $form, 'confirmation_id' => '1', 'type' => 'redirect' ]);
+        $this->assertSame('invalid_confirmation', $out['error']['code'] ?? null, wp_json_encode($out));
+        $this->assertSame('message', $this->settings($form)['confirmations'][1]['type']);
+    }
+
+    public function test_line_breaks_in_name_subject_and_sender_name_are_refused(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        foreach ([ 'name', 'subject', 'sender_name' ] as $field) {
+            foreach ([ "x\nBcc: evil@example.test", "x\r\ny" ] as $value) {
+                $out = $this->write('update-notification', [ 'form_id' => $this->form, 'notification_id' => '1', $field => $value ]);
+                $this->assertSame('invalid_notification', $out['error']['code'], $field);
+            }
+        }
+        $this->assertSame('New Entry', $this->settings($this->form)['notifications'][1]['subject']);
+    }
 }

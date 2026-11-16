@@ -216,4 +216,14 @@ class ContactForm7ConfigTest extends \WP_UnitTestCase
             $this->assertSame('invalid_recipients', $this->write('set-notification-recipients', [ 'form_id' => $this->form, 'notification_id' => 'mail', 'to' => $bad ], true)['error']['code'], $bad);
         }
     }
+
+    public function test_line_breaks_in_subject_and_sender_are_refused(): void
+    {
+        $this->opt_in();
+        foreach ([ 'subject', 'sender' ] as $field) {
+            $out = $this->write('update-notification', [ 'form_id' => $this->form, 'notification_id' => 'mail', $field => "x\nBcc: evil@example.test" ]);
+            $this->assertSame('invalid_notification', $out['error']['code'], $field);
+        }
+        $this->assertSame('New message', $this->mail()['subject']);
+    }
 }
