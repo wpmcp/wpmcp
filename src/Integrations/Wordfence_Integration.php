@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Plugin_Table_Rows_Snapshot;
 
 if (! defined('ABSPATH')) {
@@ -82,19 +83,19 @@ final class Wordfence_Integration
                 $limit + [ 'status' => [ 'type' => 'string', 'enum' => [ 'new', 'ignoreP', 'ignoreC', 'all' ], 'default' => 'new' ] ]
             ),
             'list-wordfence-blocked-attacks' => $cap + Ops_Status_Packs::read_op(
-                'Recent requests Wordfence blocked, newest first',
+                'Recent requests Wordfence blocked, newest first; emails inside the URL and description MASKED, the IP stays so block-wordfence-ip can use it',
                 $requires,
                 static fn (array $args): array => self::blocked_attacks($args),
                 $limit
             ),
             'list-wordfence-blocks'          => $cap + Ops_Status_Packs::read_op(
-                'Active Wordfence IP blocks: id, ip, type, reason, expiration',
+                'Active Wordfence IP blocks: id, ip (in full, for unblock-wordfence-ip), type, reason (emails MASKED), expiration',
                 $requires,
                 static fn (array $args): array => self::blocks($args),
                 $limit
             ),
             'list-wordfence-login-failures'  => $cap + Ops_Status_Packs::read_op(
-                'Recent failed logins Wordfence recorded, newest first',
+                'Recent failed logins Wordfence recorded, newest first; the username tried is MASKED, the IP stays so block-wordfence-ip can use it',
                 $requires,
                 static fn (array $args): array => self::login_failures($args),
                 $limit
@@ -317,11 +318,11 @@ final class Wordfence_Integration
                 'ip'          => self::ip($row['IP']),
                 'status_code' => (int) $row['statusCode'],
                 'action'      => sanitize_text_field((string) $row['action']),
-                'description' => sanitize_text_field((string) $row['actionDescription']),
-                'url'         => self::url((string) $row['URL']),
+                'description' => Activity_Log_Pack::mask_text(sanitize_text_field((string) $row['actionDescription'])),
+                'url'         => Activity_Log_Pack::mask_text(self::url((string) $row['URL'])),
             ];
         }
-        return [ 'attacks' => $out, 'count' => count($out), 'limit' => $limit ];
+        return [ 'attacks' => $out, 'count' => count($out), 'limit' => $limit, 'masked' => true ];
     }
 
     /** @return array<string,mixed> */
@@ -341,7 +342,7 @@ final class Wordfence_Integration
         foreach (is_array($rows) ? $rows : [] as $row) {
             $out[] = self::block_view($row);
         }
-        return [ 'blocks' => $out, 'count' => count($out), 'limit' => $limit ];
+        return [ 'blocks' => $out, 'count' => count($out), 'limit' => $limit, 'masked' => true ];
     }
 
     /** @return array<string,mixed> */
@@ -352,7 +353,7 @@ final class Wordfence_Integration
             'type'         => self::BLOCK_TYPES[ (int) $row['type'] ] ?? (string) $row['type'],
             'ip'           => self::ip($row['IP']),
             'blocked_time' => Ops_Status_Packs::iso_time($row['blockedTime']),
-            'reason'       => sanitize_text_field((string) $row['reason']),
+            'reason'       => Activity_Log_Pack::mask_text(sanitize_text_field((string) $row['reason'])),
             'expiration'   => Ops_Status_Packs::iso_time($row['expiration']),
             'blocked_hits' => (int) $row['blockedHits'],
         ];
@@ -375,11 +376,11 @@ final class Wordfence_Integration
                 'id'       => (int) $row['id'],
                 'time'     => Ops_Status_Packs::iso_time((float) $row['ctime']),
                 'ip'       => self::ip($row['IP']),
-                'username' => sanitize_user((string) $row['username'], true),
+                'username' => Masking::value(sanitize_user((string) $row['username'], true)),
                 'action'   => sanitize_key((string) $row['action']),
             ];
         }
-        return [ 'failures' => $out, 'count' => count($out), 'limit' => $limit ];
+        return [ 'failures' => $out, 'count' => count($out), 'limit' => $limit, 'masked' => true ];
     }
 
     // -----------------------------------------------------------------

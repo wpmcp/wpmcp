@@ -242,9 +242,10 @@ class BuddyPressPackTest extends \WP_UnitTestCase
         $this->assertSame(3, $out['result']['total']);
         $rows = array_column($out['result']['members'], null, 'user_id');
         $this->assertSame('admin', $rows[ $this->admin ]['role']);
-        $this->assertSame('Mia Member', $rows[ $member ]['name']);
+        $this->assertSame('M***', $rows[ $member ]['name'], 'a list masks the name');
         $this->assertSame('member', $rows[ $member ]['role']);
-        $this->assertSame('mia@example.com', $rows[ $member ]['email'], 'an administrator has list_users');
+        $this->assertSame('m***@example.com', $rows[ $member ]['email'], 'an administrator has list_users, and a list masks the email');
+        $this->assertTrue($out['result']['masked']);
 
         $banned = $this->read('buddypress-list-group-members', [ 'group_id' => $group, 'role' => 'banned' ]);
         $this->assertCount(1, $banned['result']['members']);
@@ -278,8 +279,9 @@ class BuddyPressPackTest extends \WP_UnitTestCase
         $this->assertSame('Trail was muddy today', $item['content']);
         $this->assertSame('activity_update', $item['type']);
         $this->assertSame($author, $item['user']['id']);
-        $this->assertSame('Pat Poster', $item['user']['name']);
-        $this->assertSame('pat@example.com', $item['user']['email']);
+        $this->assertSame('P***', $item['user']['name']);
+        $this->assertSame('p***@example.com', $item['user']['email']);
+        $this->assertTrue($out['result']['masked']);
         $this->assertStringNotContainsString('203.0.113.9', (string) wp_json_encode($out));
 
         $this->editor();

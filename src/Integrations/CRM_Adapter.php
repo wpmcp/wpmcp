@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\Crm_Rows_Snapshot;
 use WPMCP\Safety\Safe_Mutation;
 
@@ -334,7 +335,7 @@ abstract class CRM_Adapter
             ],
             "{$p}-list-contacts"      => $base + [
                 'mode'         => 'read',
-                'description'  => "List {$label} contacts newest first. search matches email and name; status, list_id and tag_id filter; page and per_page (max 100)",
+                'description'  => "List {$label} contacts newest first, email and names MASKED ({$p}-get-contact returns one in full). search matches email and name; status, list_id and tag_id filter; page and per_page (max 100)",
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -1002,7 +1003,8 @@ abstract class CRM_Adapter
             'total'    => $found['total'],
             'page'     => $page,
             'per_page' => $per_page,
-            'contacts' => $found['rows'],
+            'contacts' => array_map(static fn (array $row): array => Masking::keys($row, [ 'email', 'first_name', 'last_name' ]), $found['rows']),
+            'masked'   => true,
         ];
     }
 

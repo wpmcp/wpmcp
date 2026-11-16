@@ -97,7 +97,11 @@ class BuddyPressPrivateGroupTest extends \WP_UnitTestCase
         wp_set_current_user($user);
         $out = $this->read('buddypress-list-group-members', [ 'group_id' => $group ] + $args);
         $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
-        $rows = array_column($out['result']['members'], 'role', 'name');
+        // Names are masked in a list (several start with the same letter), so key the rows by the real display name of each user id.
+        $rows = [];
+        foreach ($out['result']['members'] as $member) {
+            $rows[ (string) get_userdata((int) $member['user_id'])->display_name ] = $member['role'];
+        }
         ksort($rows);
         $this->assertSame(count($rows), $out['result']['total'], 'total counts only the rows the caller may see');
         return $rows;
@@ -213,7 +217,7 @@ class BuddyPressPrivateGroupTest extends \WP_UnitTestCase
             $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
             $this->assertSame(7, $out['result']['total']);
             $this->assertCount(4 === $page ? 1 : 2, $out['result']['members'], "page {$page}");
-            $seen = array_merge($seen, array_column($out['result']['members'], 'name'));
+            $seen = array_merge($seen, array_map(static fn (array $m): string => (string) get_userdata((int) $m['user_id'])->display_name, $out['result']['members']));
         }
         $this->assertSame([ 'Group Owner', 'Group Mod', 'Secret Member', 'Pending Applicant', 'Banned Person', 'First Requester', 'Second Requester' ], $seen);
     }

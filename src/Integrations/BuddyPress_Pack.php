@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Privacy\Masking;
 use WPMCP\Safety\BuddyPress_Rows_Snapshot;
 use WPMCP\Safety\Snapshot_Store;
 
@@ -124,7 +125,7 @@ final class BuddyPress_Pack
             ],
             'buddypress-list-group-members'   => [
                 'mode'         => 'read',
-                'description'  => 'List a BuddyPress group\'s members (user id, name, role admin/mod/member/banned/pending, title). Private groups for their members only; pending and banned rows for group admins. Email only for callers with list_users',
+                'description'  => 'List a BuddyPress group\'s members (user id, name MASKED, role admin/mod/member/banned/pending, title). Private groups for their members only; pending and banned rows for group admins. Email, MASKED, only for callers with list_users',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -139,7 +140,7 @@ final class BuddyPress_Pack
             ],
             'buddypress-list-activity'        => [
                 'mode'         => 'read',
-                'description'  => 'List BuddyPress activity items newest first, with content; filter by component, type or user_id. Hidden and spam items are listed for moderators only. Email only for callers with list_users; activity meta is never returned',
+                'description'  => 'List BuddyPress activity items newest first, with content; author, emails and IPs in the text MASKED; filter by component, type or user_id. Hidden and spam items are listed for moderators only. Email only for callers with list_users; activity meta is never returned',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -495,14 +496,14 @@ final class BuddyPress_Pack
             }
             $members[] = [
                 'user_id'       => $user['id'],
-                'name'          => $user['name'],
+                'name'          => Masking::value($user['name']),
                 'role'          => $role,
                 'title'         => (string) $row['user_title'],
                 'date_modified' => (string) $row['date_modified'],
-            ] + (array_key_exists('email', $user) ? [ 'email' => $user['email'] ] : []);
+            ] + (array_key_exists('email', $user) ? [ 'email' => Masking::value($user['email']) ] : []);
         }
 
-        return [ 'group_id' => $group, 'total' => $total, 'members' => $members ];
+        return [ 'group_id' => $group, 'total' => $total, 'masked' => true, 'members' => $members ];
     }
 
     /**
@@ -855,6 +856,25 @@ final class BuddyPress_Pack
         ];
     }
 
+    /**
+     * A listed activity item with the author's name and email masked, also
+     * where the name sits inside the item's action text, and every email or
+     * IP address in the action and the content masked.
+     *
+     * @param array<string, mixed> $item
+     * @return array<string, mixed>
+     */
+    private static function mask_activity(array $item): array
+    {
+        $name = (string) ($item['user']['name'] ?? '');
+        $item['user'] = Masking::keys((array) $item['user'], [ 'name', 'email' ]);
+        foreach ([ 'action', 'content' ] as $field) {
+            $text = '' === $name ? (string) $item[ $field ] : str_replace($name, (string) $item['user']['name'], (string) $item[ $field ]);
+            $item[ $field ] = Activity_Log_Pack::mask_text($text);
+        }
+        return $item;
+    }
+
     private static function list_activity(array $args): array
     {
         global $wpdb;
@@ -896,9 +916,9 @@ final class BuddyPress_Pack
         $users = [];
         $items = [];
         foreach ($rows as $row) {
-            $items[] = self::activity_view($row, $users);
+            $items[] = self::mask_activity(self::activity_view($row, $users));
         }
-        return [ 'total' => $total, 'activity' => $items ];
+        return [ 'total' => $total, 'masked' => true, 'activity' => $items ];
     }
 
     private static function hide_activity(int $id, bool $hidden, string $operation): array
