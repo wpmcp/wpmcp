@@ -198,6 +198,22 @@ tests_add_filter( 'muplugins_loaded', function () {
         add_filter( 'pre_option_stylesheet', static fn () => 'betheme' );
     }
 
+    // The live Bricks job (issue #914, WPMCP_LIVE_BRICKS=1) runs the Bricks
+    // page write against the real Bricks theme, copied into the themes
+    // directory from WPMCP_BRICKS_SRC, made the active theme here. Only on
+    // request: the other Bricks tests stand in for the theme.
+    if ( getenv( 'WPMCP_LIVE_BRICKS' ) && is_dir( WP_CONTENT_DIR . '/themes/bricks' ) ) {
+        add_filter( 'pre_option_template', static fn () => 'bricks' );
+        add_filter( 'pre_option_stylesheet', static fn () => 'bricks' );
+        // CSS loading set to external files, as a site using them stores it,
+        // before Bricks reads its settings: Bricks loads its CSS file
+        // generator (includes/assets/files.php) only from Assets' constructor
+        // in that mode, and its autoloader cannot find that class otherwise.
+        $wpmcp_bricks_files = static fn ( $settings ) => array_merge( is_array( $settings ) ? $settings : [], [ 'cssLoading' => 'file' ] );
+        add_filter( 'option_bricks_global_settings', $wpmcp_bricks_files );
+        add_filter( 'default_option_bricks_global_settings', $wpmcp_bricks_files );
+    }
+
     // The live theme add-on job (issue #656, WPMCP_LIVE_THEME_PRO=astra,
     // kadence or generatepress) runs the theme layout ops against one real
     // premium add-on, copied in from WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC
@@ -359,6 +375,33 @@ tests_add_filter( 'muplugins_loaded', function () {
     // in that job, so the copy that loads is the standalone one.
     if ( getenv( 'WPMCP_LIVE_ACTION_SCHEDULER' ) ) {
         wpmcp_maybe_require_plugin( 'action-scheduler/action-scheduler.php' );
+    }
+
+    // The live site gate job (issue #903, WPMCP_LIVE_SITE_GATE=1) reads and
+    // toggles the real coming soon and maintenance plugins, one per PHPUnit
+    // run (WPMCP_SITE_GATE_PLUGIN names it): they all claim the front door.
+    if ( getenv( 'WPMCP_LIVE_SITE_GATE' ) && getenv( 'WPMCP_SITE_GATE_PLUGIN' ) ) {
+        $wpmcp_gate_files = [
+            'coming-soon'                 => 'coming-soon/coming-soon.php',
+            'wp-maintenance-mode'         => 'wp-maintenance-mode/wp-maintenance-mode.php',
+            'under-construction-page'     => 'under-construction-page/under-construction.php',
+            'maintenance'                 => 'maintenance/maintenance.php',
+            'cmp-coming-soon-maintenance' => 'cmp-coming-soon-maintenance/niteo-cmp.php',
+        ];
+        $wpmcp_gate_slug = (string) getenv( 'WPMCP_SITE_GATE_PLUGIN' );
+        if ( isset( $wpmcp_gate_files[ $wpmcp_gate_slug ] ) ) {
+            wpmcp_maybe_require_plugin( $wpmcp_gate_files[ $wpmcp_gate_slug ] );
+        }
+    }
+
+    // The live email log job (issue #905, WPMCP_LIVE_EMAIL_LOG=1) runs the
+    // email log ops against the real WP Mail Logging, Check and Log Email
+    // and Email Log. Loaded only on request: the stub-backed tests build
+    // all three tables from a fixture.
+    if ( getenv( 'WPMCP_LIVE_EMAIL_LOG' ) ) {
+        wpmcp_maybe_require_plugin( 'wp-mail-logging/wp-mail-logging.php' );
+        wpmcp_maybe_require_plugin( 'check-email/check-email.php' );
+        wpmcp_maybe_require_plugin( 'email-log/email-log.php' );
     }
 
     // The live FunnelKit job (issue #500, WPMCP_LIVE_FUNNELKIT=1) runs the
@@ -575,6 +618,24 @@ tests_add_filter( 'init', function () {
     if ( getenv( 'WPMCP_LIVE_ACTIVITY_LOG' ) && class_exists( '\\WSAL\\Entities\\Occurrences_Entity' ) ) {
         \WSAL\Entities\Occurrences_Entity::create_table();
         \WSAL\Entities\Metadata_Entity::create_table();
+    }
+}, 1 );
+
+// The live email log job's tables, built by the plugins' own table managers
+// once per run, before any test transaction starts (WP Mail Logging creates
+// its own at load). A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( ! getenv( 'WPMCP_LIVE_EMAIL_LOG' ) ) {
+        return;
+    }
+    if ( function_exists( 'wpchill_check_email' ) && wpchill_check_email() ) {
+        wpchill_check_email()->table_manager->create_table_if_needed();
+    }
+    if ( function_exists( 'ck_mail_create_error_logs' ) ) {
+        ck_mail_create_error_logs();
+    }
+    if ( function_exists( 'email_log' ) && email_log() ) {
+        email_log()->table_manager->create_table_if_needed();
     }
 }, 1 );
 

@@ -4340,7 +4340,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-maintenance-status',
             'free',
-            'Whether maintenance mode is on and, if so, its message and Retry-After seconds',
+            'Whether the site is gated: WP MCP maintenance mode (message, Retry-After), core .maintenance, coming soon and maintenance plugins',
             [
                 'type'       => 'object',
                 'properties' => [],

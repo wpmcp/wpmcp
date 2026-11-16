@@ -74,6 +74,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             'show_on_front',
             'page_on_front',
             'page_for_posts',
+            // The SeedProd and Under Construction gate settings, toggled by
+            // the Site_Gate_Pack ops on the theme pair (issue #903).
+            'seedprod_settings',
+            'ucp_options',
             // Avada's global options, written by the Avada design_system
             // scope on the builder pair (issue #637).
             'fusion_options',
@@ -125,6 +129,7 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
         'src/Cloud/Settings_Sync.php'                        => 'applies synced site settings the owner chose',
         'src/Tools/CustomCode/Custom_Code_Store.php'         => 'per-post option built from POST_OPTION_PREFIX (wpmcp_custom_code_post_)',
         'src/Tools/Settings/Update_Settings.php'             => 'edits a named core setting',
+        'src/Integrations/Site_Gate_Pack.php'                => 'puts back the one gate option (seedprod_settings or ucp_options) it just wrote, named by WRITABLE; both are FOREIGN',
         'src/Tools/Meta/Update_Option.php'                   => 'edits a named option on request',
         'src/Tools/Packages/Manage_Updates.php'              => 'core auto-update lists',
         'src/Tools/Sync/Change_Set_Applier.php'              => 'applies a change set to named options',
