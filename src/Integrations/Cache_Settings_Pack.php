@@ -31,8 +31,11 @@ if (! defined('ABSPATH')) {
  *  - preload-<plugin>-cache (WP Rocket, FlyingPress): start the plugin's
  *    own cache preload. Not snapshotted: warming the cache destroys
  *    nothing, and the reply says recoverable:false.
+ *  - purge-<plugin>-cache (LiteSpeed): purge one post or one same-site URL.
+ *    Not snapshotted (recoverable:false) and, like the purge-all op in
+ *    Page_Cache_Detector, not behind the write opt-in.
  *
- * Writes are off until the site opts in through the
+ * Settings writes and preload are off until the site opts in through the
  * wpmcp_enable_cache_settings_write filter (or per op through
  * wpmcp_integration_op_enabled). Every op runs at manage_options, the
  * capability each plugin's settings screen needs. Without the plugin the
@@ -98,9 +101,10 @@ final class Cache_Settings_Pack
             ];
 
             if ($adapter->supports_targeted_purge()) {
-                $ops[ "purge-{$slug}-cache" ] = $write + [
+                // Ungated like the purge-all in Page_Cache_Detector: a purge destroys nothing.
+                $ops[ "purge-{$slug}-cache" ] = $base + [
                     'mode'         => 'write',
-                    'description'  => sprintf('Purge %s\'s page cache for one post (post_id) or one URL on this site (url). Not snapshotted: a purge destroys nothing. Disabled by default (wpmcp_enable_cache_settings_write filter)', $label),
+                    'description'  => sprintf('Purge %s\'s page cache for one post (post_id) or one URL on this site (url). Not snapshotted: a purge destroys nothing', $label),
                     'input_schema' => [
                         'type'       => 'object',
                         'properties' => [

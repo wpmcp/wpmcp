@@ -166,4 +166,21 @@ class CacheSettingsLiteSpeedTest extends \WP_UnitTestCase
         $this->assertCount(1, $posts);
         $this->assertCount(1, $urls);
     }
+
+    public function test_purge_needs_no_write_opt_in_like_purge_all(): void
+    {
+        remove_all_filters('wpmcp_enable_cache_settings_write');
+        $urls = [];
+        add_action('litespeed_purge_url', static function ($url) use (&$urls): void {
+            $urls[] = $url;
+        });
+
+        $out = $this->ok($this->write('purge-litespeed-cache', [ 'url' => home_url('/shop/') ]));
+        $this->assertFalse($out['recoverable']);
+        $this->assertSame([ home_url('/shop/') ], $urls);
+        $this->assertArrayHasKey('error', $this->write('purge-litespeed-cache', [ 'url' => 'https://other.example.net/x' ]), 'still same-site only');
+        $this->assertCount(1, $urls);
+
+        $this->assertSame('opt_in_required', $this->write('set-litespeed-settings', [ 'values' => [ 'optm-css_min' => true ] ])['error']['code'] ?? null, 'settings writes stay opt-in');
+    }
 }
