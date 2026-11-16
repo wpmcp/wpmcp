@@ -80,6 +80,6 @@ class FormidableIntegrationTest extends \WP_UnitTestCase
     {
         $names = array_column($this->integration->catalog()['operations'], 'name');
         $this->assertNotContains('update-entry-status', $names);
-        $this->assertNotContains('delete-entry', $names);
+        $this->assertContains('delete-entry', $names, 'Issue #675: the only entry write is the undoable, opt-in delete');
     }
 }

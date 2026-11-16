@@ -21,11 +21,11 @@ if (! defined('ABSPATH')) {
  * confirm:true, routes the decision through op-granular governance under the
  * synthetic wpmcp/forminator-delete-entry name, and demands manage_options on
  * top of the pair's own capability because deleting a submission destroys
- * personal data. It declares NO snapshot target: Forminator entries live in
- * forminator_form_entry / forminator_form_entry_meta, which Safe_Mutation does
- * not know how to capture or resurrect, so the dispatcher runs the delete
- * directly and honestly flags recoverable:false in the response instead of
- * implying a rollback that does not exist.
+ * personal data. Since issue #675 it is undoable: the entry and its meta rows
+ * (frmt_form_entry, frmt_form_entry_meta) are each snapshotted as a db_rows
+ * before-image in one session and removed directly (the WS Form pattern), so
+ * rollback-session reinserts them. Forminator's own delete hooks and file
+ * cleanup do not run: uploaded files stay on disk.
  */
 class Forminator_Integration extends Forms_Integration
 {
@@ -100,6 +100,41 @@ class Forminator_Integration extends Forms_Integration
             'created_at' => is_object($entry) ? (string) ($entry->date_created_sql ?? '') : '',
             'values'     => $values,
         ];
+    }
+
+    /** @return array<string, mixed>|null a refusal when Forminator has no such entry on that form */
+    private static function entry_refusal(array $args): ?array
+    {
+        $entry = \Forminator_API::get_entry((int) $args['form_id'], (int) $args['entry_id']);
+        // Forminator_API::get_entry() hands back a model for any id, whatever form
+        // it belongs to, so the form is matched here.
+        if ($entry && ! is_wp_error($entry) && ! empty($entry->entry_id) && (int) $entry->form_id === (int) $args['form_id']) {
+            return null;
+        }
+
+        return [ 'code' => 'entry_not_found', 'message' => 'Forminator has no submission with that id on that form.', 'data' => [ 'form_id' => (int) $args['form_id'], 'entry_id' => (int) $args['entry_id'] ] ];
+    }
+
+    /**
+     * Forminator keeps a Stripe or PayPal payment as entry meta (stripe-1,
+     * paypal-1 and so on), so an entry with such a row has a payment record.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function forminator_payment_refusal(int $entry_id): ?array
+    {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'frmt_form_entry_meta';
+        if (! \WPMCP\Safety\Plugin_Table_Rows_Snapshot::table_exists($table)) {
+            return null;
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- reads the host plugin's own entry meta fresh, so a payment is never missed.
+        $found = $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE entry_id = %d AND (meta_key LIKE %s OR meta_key LIKE %s)', $table, $entry_id, $wpdb->esc_like('stripe-') . '%', $wpdb->esc_like('paypal-') . '%'));
+
+        return (int) $found > 0
+            ? [ 'code' => 'entry_has_payments', 'message' => 'This entry has a payment record (Stripe or PayPal). Financial records are not deleted here.', 'data' => [ 'entry_id' => $entry_id ] ]
+            : null;
     }
 
     protected function operations(): array
@@ -209,15 +244,12 @@ class Forminator_Integration extends Forms_Integration
                 },
             ],
             'delete-entry' => [
-                'mode'               => 'destructive',
-                'objects'            => [ 'form_id' => [ 'type' => 'post', 'own_type' => true, 'access' => 'read' ], 'entry_id' => 'entry' ],
-                // Issue #66: entry deletion is off by default across every
-                // forms adapter. A site opts in with the
-                // wpmcp_integration_op_enabled filter.
-                'enabled_by_default' => false,
-                'capability'         => 'manage_options',
-                'description'  => 'Permanently delete one Forminator submission via Forminator_API::delete_entry. Default-off (opt in via the wpmcp_integration_op_enabled filter); requires confirm:true. NOT reversible: Forminator entries live in Forminator\'s own tables, which WP MCP cannot snapshot, so the response carries recoverable:false and rollback-operation cannot bring the submission back',
-                'input_schema' => [
+                'mode'              => 'destructive',
+                'self_snapshotting' => true,
+                'objects'           => [ 'form_id' => [ 'type' => 'post', 'own_type' => true, 'access' => 'read' ], 'entry_id' => 'entry' ],
+                'capability'        => 'manage_options',
+                'description'       => 'Permanently delete one Forminator submission (refused with entry_has_payments when it has a Stripe or PayPal record) with its values (the rows of the frmt_form_entry and frmt_form_entry_meta tables, removed directly: Forminator\'s own delete hooks do not run and uploaded files stay on disk). Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true. Reversible: every row is snapshotted first and rollback-session puts them back. ' . self::NOT_ERASURE,
+                'input_schema'      => [
                     'type'       => 'object',
                     'properties' => [
                         'form_id'  => [ 'type' => 'integer', 'minimum' => 1 ],
@@ -225,17 +257,34 @@ class Forminator_Integration extends Forms_Integration
                     ],
                     'required'   => [ 'form_id', 'entry_id' ],
                 ],
-                'handler'      => function (array $args): array {
-                    $form_id  = (int) $args['form_id'];
-                    $entry_id = (int) $args['entry_id'];
-                    $result   = \Forminator_API::delete_entry($form_id, $entry_id);
+                'validate'          => static fn (array $args): ?array => self::entry_refusal($args) ?? self::forminator_payment_refusal((int) $args['entry_id']),
+                'confirm_preview'   => static function (array $args): array {
+                    $entry = \Forminator_API::get_entry((int) $args['form_id'], (int) $args['entry_id']);
+                    $meta  = self::count_rows('frmt_form_entry_meta', 'entry_id', (int) $args['entry_id']);
                     return [
-                        'form_id'  => $form_id,
-                        'entry_id' => $entry_id,
-                        'deleted'  => ! is_wp_error($result) && false !== $result,
+                        'message' => sprintf('It permanently deletes Forminator submission %d of form %d (%d stored values). Uploaded files stay on disk. Undo: rollback-session.', (int) $args['entry_id'], (int) $args['form_id'], $meta),
+                        'data'    => [ 'entry_id' => (int) $args['entry_id'], 'form_id' => (int) $args['form_id'], 'date' => (string) ($entry->date_created_sql ?? ''), 'values' => $meta, 'files_stay_on_disk' => true ],
                     ];
                 },
-            ],
+                'handler'           => static function (array $args, array $context): array {
+                    $form_id  = (int) $args['form_id'];
+                    $entry_id = (int) $args['entry_id'];
+                    $done     = self::delete_rows_in_session([
+                        [ 'table' => 'frmt_form_entry_meta', 'primary_key' => [ 'meta_id' ], 'where' => [ 'entry_id' => $entry_id ], 'optional' => true ],
+                        [ 'table' => 'frmt_form_entry', 'primary_key' => [ 'entry_id' ], 'where' => [ 'entry_id' => $entry_id ] ],
+                    ], $args, $context);
+                    if (class_exists('Forminator_Form_Entry_Model')) {
+                        wp_cache_delete($entry_id, \Forminator_Form_Entry_Model::FORM_ENTRY_CACHE_GROUP);
+                        if (is_callable([ 'Forminator_Form_Entry_Model', 'delete_form_entry_cache' ])) {
+                            \Forminator_Form_Entry_Model::delete_form_entry_cache($form_id);
+                        }
+                    }
+                    return [
+                        'result'        => [ 'form_id' => $form_id, 'entry_id' => $entry_id, 'deleted' => ($done['result']['frmt_form_entry'] ?? 0) > 0, 'rows' => $done['result'] ],
+                        'operation_ids' => $done['operation_ids'],
+                    ];
+                },
+            ] + self::write_flags(),
         ];
     }
 }

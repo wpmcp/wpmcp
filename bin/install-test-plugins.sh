@@ -5,7 +5,8 @@
 #
 # Installs Elementor, WooCommerce, Advanced Custom Fields, Yoast SEO, and
 # Polylang from the wordpress.org plugin repository or, with WPMCP_LIVE_FORMS=1,
-# Contact Form 7 and Flamingo only (bin/test-local.sh --live-forms), or, with
+# Contact Form 7, Flamingo and the free WPForms, Formidable, Ninja Forms,
+# Fluent Forms, Forminator and SureForms only (bin/test-local.sh --live-forms), or, with
 # WPMCP_LIVE_BLOCKS=1, Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks
 # only (bin/test-local.sh --live-blocks), or, with WPMCP_LIVE_BUDDYPRESS=1,
 # BuddyPress only (bin/test-local.sh --live-buddypress), or, with
@@ -115,6 +116,14 @@ if [ "${WPMCP_LIVE_FORMS:-}" = "1" ]; then
 	PLUGINS=(
 		"contact-form-7:wp-contact-form-7.php"
 		"flamingo:flamingo.php"
+		# Issues #674 and #675: the free form plugins whose notification,
+		# confirmation and entry-delete ops run against the real thing.
+		"wpforms-lite:wpforms.php"
+		"formidable:formidable.php"
+		"ninja-forms:ninja-forms.php"
+		"fluentform:fluentform.php"
+		"forminator:forminator.php"
+		"sureforms:sureforms.php"
 	)
 fi
 

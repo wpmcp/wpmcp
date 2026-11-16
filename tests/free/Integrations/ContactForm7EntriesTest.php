@@ -510,7 +510,7 @@ class ContactForm7EntriesTest extends \WP_UnitTestCase
 
         $this->assertSame('contactform7', $catalog['integration']);
         $this->assertSame(
-            [ 'list-forms', 'get-form', 'list-fields', 'list-notifications', 'list-entries', 'get-entry', 'update-entry-status', 'delete-entry' ],
+            [ 'list-forms', 'get-form', 'list-fields', 'list-notifications', 'list-entries', 'get-entry', 'update-entry-status', 'delete-entry', 'list-messages', 'update-notification', 'set-notification-recipients', 'update-messages' ],
             array_keys($ops)
         );
         // edit_users, not manage_options: it is the cap Flamingo maps every

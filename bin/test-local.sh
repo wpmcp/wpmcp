@@ -26,8 +26,10 @@
 #      (issue #488), so the floor is tested on every push, then the suite on
 #      the default WordPress installed as a multisite network (WP_MULTISITE=1,
 #      issue #530), also without coverage.
-#   5. Runs the live forms group (issue #66): the Contact Form 7 adapter
-#      against a real Contact Form 7 and Flamingo, on a separate install,
+#   5. Runs the live forms group (issues #66, #674, #675): the Contact Form 7
+#      adapter against a real Contact Form 7 and Flamingo, plus the notification,
+#      confirmation and entry-delete ops against the real free WPForms,
+#      Formidable, Ninja Forms, Fluent Forms, Forminator and SureForms, on a separate install,
 #      because the harness doubles stand down once the real classes load.
 #   6. Runs the live blocks group (issue #287): blocks inserted through the
 #      block-suites tools, rendered with the real Kadence Blocks,
@@ -1359,7 +1361,7 @@ run_live_forms() {
 	RUN_CORES+=("$core")
 	config=$(db_config "$dir" "$version-forms-live" "$core")
 	RUN_CONFIGS+=("$config")
-	say "PHPUnit live forms group on WordPress $version (real Contact Form 7 + Flamingo)"
+	say "PHPUnit live forms group on WordPress $version (real Contact Form 7, Flamingo, WPForms Lite, Formidable, Ninja Forms, Fluent Forms, Forminator, SureForms)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
 		"$PHP" vendor/bin/phpunit --group forms-live --fail-on-skipped
 	unset WPMCP_LIVE_FORMS

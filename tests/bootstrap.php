@@ -87,6 +87,14 @@ tests_add_filter( 'muplugins_loaded', function () {
     if ( getenv( 'WPMCP_LIVE_FORMS' ) ) {
         wpmcp_maybe_require_plugin( 'contact-form-7/wp-contact-form-7.php' );
         wpmcp_maybe_require_plugin( 'flamingo/flamingo.php' );
+        // Issues #674 and #675: the free form plugins the notification,
+        // confirmation and entry-delete ops are verified against.
+        wpmcp_maybe_require_plugin( 'wpforms-lite/wpforms.php' );
+        wpmcp_maybe_require_plugin( 'formidable/formidable.php' );
+        wpmcp_maybe_require_plugin( 'ninja-forms/ninja-forms.php' );
+        wpmcp_maybe_require_plugin( 'fluentform/fluentform.php' );
+        wpmcp_maybe_require_plugin( 'forminator/forminator.php' );
+        wpmcp_maybe_require_plugin( 'sureforms/sureforms.php' );
     }
 
     // The live blocks job (issue #287, WPMCP_LIVE_BLOCKS=1) renders blocks

@@ -24,11 +24,10 @@ if (! defined('ABSPATH')) {
  * delete-entry is mode=destructive: the dispatcher refuses it without
  * confirm:true, evaluates it through op-granular governance under the
  * synthetic wpmcp/sureforms-delete-entry name, and requires manage_options on
- * top of the pair's own capability because a submission is personal data. It
- * declares NO snapshot target: the entries table is not one of the object
- * types Safe_Mutation can capture and resurrect, so the write runs directly
- * and the response is honestly flagged recoverable:false rather than
- * pretending rollback-operation could undo it.
+ * top of the pair's own capability because a submission is personal data.
+ * Since issue #675 it is undoable: the entry row of srfm_entries is
+ * snapshotted as a db_rows before-image before SureForms' own accessor
+ * deletes it, so rollback-operation reinserts it at its original id.
  */
 class SureForms_Integration extends Forms_Integration
 {
@@ -238,20 +237,27 @@ class SureForms_Integration extends Forms_Integration
                 },
             ],
             'delete-entry' => [
-                'mode'               => 'destructive',
-                'objects'            => [ 'entry_id' => 'entry' ],
-                // Issue #66: entry deletion is off by default across every
-                // forms adapter. A site opts in with the
-                // wpmcp_integration_op_enabled filter.
-                'enabled_by_default' => false,
-                'capability'         => 'manage_options',
-                'description'  => 'Permanently delete one SureForms entry through SureForms\' own entries accessor. Default-off (opt in via the wpmcp_integration_op_enabled filter); requires confirm:true. NOT reversible: SureForms entries live in the srfm_entries table, which WP MCP cannot snapshot, so the response carries recoverable:false and rollback-operation cannot bring the entry back',
-                'input_schema' => [
+                'mode'            => 'destructive',
+                'objects'         => [ 'entry_id' => 'entry' ],
+                'capability'      => 'manage_options',
+                'description'     => 'Permanently delete one SureForms entry through SureForms\' own entries accessor; refused with entry_has_payments when it has a payment record. Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true. Reversible: the entry row of the srfm_entries table is snapshotted first and comes back at its original id with rollback-operation. ' . self::NOT_ERASURE,
+                'input_schema'    => [
                     'type'       => 'object',
                     'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
                     'required'   => [ 'entry_id' ],
                 ],
-                'handler'      => function (array $args) use ($entries): array {
+                'validate'        => static fn (array $args): ?array => self::payment_refusal((int) $args['entry_id'], [ [ 'srfm_payments', 'entry_id' ] ]),
+                'confirm_preview' => function (array $args) use ($entries): array {
+                    $row = $entries::get((int) $args['entry_id']);
+                    if (empty($row) || ! self::column($row, 'ID')) {
+                        return [ 'message' => 'No SureForms entry has that id, so nothing would be deleted.', 'data' => [ 'entry_id' => (int) $args['entry_id'] ] ];
+                    }
+                    return [
+                        'message' => sprintf('It permanently deletes SureForms entry %d of form %d (%d stored values). Uploaded files stay on disk. Undo: rollback-operation.', (int) $args['entry_id'], (int) self::column($row, 'form_id'), count(self::values($row))),
+                        'data'    => [ 'entry_id' => (int) $args['entry_id'], 'form_id' => (int) self::column($row, 'form_id'), 'date' => (string) self::column($row, 'created_at'), 'values' => count(self::values($row)), 'files_stay_on_disk' => true ],
+                    ];
+                },
+                'handler'         => function (array $args) use ($entries): array {
                     $entry_id = (int) $args['entry_id'];
                     $row      = $entries::get($entry_id);
                     if (empty($row) || ! self::column($row, 'ID')) {
@@ -262,7 +268,9 @@ class SureForms_Integration extends Forms_Integration
                         'deleted'  => (bool) $entries::delete($entry_id),
                     ];
                 },
-            ],
+                // Only a real row gets a snapshot: a wrong id writes nothing.
+                'snapshot'        => static fn (array $args): ?array => self::delete_row_snapshot('srfm_entries', 'ID', (int) $args['entry_id']),
+            ] + self::write_flags(),
         ];
     }
 }

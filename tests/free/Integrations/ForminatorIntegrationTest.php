@@ -3,6 +3,8 @@
 namespace WPMCP\Tests\Free\Integrations;
 
 use WPMCP\Integrations\Forminator_Integration;
+use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Rollback_Session;
 
 require_once __DIR__ . '/../../support/forminator-stubs.php';
 
@@ -15,9 +17,22 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
 {
     private Forminator_Integration $integration;
 
+    public static function set_up_before_class(): void
+    {
+        parent::set_up_before_class();
+        \Forminator_API::install_tables(); // DDL, outside any test transaction
+    }
+
+    public static function tear_down_after_class(): void
+    {
+        \Forminator_API::uninstall_tables();
+        parent::tear_down_after_class();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
+        Snapshot_Store::install();
         \Forminator_API::reset();
         \Forminator_API::$forms = [
             11 => new \Forminator_Test_Form(
@@ -37,6 +52,8 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
             102 => new \Forminator_Test_Entry(102, 11, '2026-02-02 10:00:00', [ 'email-1' => [ 'value' => 'b@example.test' ] ]),
             103 => new \Forminator_Test_Entry(103, 12, '2026-02-03 10:00:00', [ 'text-1' => 'plain' ]),
         ];
+        \Forminator_API::seed_rows(101, 11, [ 'email-1' => 'a@example.test', 'text-1' => 'Ada' ]);
+        \Forminator_API::seed_rows(102, 11, [ 'email-1' => 'b@example.test' ]);
         $this->integration = new Forminator_Integration();
 
         // Issue #66: delete-entry is default-off for every forms adapter, so
@@ -44,7 +61,7 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
         // off-by-default contract itself is asserted in
         // test_delete_entry_is_off_by_default and in the shared conformance
         // suite; WP_UnitTestCase restores hooks between tests.
-        add_filter('wpmcp_integration_op_enabled', static fn ($enabled, $integration, $op) => ('forminator' === $integration && 'delete-entry' === $op) ? true : $enabled, 10, 3);
+        add_filter('wpmcp_enable_forms_write', '__return_true');
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
     }
 
@@ -132,7 +149,13 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
         $this->assertNull($wrong_form['result']['entry']);
     }
 
-    public function test_delete_entry_is_refused_without_confirm(): void
+    private function rows(string $table, string $column, int $id): int
+    {
+        global $wpdb;
+        return (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE %i = %d', $wpdb->prefix . $table, $column, $id));
+    }
+
+    public function test_delete_entry_is_refused_without_confirm_and_previews_without_values(): void
     {
         $out = $this->integration->handle_write([
             'operation' => 'delete-entry',
@@ -140,10 +163,13 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
         ]);
 
         $this->assertSame('confirmation_required', $out['error']['code']);
-        $this->assertSame([], \Forminator_API::$deleted);
+        $this->assertSame(2, $out['error']['data']['values']);
+        $this->assertTrue($out['error']['data']['files_stay_on_disk']);
+        $this->assertStringNotContainsString('a@example.test', wp_json_encode($out));
+        $this->assertSame(1, $this->rows('frmt_form_entry', 'entry_id', 101));
     }
 
-    public function test_delete_entry_with_confirm_deletes_and_reports_unrecoverable(): void
+    public function test_delete_entry_removes_the_rows_and_one_rollback_session_restores_them(): void
     {
         $out = $this->integration->handle_write([
             'operation' => 'delete-entry',
@@ -153,22 +179,28 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
 
         $this->assertArrayNotHasKey('error', $out);
         $this->assertTrue($out['result']['deleted']);
-        $this->assertFalse($out['recoverable']);
-        $this->assertArrayNotHasKey('operation_id', $out);
-        $this->assertSame([ 101 ], \Forminator_API::$deleted);
+        $this->assertTrue($out['recoverable']);
+        $this->assertCount(2, $out['operation_ids']);
+        $this->assertSame(0, $this->rows('frmt_form_entry', 'entry_id', 101));
+        $this->assertSame(0, $this->rows('frmt_form_entry_meta', 'entry_id', 101));
+        $this->assertSame(1, $this->rows('frmt_form_entry', 'entry_id', 102), 'Another entry stays');
+
+        ( new Rollback_Session() )->handle([ 'session_id' => $out['session_id'] ]);
+        $this->assertSame(1, $this->rows('frmt_form_entry', 'entry_id', 101));
+        $this->assertSame(2, $this->rows('frmt_form_entry_meta', 'entry_id', 101));
     }
 
-    public function test_delete_entry_reports_a_failed_api_call(): void
+    public function test_delete_entry_refuses_a_wrong_entry_and_writes_no_snapshot(): void
     {
-        \Forminator_API::$delete_fails = true;
-
-        $out = $this->integration->handle_write([
-            'operation' => 'delete-entry',
-            'args'      => [ 'form_id' => 11, 'entry_id' => 101 ],
-            'confirm'   => true,
-        ]);
-
-        $this->assertFalse($out['result']['deleted']);
+        foreach ([ [ 11, 9999 ], [ 12, 101 ] ] as [ $form, $entry ]) {
+            $out = $this->integration->handle_write([
+                'operation' => 'delete-entry',
+                'args'      => [ 'form_id' => $form, 'entry_id' => $entry ],
+                'confirm'   => true,
+            ]);
+            $this->assertSame('entry_not_found', $out['error']['code']);
+        }
+        $this->assertSame(1, $this->rows('frmt_form_entry', 'entry_id', 101));
     }
 
     public function test_delete_entry_requires_manage_options(): void
@@ -183,7 +215,7 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
 
         $this->assertSame('operation_denied', $out['error']['code']);
         $this->assertSame('capability', $out['error']['data']['reason']);
-        $this->assertSame([], \Forminator_API::$deleted);
+        $this->assertSame(1, $this->rows('frmt_form_entry', 'entry_id', 101));
     }
 
     public function test_bad_args_are_rejected_before_the_handler_runs(): void
@@ -195,7 +227,7 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
         ]);
 
         $this->assertSame('invalid_args', $out['error']['code']);
-        $this->assertSame([], \Forminator_API::$deleted);
+        $this->assertSame(1, $this->rows('frmt_form_entry', 'entry_id', 101));
     }
 
     public function test_catalog_marks_delete_entry_destructive(): void
@@ -227,7 +259,7 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
 
     public function test_delete_entry_is_off_by_default(): void
     {
-        remove_all_filters('wpmcp_integration_op_enabled');
+        remove_all_filters('wpmcp_enable_forms_write');
 
         $ops = array_column($this->integration->catalog()['operations'], null, 'name');
         $this->assertFalse($ops['delete-entry']['enabled'], 'Issue #66: entry deletion ships off');
@@ -239,11 +271,24 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
         ]);
 
         $this->assertSame('opt_in_required', $out['error']['code']);
+        $this->assertStringContainsString('wpmcp_enable_forms_write', $out['error']['message']);
     }
 
     /** @return array<string, int> the args a valid delete-entry call takes here. */
     private function delete_entry_args(): array
     {
         return [ 'form_id' => 11, 'entry_id' => 101 ];
+    }
+
+    public function test_delete_entry_refuses_an_entry_with_a_stripe_or_paypal_record(): void
+    {
+        foreach ([ 'stripe-1', 'paypal-1' ] as $key) {
+            global $wpdb;
+            $wpdb->insert($wpdb->prefix . 'frmt_form_entry_meta', [ 'entry_id' => 101, 'meta_key' => $key, 'meta_value' => 'paid' ]);
+            $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'form_id' => 11, 'entry_id' => 101 ], 'confirm' => true ]);
+            $this->assertSame('entry_has_payments', $out['error']['code'], $key);
+            $this->assertSame(1, $this->rows('frmt_form_entry', 'entry_id', 101));
+            $wpdb->delete($wpdb->prefix . 'frmt_form_entry_meta', [ 'meta_key' => $key ]);
+        }
     }
 }
