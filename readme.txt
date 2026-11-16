@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.9.0
+Stable tag: 0.9.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -122,6 +122,41 @@ OAuth is off by default. Clients configured with an application password (Claude
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 0.9.1 =
+This update tightens privacy and credential handling across many integrations and adds a dozen new ones.
+
+Security fixes:
+* Personal data is masked in list reads across CRM, LMS, membership, forms, comments, users, Elementor Pro submissions and other integrations. Single-record reads stay complete for users allowed to see them.
+* Credentials are masked in generic option reads, using one central registry of secret options that also covers JSON, serialized and key=value values.
+* WPBakery shared template writes now need the edit theme options permission.
+* MemberPress rules and memberships written through WP MCP take effect immediately.
+* BuddyBoss private, scheduled and suspended activity is hidden from users who are not moderators.
+* Forms: notification recipients can only be changed through the dedicated recipients tool, and form saves go through WordPress's own save filters.
+
+New integrations:
+* Rank Math redirections and the 404 log.
+* Pretty Links and ThirstyAffiliates links.
+* WP Activity Log and Simple History events (read only).
+* Site Reviews: list, moderate and reply to reviews.
+* FluentSMTP and Post SMTP: settings, logs, test send and sender name.
+* Action Scheduler: list, get, cancel and run queued actions.
+* Email log reads for WP Mail Logging, Check and Log Email and Email Log.
+* Site gate status across WP MCP, core and coming soon plugins, with SeedProd and Under Construction toggles.
+* Synced patterns: list, get, usage, create, update and detach.
+* Forms: edit notifications and confirmations, and undoable entry deletes.
+* UpdraftPlus: list and run backups. All-in-One WP Migration: list backups.
+* Akismet status and spam tools on the comment tools.
+* LiteSpeed Cache settings and targeted purge.
+
+Fixes:
+* Undoing half of a theme switch no longer takes the site down, and one theme switch is one undo.
+* Bricks: the editor mode is set and CSS is rebuilt after writes and undo, including header and footer templates. Non-Bricks posts are refused.
+* Wordfence status shows the real password limit setting, whether application passwords are blocked, and the install and license state.
+* Pattern edits are refused when a pattern is placed in a post the caller cannot edit.
+
+Improvements:
+* Email log reads return no message body by default and redact passwords, codes and tokens.
 
 = 0.9.0 =
 This release roughly triples the plugins WP MCP can drive and makes every change reversible across all of them.
@@ -902,6 +937,9 @@ Admin and tooling:
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.9.1 =
+Security update: masks personal data and credentials in many more reads, tightens permission checks and adds a dozen integrations. Recommended for all sites.
 
 = 0.8.180 =
 Free installs now see a dismissible WP MCP Pro notice on the Dashboard, the Plugins screen and WP MCP's own screens, with a launch coupon and a link to the pricing page. Dismissing hides it for 30 days; the third dismissal hides it for good. It never appears while a Pro licence is active.
