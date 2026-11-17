@@ -148,6 +148,7 @@ PHP;
         $this->assertSame('wordpress@' . preg_replace('#^www\.#', '', $host), $mail['from']['email']);
         $this->assertSame('WordPress', $mail['from']['name']);
         $this->assertStringContainsString('SMTP', implode(' ', $mail['next_steps']));
+        $this->assertStringContainsString('pass mail_test set to', implode(' ', $mail['next_steps']), 'get-site-health keeps naming mail_test (#887)');
     }
 
     public function test_reports_filtered_from_and_flags_a_foreign_domain(): void
