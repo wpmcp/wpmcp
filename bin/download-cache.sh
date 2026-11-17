@@ -59,6 +59,7 @@ dc_lock() {
 	for _ in $(seq 1 1800); do
 		if mkdir "$lock" 2>/dev/null; then
 			echo $$ >"$lock/pid"
+			[ -z "${WPMCP_DC_TRACE:-}" ] || echo "$(date +%s.%N) $$ locked $lock $(ls -id "$lock" 2>&1) $(cat "$lock/pid" 2>&1)" >>"$WPMCP_DC_TRACE"
 			return 0
 		fi
 		holder=$(cat "$lock/pid" 2>/dev/null || true)
@@ -73,7 +74,10 @@ dc_lock() {
 	return 1
 }
 
-dc_unlock() { rm -rf "$(dc_lock_path "$1")"; }
+dc_unlock() {
+	[ -z "${WPMCP_DC_TRACE:-}" ] || echo "$(date +%s.%N) $$ unlock $(dc_lock_path "$1")" >>"$WPMCP_DC_TRACE"
+	rm -rf "$(dc_lock_path "$1")"
+}
 
 # Makes sure cache entry <name> of <kind> is present and valid, fetching it on
 # a miss with "<fetcher...> <tmp path>", and leaves its lock held: the caller

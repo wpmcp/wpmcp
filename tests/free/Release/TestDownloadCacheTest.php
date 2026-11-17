@@ -211,7 +211,7 @@ SH);
     {
         $processes = [];
         foreach (['one', 'two'] as $name) {
-            $env         = $this->environment(['WP_CORE_DIR' => $this->tmp . "/$name/wordpress/", 'STUB_DELAY' => '0.3']);
+            $env         = $this->environment(['WP_CORE_DIR' => $this->tmp . "/$name/wordpress/", 'STUB_DELAY' => '0.3', 'WPMCP_DC_TRACE' => $this->tmp . '/calls.log.trace']);
             $command     = ['bash', $this->repository() . '/bin/install-test-plugins.sh'];
             $processes[] = proc_open($command, [1 => ['file', $this->tmp . "/$name.log", 'a'], 2 => ['file', $this->tmp . "/$name.log", 'a']], $pipes, $this->tmp, $env);
         }
