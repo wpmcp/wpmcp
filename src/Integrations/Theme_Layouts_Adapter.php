@@ -76,6 +76,20 @@ abstract class Theme_Layouts_Adapter
      */
     abstract public function content_key(string $type, int $id = 0): string;
 
+    /**
+     * The code a layout runs once it is live (issue #890): 'php' for code
+     * the add-on executes as PHP, 'markup' for raw code it prints as is, or
+     * null for a layout with no code.
+     */
+    abstract public function runs_code(int $id): ?string;
+
+    /**
+     * The rules key that places a layout and the one that excludes places.
+     *
+     * @return array{0:string,1:string}
+     */
+    abstract public function location_keys(): array;
+
     /** @return array<string,mixed> the stored rules, in the shape the ops take them. */
     abstract public function read_rules(int $id): array;
 

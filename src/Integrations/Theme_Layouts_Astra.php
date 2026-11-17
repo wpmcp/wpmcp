@@ -144,6 +144,17 @@ final class Theme_Layouts_Astra extends Theme_Layouts_Adapter
         return 'post_content';
     }
 
+    /** Astra's code editor runs its code as PHP. */
+    public function runs_code(int $id): ?string
+    {
+        return 'code_editor' === get_post_meta($id, 'editor_type', true) ? 'php' : null;
+    }
+
+    public function location_keys(): array
+    {
+        return [ 'location', 'exclusion' ];
+    }
+
     public function read_rules(int $id): array
     {
         $users = get_post_meta($id, 'ast-advanced-hook-users', true);

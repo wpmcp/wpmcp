@@ -134,6 +134,17 @@ final class Theme_Layouts_Kadence extends Theme_Layouts_Adapter
         return 'post_content';
     }
 
+    /** A Kadence HTML element prints its code as is. */
+    public function runs_code(int $id): ?string
+    {
+        return 'script' === $this->type_of($id) ? 'markup' : null;
+    }
+
+    public function location_keys(): array
+    {
+        return [ 'show', 'hide' ];
+    }
+
     public function read_rules(int $id): array
     {
         $user   = self::json($id, '_kad_element_user_conditionals');

@@ -2,9 +2,12 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\MCP\Opt_In_Required;
 use WPMCP\Safety\Post_Creation_Snapshot;
 use WPMCP\Safety\Save_Filters;
+use WPMCP\Tools\Code\Php_Snippet_Guard;
 use WPMCP\Tools\Content\Readable_Posts;
+use WPMCP\Tools\CustomCode\Custom_Js_Guard;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -35,6 +38,14 @@ if (! defined('ABSPATH')) {
  * Code is out of scope on purpose: an Astra code-editor layout, a Kadence
  * HTML code element and a GP hook element that executes PHP keep their
  * content unread and unwritten, and these ops never switch PHP execution on.
+ * Nor do they switch such a layout on (issue #890): publishing it or giving
+ * it a location runs its code, so both clear the same gate as activating a
+ * PHP snippet (Php_Snippet_Guard) or, for raw markup, injecting custom code
+ * (Custom_Js_Guard). Unpublishing it and taking its locations away stay
+ * open, since they stop the code.
+ *
+ * The writes take only the arguments their schema lists (issue #889): any
+ * other is refused with invalid_args naming it, before any snapshot.
  */
 final class Theme_Layouts_Pack
 {
@@ -100,6 +111,22 @@ final class Theme_Layouts_Pack
             'status'  => [ 'type' => 'string', 'enum' => self::STATUSES ],
         ];
         $snapshot = static fn (array $args): array => [ 'object_type' => 'post', 'object_id' => (int) $args['layout_id'] ];
+        $create    = [
+            'type'       => 'object',
+            'properties' => $fields + [ 'type' => [ 'type' => 'string', 'enum' => $types ] ] + $place + [ 'rules' => $rules ],
+            'required'   => [ 'title', 'type' ],
+        ];
+        $update    = [
+            'type'          => 'object',
+            'properties'    => [ 'layout_id' => $id ] + $fields + $place,
+            'required'      => [ 'layout_id' ],
+            'minProperties' => 2,
+        ];
+        $set_rules = [
+            'type'       => 'object',
+            'properties' => [ 'layout_id' => $id, 'rules' => $rules + [ 'minProperties' => 1 ] ],
+            'required'   => [ 'layout_id', 'rules' ],
+        ];
 
         return [
             "list-{$f}-layouts"               => $base + [
@@ -133,36 +160,23 @@ final class Theme_Layouts_Pack
             "create-{$f}-layout"              => $write + [
                 'self_snapshotting' => true,
                 'description'       => "Create a {$product} layout of a writable type. Hook types need hook (from list-{$f}-hooks, or any action name with custom_hook:true). status defaults to draft. Recorded as a creation: rollback-operation trashes it",
-                'input_schema'      => [
-                    'type'       => 'object',
-                    'properties' => $fields + [ 'type' => [ 'type' => 'string', 'enum' => $types ] ] + $place + [ 'rules' => $rules ],
-                    'required'   => [ 'title', 'type' ],
-                ],
-                'validate'          => static fn (array $args): ?array => self::refusal(static fn () => self::plan_create($a, $args)),
+                'input_schema'      => $create,
+                'validate'          => static fn (array $args): ?array => self::refusal(static fn () => self::known_args("create-{$f}-layout", $create, $args) ?? self::plan_create($a, $args)),
                 'handler'           => static fn (array $args, array $context): array => self::create($a, $args, $context),
             ],
             "update-{$f}-layout"              => $write + [
                 'objects'      => $objects,
                 'description'  => "Change a {$product} layout's title, content, status, hook or priority; omitted fields are kept and the type is fixed. Snapshotted and reversible",
-                'input_schema' => [
-                    'type'          => 'object',
-                    'properties'    => [ 'layout_id' => $id ] + $fields + $place,
-                    'required'      => [ 'layout_id' ],
-                    'minProperties' => 2,
-                ],
-                'validate'     => static fn (array $args): ?array => self::refusal(static fn () => self::plan_update($a, $args)),
+                'input_schema' => $update,
+                'validate'     => static fn (array $args): ?array => self::refusal(static fn () => self::known_args("update-{$f}-layout", $update, $args) ?? self::plan_update($a, $args)),
                 'snapshot'     => $snapshot,
                 'handler'      => static fn (array $args): array => self::update($a, $args),
             ],
             "set-{$f}-layout-display-rules"   => $write + [
                 'objects'      => $objects,
                 'description'  => "Set where a {$product} layout shows. Each rules key passed replaces that key, keys left out are kept. Snapshotted and reversible",
-                'input_schema' => [
-                    'type'       => 'object',
-                    'properties' => [ 'layout_id' => $id, 'rules' => $rules + [ 'minProperties' => 1 ] ],
-                    'required'   => [ 'layout_id', 'rules' ],
-                ],
-                'validate'     => static fn (array $args): ?array => self::refusal(static fn () => self::plan_rules($a, $args)),
+                'input_schema' => $set_rules,
+                'validate'     => static fn (array $args): ?array => self::refusal(static fn () => self::known_args("set-{$f}-layout-display-rules", $set_rules, $args) ?? self::plan_rules($a, $args)),
                 'snapshot'     => $snapshot,
                 'handler'      => static fn (array $args): array => self::set_rules($a, $args),
             ],
@@ -255,7 +269,7 @@ final class Theme_Layouts_Pack
             'title'    => $post->post_title,
             'status'   => $post->post_status,
             'type'     => $type,
-            'modified' => $post->post_modified_gmt,
+            'modified' => self::modified_gmt($post),
         ] + $a->placement($id) + [ 'rules' => $a->read_rules($id) ] + $a->extras($id);
 
         if ($full) {
@@ -268,6 +282,83 @@ final class Theme_Layouts_Pack
             }
         }
         return $out;
+    }
+
+    /**
+     * The GMT modified time. WordPress keeps post_modified_gmt at zero on a
+     * new draft until it is published (issue #888), so a zero one is worked
+     * out from the local post_modified, as core does for other dates.
+     */
+    private static function modified_gmt(\WP_Post $post): string
+    {
+        $gmt = (string) $post->post_modified_gmt;
+        if ('' !== $gmt && '0000-00-00 00:00:00' !== $gmt) {
+            return $gmt;
+        }
+        return get_gmt_from_date((string) $post->post_modified);
+    }
+
+    /**
+     * Refuse an argument the op's schema does not list (issue #889), so an
+     * argument the op ignores never reads as done. Returns null to chain.
+     *
+     * @param array<string,mixed> $schema
+     * @throws Operation_Refused
+     */
+    private static function known_args(string $op, array $schema, array $args): ?array
+    {
+        $allowed = array_keys((array) ($schema['properties'] ?? []));
+        $unknown = array_values(array_diff(array_map('strval', array_keys($args)), $allowed));
+        if ([] === $unknown) {
+            return null;
+        }
+        $message = sprintf('%s does not take %s. It takes %s.', $op, implode(', ', $unknown), implode(', ', $allowed));
+        if (in_array('execute_php', $unknown, true)) {
+            $message .= ' PHP execution on a layout is switched on in wp-admin only, never through these ops.';
+        }
+        throw self::refused('invalid_args', $message, [ 'unknown' => $unknown, 'allowed' => $allowed ]);
+    }
+
+    /**
+     * Refuse switching on a layout whose code runs (issue #890) unless the
+     * site allows that code: PHP through Php_Snippet_Guard, the gate a PHP
+     * snippet's activation clears; raw markup through Custom_Js_Guard, the
+     * gate custom code injection clears. $what says what the call would do.
+     *
+     * @throws Operation_Refused
+     */
+    private static function assert_code_may_run(Theme_Layouts_Adapter $a, int $id, string $what): void
+    {
+        $code = $a->runs_code($id);
+        if (null === $code) {
+            return;
+        }
+        if ('php' === $code) {
+            try {
+                Php_Snippet_Guard::assert_execution_allowed();
+                return;
+            } catch (\RuntimeException $e) {
+                $reason = Php_Snippet_Guard::refusal_class($e);
+                $detail = $e->getMessage();
+            }
+            $kind = 'executes PHP';
+        } else {
+            if (Custom_Js_Guard::is_enabled() && Custom_Js_Guard::current_user_can_inject()) {
+                return;
+            }
+            $reason = Custom_Js_Guard::is_enabled() ? 'no_unfiltered_html' : 'js_injection_disabled';
+            $detail = Custom_Js_Guard::is_enabled()
+                ? 'Printing raw code needs the unfiltered_html capability.'
+                : Opt_In_Required::message('Custom code injection is disabled.', 'wpmcp_allow_js_injection', 'WPMCP_ALLOW_JS_INJECTION');
+            $kind   = 'prints raw code';
+        }
+        throw self::refused('code_layout', sprintf(
+            'This %1$s layout %2$s, so %3$s would run its code on the site. %4$s Publish or place it in wp-admin instead.',
+            $a->product(),
+            $kind,
+            $what,
+            $detail
+        ), [ 'layout_id' => $id, 'reason' => $reason ]);
     }
 
     /** @throws Operation_Refused */
@@ -326,7 +417,11 @@ final class Theme_Layouts_Pack
             $plan['post']['post_title'] = sanitize_text_field((string) $args['title']);
         }
         if (isset($args['status'])) {
-            $plan['post']['post_status'] = (string) $args['status'];
+            $status = (string) $args['status'];
+            if ('draft' !== $status && $status !== $post->post_status) {
+                self::assert_code_may_run($a, $id, sprintf('setting it to %s', $status));
+            }
+            $plan['post']['post_status'] = $status;
         }
         if (array_key_exists('content', $args)) {
             $key = $a->content_key($type, $id);
@@ -345,8 +440,20 @@ final class Theme_Layouts_Pack
      */
     private static function plan_rules(Theme_Layouts_Adapter $a, array $args): array
     {
-        $post = self::must_layout($a, (int) $args['layout_id']);
-        return [ 'id' => (int) $post->ID, 'type' => $a->type_of((int) $post->ID), 'rules' => $a->normalize_rules((array) $args['rules']) ];
+        $post  = self::must_layout($a, (int) $args['layout_id']);
+        $rules = $a->normalize_rules((array) $args['rules']);
+        // Exclusions and an emptied location only take places away; any
+        // other key can put the layout somewhere new.
+        [ $show, $hide ] = $a->location_keys();
+        $places = array_filter(
+            $rules,
+            static fn ($value, $key): bool => $hide !== $key && ! ($show === $key && self::is_blank($value)),
+            ARRAY_FILTER_USE_BOTH
+        );
+        if ([] !== $places) {
+            self::assert_code_may_run($a, (int) $post->ID, 'setting its display rules (' . implode(', ', array_keys($places)) . ')');
+        }
+        return [ 'id' => (int) $post->ID, 'type' => $a->type_of((int) $post->ID), 'rules' => $rules ];
     }
 
     /**
@@ -462,6 +569,20 @@ final class Theme_Layouts_Pack
             return;
         }
         update_post_meta($id, $key, wp_slash($value));
+    }
+
+    /** @param mixed $value */
+    private static function is_blank($value): bool
+    {
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                if (! self::is_blank($item)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return '' === $value || null === $value;
     }
 
     /** @param array<string,mixed> $data */
