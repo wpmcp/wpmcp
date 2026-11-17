@@ -63,6 +63,7 @@ dc_lock() {
 		fi
 		holder=$(cat "$lock/pid" 2>/dev/null || true)
 		if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+			echo "Taking over the download lock $lock from process $holder, which is gone." >&2
 			rm -rf "$lock"
 			continue
 		fi

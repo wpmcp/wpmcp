@@ -46,6 +46,7 @@ while [ $# -gt 0 ]; do
 	shift
 done
 echo "curl $url" >>"$STUB_LOG"
+echo "$(date +%s.%N) pid=$PPID $url" >>"$STUB_LOG.trace"
 [ -z "${STUB_OFFLINE:-}" ] || exit 7
 [ -z "${STUB_DELAY:-}" ] || sleep "$STUB_DELAY"
 work=$(mktemp -d)
@@ -212,14 +213,14 @@ SH);
         foreach (['one', 'two'] as $name) {
             $env         = $this->environment(['WP_CORE_DIR' => $this->tmp . "/$name/wordpress/", 'STUB_DELAY' => '0.3']);
             $command     = ['bash', $this->repository() . '/bin/install-test-plugins.sh'];
-            $processes[] = proc_open($command, [1 => ['file', $this->tmp . "/$name.log", 'w'], 2 => ['file', $this->tmp . "/$name.log", 'a']], $pipes, $this->tmp, $env);
+            $processes[] = proc_open($command, [1 => ['file', $this->tmp . "/$name.log", 'a'], 2 => ['file', $this->tmp . "/$name.log", 'a']], $pipes, $this->tmp, $env);
         }
         foreach ($processes as $i => $process) {
             $this->assertSame(0, proc_close($process), (string) file_get_contents($this->tmp . '/' . (0 === $i ? 'one' : 'two') . '.log'));
         }
 
         $calls = $this->calls();
-        $logs  = "\n--- one.log\n" . (string) file_get_contents($this->tmp . '/one.log') . "\n--- two.log\n" . (string) file_get_contents($this->tmp . '/two.log');
+        $logs  = "\n--- one.log\n" . (string) file_get_contents($this->tmp . '/one.log') . "\n--- two.log\n" . (string) file_get_contents($this->tmp . '/two.log') . "\n--- fetches\n" . (string) @file_get_contents($this->tmp . '/calls.log.trace');
         $this->assertCount(5, $calls, implode("\n", $calls) . $logs);
         $this->assertSame($calls, array_values(array_unique($calls)));
         $this->assertSame([], glob($this->downloads . '/plugins/*.tmp*') ?: []);
