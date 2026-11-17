@@ -30,7 +30,10 @@ class Get_Sales_Report
         $date_from = $this->normalize_date($args['date_from'] ?? '', '-30 days');
         $date_to   = $this->normalize_date($args['date_to'] ?? '', 'now');
 
+        // Refunds share the order statuses; the type keeps them out of the
+        // order count, gross sales and items sold.
         $orders = wc_get_orders([
+            'type'         => 'shop_order',
             'limit'        => -1,
             'status'       => self::REVENUE_STATUSES,
             'date_created' => $date_from . '...' . $date_to,

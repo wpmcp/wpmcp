@@ -68,4 +68,38 @@ class ListOrdersTest extends \WP_UnitTestCase
             $this->assertSame('processing', $row['status']);
         }
     }
+
+    /** #942: a refund must not come back as a row, nor be counted in total. */
+    public function test_store_with_a_refund_lists_only_orders(): void
+    {
+        if (! wpmcp_woocommerce_active()) {
+            $this->markTestSkipped('WooCommerce not active');
+        }
+
+        $product = new \WC_Product_Simple();
+        $product->set_name('Refund Box');
+        $product->set_regular_price('10.00');
+        $product_id = $product->save();
+
+        $order = wc_create_order();
+        $order->add_product(wc_get_product($product_id), 1);
+        $order->calculate_totals();
+        $order->set_status('completed');
+        $order_id        = $order->save();
+        $this->created[] = $order_id;
+
+        $refund = wc_create_refund([ 'order_id' => $order_id, 'amount' => '4.00' ]);
+        $this->assertInstanceOf(\WC_Order_Refund::class, $refund);
+
+        $out = (new List_Orders())->handle([ 'per_page' => 100 ]);
+
+        $ids = array_column($out['orders'], 'id');
+        $this->assertContains($order_id, $ids);
+        $this->assertNotContains($refund->get_id(), $ids);
+
+        $order_count = (int) wc_get_orders([ 'type' => 'shop_order', 'limit' => 1, 'paginate' => true, 'return' => 'ids' ])->total;
+        $this->assertSame($order_count, $out['total']);
+
+        wp_delete_post($product_id, true);
+    }
 }
