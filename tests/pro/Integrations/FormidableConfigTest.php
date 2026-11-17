@@ -8,6 +8,7 @@ use WPMCP\Tools\Rollback_Operation;
 use WPMCP\Tools\Rollback_Session;
 
 require_once __DIR__ . '/../../support/forms-stubs.php';
+require_once __DIR__ . '/../../support/forms-delete-preview.php';
 
 /**
  * Issue #674 on Formidable: the email and on_submit actions are real
@@ -16,6 +17,8 @@ require_once __DIR__ . '/../../support/forms-stubs.php';
  */
 class FormidableConfigTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Support\Forms_Delete_Preview_Assertions;
+
     private Formidable_Integration $integration;
     private int $email;
     private int $other_email;
@@ -206,6 +209,8 @@ class FormidableConfigTest extends \WP_UnitTestCase
         $this->assertSame('confirmation_required', $preview['error']['code']);
         $this->assertSame(2, $preview['error']['data']['values']);
         $this->assertSame(1, $preview['error']['data']['child_entries']);
+        $this->assert_delete_entry_preview($preview, 'Formidable entry 50 of form 5', 50, 2);
+        $this->assertStringContainsString('(2 stored values, 1 child entries)', $preview['error']['message']);
         $this->assertStringNotContainsString('ada@example.test', wp_json_encode($preview));
         $this->assertSame(1, $this->rows('frm_items', 'id', 50));
     }

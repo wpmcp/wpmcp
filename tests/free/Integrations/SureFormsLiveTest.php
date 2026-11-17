@@ -63,6 +63,7 @@ class SureFormsLiveTest extends \WP_UnitTestCase
         $preview = $integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->entry ] ]);
         $this->assertSame('confirmation_required', $preview['error']['code'], wp_json_encode($preview));
         $this->assertSame(2, $preview['error']['data']['values']);
+        $this->assertStringContainsString('This is not an erasure', $preview['error']['message'], 'Issue #946');
         $this->assertStringNotContainsString('ada@example.test', wp_json_encode($preview));
 
         $out = $integration->handle_write([ 'operation' => 'delete-entry', 'confirm' => true, 'args' => [ 'entry_id' => $this->entry ] ]);
@@ -81,5 +82,26 @@ class SureFormsLiveTest extends \WP_UnitTestCase
         $this->assertNotEmpty($row, 'The row is back at its original id');
         $this->assertSame($this->form_id, (int) $row['form_id']);
         $this->assertStringContainsString('ada@example.test', (string) $row['form_data']);
+    }
+
+    /** Issue #944: the real SureForms builder honours the form_id group, so only this form's entries come back. */
+    public function test_list_entries_returns_only_that_forms_entries(): void
+    {
+        $other_form = (int) wp_insert_post([ 'post_type' => 'sureforms_form', 'post_status' => 'publish', 'post_title' => 'Other SureForms' ]);
+        $theirs     = (int) \SRFM\Inc\Database\Tables\Entries::add([ 'form_id' => $other_form, 'form_data' => [ 'srfm-input-name' => 'Grace' ] ]);
+        $second     = (int) \SRFM\Inc\Database\Tables\Entries::add([ 'form_id' => $this->form_id, 'form_data' => [ 'srfm-input-name' => 'Edsger' ] ]);
+        $this->assertGreaterThan(0, $theirs);
+
+        $out = ( new SureForms_Integration() )->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => $this->form_id ] ]);
+        $this->assertArrayNotHasKey('error', $out, wp_json_encode($out));
+        $ids = array_column($out['result']['entries'], 'id');
+        sort($ids);
+        $this->assertSame([ $this->entry, $second ], $ids);
+        $this->assertSame(2, $out['result']['total']);
+        $this->assertNotContains($theirs, $ids);
+
+        $one = ( new SureForms_Integration() )->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => $this->form_id, 'page_size' => 1 ] ])['result'];
+        $this->assertCount(1, $one['entries']);
+        $this->assertSame(2, $one['total'], 'The total counts the whole form, not the page');
     }
 }

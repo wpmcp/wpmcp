@@ -182,6 +182,40 @@ abstract class Forms_Integration extends Integration_Dispatcher
     }
 
     /**
+     * The confirmation every forms delete-entry shows (issue #946), so the
+     * person approving it reads, in one wording across adapters, which entry
+     * goes, how many stored values it holds, and that the delete is not an
+     * erasure: the undo snapshot keeps a plaintext copy until it is pruned.
+     *
+     * @param string               $entry      What is deleted, e.g. "Fluent Forms entry 3 of form 2".
+     * @param int                  $entry_id   The entry id, repeated in data.
+     * @param int                  $values     Stored values the entry holds.
+     * @param string               $undo       The undo tool: rollback-operation or rollback-session.
+     * @param array<string, mixed> $data       Extra preview data (form_id, date, ...), kept in that order after entry_id.
+     * @param bool                 $files_stay Whether the plugin keeps uploads as files the delete leaves on disk.
+     * @param string               $extra      Appended inside the parentheses, e.g. ", 1 child entries".
+     * @return array{message: string, data: array<string, mixed>}
+     */
+    protected static function delete_entry_preview(string $entry, int $entry_id, int $values, string $undo, array $data = [], bool $files_stay = true, string $extra = ''): array
+    {
+        $message = sprintf('It permanently deletes %s (%d stored values%s).', $entry, $values, $extra);
+        if ($files_stay) {
+            $message .= ' Uploaded files stay on disk.';
+        }
+        $message .= ' This is not an erasure: the undo snapshot keeps a plaintext copy of the entry until the snapshot is pruned.';
+        $message .= ' Undo: ' . $undo . '.';
+
+        return [
+            'message' => $message,
+            'data'    => [ 'entry_id' => $entry_id ] + $data + [
+                'values'             => $values,
+                'files_stay_on_disk' => $files_stay,
+                'erasure'            => false,
+            ],
+        ];
+    }
+
+    /**
      * How many rows a delete would remove from one table (capped at the
      * before-image cap plus one), 0 when the table is absent.
      */

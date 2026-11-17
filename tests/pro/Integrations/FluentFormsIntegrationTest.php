@@ -8,6 +8,7 @@ use WPMCP\Tools\Rollback_Operation;
 use WPMCP\Tools\Rollback_Session;
 
 require_once __DIR__ . '/../../support/fluentforms-stubs.php';
+require_once __DIR__ . '/../../support/forms-delete-preview.php';
 
 /**
  * The Fluent Forms dispatcher (forms adapter pack, pro tier), exercised against
@@ -17,6 +18,8 @@ require_once __DIR__ . '/../../support/fluentforms-stubs.php';
  */
 class FluentFormsIntegrationTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Support\Forms_Delete_Preview_Assertions;
+
     private Fluent_Forms_Integration $integration;
     private int $form_id;
     private int $unread;
@@ -109,6 +112,28 @@ class FluentFormsIntegrationTest extends \WP_UnitTestCase
         }
     }
 
+    /**
+     * Issue #945: wpFluent()->get() returns a collection object, so the rows
+     * must be iterated, not cast; a cast gave one empty row per property.
+     */
+    public function test_list_entries_returns_each_submissions_columns(): void
+    {
+        $newer = \FF_Test_DB::seed('fluentform_submissions', [ 'form_id' => $this->form_id, 'serial_number' => 3, 'status' => 'read', 'created_at' => '2026-11-02 09:30:00' ]);
+
+        $out = $this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => $this->form_id ] ])['result'];
+
+        $this->assertSame(2, $out['total']);
+        $this->assertSame([ $newer, $this->unread ], array_column($out['entries'], 'id'), 'Newest first, trashed left out');
+        $this->assertSame([
+            'id'            => $newer,
+            'form_id'       => $this->form_id,
+            'serial_number' => 3,
+            'status'        => 'read',
+            'created_at'    => '2026-11-02 09:30:00',
+        ], $out['entries'][0]);
+        $this->assertSame([ 1, 'unread' ], [ $out['entries'][1]['serial_number'], $out['entries'][1]['status'] ]);
+    }
+
     public function test_list_entries_leaves_trashed_out_unless_asked(): void
     {
         $default = $this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => $this->form_id ] ])['result'];
@@ -179,6 +204,7 @@ class FluentFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('confirmation_required', $preview['error']['code']);
         $this->assertSame(2, $preview['error']['data']['values']);
         $this->assertStringNotContainsString('ada@example.test', wp_json_encode($preview));
+        $this->assert_delete_entry_preview($preview, sprintf('Fluent Forms entry %d of form %d', $this->unread, $this->form_id), $this->unread, 2);
         $this->assertSame(1, $this->rows('fluentform_submissions', 'id', $this->unread));
         remove_all_filters('wpmcp_enable_forms_write');
     }
