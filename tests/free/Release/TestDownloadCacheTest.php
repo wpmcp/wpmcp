@@ -209,9 +209,32 @@ SH);
 
     public function test_parallel_installs_fetch_each_file_once(): void
     {
+        $this->assert_parallel_installs_fetch_each_file_once([]);
+    }
+
+    /**
+     * The uutils coreutils mkdir (Ubuntu 26.04, the GitHub ubuntu-latest
+     * image) reports success when another process creates the same
+     * directory at the same moment, so `mkdir "$lock"` is no lock there. A
+     * mkdir that always succeeds on an existing directory stands in for it.
+     */
+    public function test_parallel_installs_fetch_each_file_once_when_mkdir_is_not_atomic(): void
+    {
+        $real = trim((string) shell_exec('command -v mkdir'));
+        $this->assertNotSame('', $real);
+        mkdir($this->tmp . '/racy');
+        file_put_contents($this->tmp . '/racy/mkdir', "#!/usr/bin/env bash\nexec " . escapeshellarg($real) . " -p \"\$@\"\n");
+        chmod($this->tmp . '/racy/mkdir', 0755);
+
+        $this->assert_parallel_installs_fetch_each_file_once(['PATH' => $this->tmp . '/racy:' . $this->tmp . '/bin:' . (string) getenv('PATH')]);
+    }
+
+    /** @param array<string, string> $extra */
+    private function assert_parallel_installs_fetch_each_file_once(array $extra): void
+    {
         $processes = [];
         foreach (['one', 'two'] as $name) {
-            $env         = $this->environment(['WP_CORE_DIR' => $this->tmp . "/$name/wordpress/", 'STUB_DELAY' => '0.3', 'WPMCP_DC_TRACE' => $this->tmp . '/calls.log.trace']);
+            $env         = $this->environment($extra + ['WP_CORE_DIR' => $this->tmp . "/$name/wordpress/", 'STUB_DELAY' => '0.3']);
             $command     = ['bash', $this->repository() . '/bin/install-test-plugins.sh'];
             $processes[] = proc_open($command, [1 => ['file', $this->tmp . "/$name.log", 'a'], 2 => ['file', $this->tmp . "/$name.log", 'a']], $pipes, $this->tmp, $env);
         }
