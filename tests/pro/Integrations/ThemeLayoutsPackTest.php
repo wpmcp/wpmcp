@@ -129,7 +129,16 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
         $this->activate('astra', false);
         $out = $this->read('list-{f}-layouts');
         $this->assertSame('module_disabled', $out['error']['code']);
-        $this->assertStringContainsString('Custom Layouts', $out['error']['message']);
+        $this->assertStringContainsString('Switch on Site Builder under Astra > Dashboard > Astra Pro Modules.', $out['error']['message'], 'Astra Pro names the module as its dashboard does (#891)');
+        $this->assertStringNotContainsString('Custom Layouts', $out['error']['message']);
+    }
+
+    public function test_kadence_disabled_module_names_the_hooked_elements_toggle(): void
+    {
+        $this->activate('kadence', false);
+        $out = $this->read('list-{f}-layouts');
+        $this->assertSame('module_disabled', $out['error']['code']);
+        $this->assertStringContainsString('Switch on Hooked Elements under Appearance > Kadence > Pro Addons.', $out['error']['message'], 'The toggle and page as Kadence Pro names them (#891)');
     }
 
     public function test_writes_are_off_until_the_site_opts_in(): void

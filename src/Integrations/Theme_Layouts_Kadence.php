@@ -57,7 +57,7 @@ final class Theme_Layouts_Kadence extends Theme_Layouts_Adapter
 
     public function module_hint(): string
     {
-        return 'Switch on Elements under Appearance > Kadence > Pro Add-ons.';
+        return 'Switch on Hooked Elements under Appearance > Kadence > Pro Addons.';
     }
 
     public function types(): array

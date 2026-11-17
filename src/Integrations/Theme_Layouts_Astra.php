@@ -53,7 +53,7 @@ final class Theme_Layouts_Astra extends Theme_Layouts_Adapter
 
     public function module_hint(): string
     {
-        return 'Switch on the Custom Layouts module under Astra > Dashboard > Modules.';
+        return 'Switch on Site Builder under Astra > Dashboard > Astra Pro Modules.';
     }
 
     public function types(): array
