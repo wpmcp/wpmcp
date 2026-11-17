@@ -348,6 +348,39 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
         $this->assertSame('general|site', json_decode((string) get_post_meta($id, '_kad_element_show_conditionals', true), true)[0]['rule']);
     }
 
+    public function test_kadence_expiry_is_read_set_and_rolled_back_as_kadence_stores_it(): void
+    {
+        $this->activate('kadence');
+        $id = (int) $this->ok($this->write('create-{f}-layout', [ 'title' => 'Sale', 'type' => 'default', 'hook' => 'kadence_before_header' ]))['result']['layout']['id'];
+
+        $view = $this->ok($this->read('get-{f}-layout', [ 'layout_id' => $id ]))['result']['layout'];
+        $this->assertSame([ 'enabled' => false, 'date' => null, 'expired' => false ], $view['rules']['expires'], 'No expiry by default');
+
+        $set = $this->ok($this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'expires' => [ 'date' => '2099-11-30 23:59' ] ] ]));
+        $this->assertSame('1', (string) get_post_meta($id, '_kad_element_enable_expires', true));
+        $this->assertSame('2099-11-30T23:59:00', get_post_meta($id, '_kad_element_expires', true), 'Stored as the element editor date picker stores it');
+        $listed = $this->ok($this->read('list-{f}-layouts'))['result']['layouts'][0];
+        $this->assertSame([ 'enabled' => true, 'date' => '2099-11-30T23:59:00', 'expired' => false ], $listed['rules']['expires']);
+
+        // Set in wp-admin to a past date: the read says it has expired.
+        update_post_meta($id, '_kad_element_expires', '2001-01-01T00:00:00');
+        $this->assertTrue($this->ok($this->read('get-{f}-layout', [ 'layout_id' => $id ]))['result']['layout']['rules']['expires']['expired']);
+
+        $off = $this->ok($this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'expires' => false ] ]));
+        $this->assertSame('', get_post_meta($id, '_kad_element_enable_expires', true));
+        $this->assertSame('2001-01-01T00:00:00', get_post_meta($id, '_kad_element_expires', true), 'Switching off keeps the date, as the toggle does');
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $off['operation_id']));
+        $this->assertSame('1', (string) get_post_meta($id, '_kad_element_enable_expires', true));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $set['operation_id']));
+        $this->assertSame('', get_post_meta($id, '_kad_element_enable_expires', true));
+        $this->assertSame('', get_post_meta($id, '_kad_element_expires', true), 'Undo restores the element without an expiry');
+
+        $this->assertSame('invalid_display_rules', $this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'expires' => [ 'date' => 'next friday-ish' ] ] ])['error']['code']);
+        $this->assertSame('invalid_display_rules', $this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'expires' => [ 'enabled' => true ] ] ])['error']['code']);
+        $this->assertStringContainsString('expires', $this->ok($this->read('list-{f}-hooks'))['result']['rules']['format']);
+    }
+
     public function test_kadence_hooks_follow_the_element_type(): void
     {
         $this->activate('kadence');
