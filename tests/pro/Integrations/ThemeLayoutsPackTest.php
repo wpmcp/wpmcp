@@ -282,6 +282,20 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
         $this->assertArrayHasKey('rules', $hooks);
     }
 
+    public function test_astra_hooks_return_the_rule_options_outside_wp_admin(): void
+    {
+        // Astra Pro's location list calls get_current_screen(), which core
+        // loads only in wp-admin; list-astra-hooks loads it as core does
+        // (issue #894). The test bootstrap always has it loaded, so this
+        // pins the answer; the adapter's loader is what a REST request needs.
+        $this->activate('astra');
+        $rules = $this->ok($this->read('list-{f}-hooks'))['result']['rules'];
+        $this->assertArrayHasKey('basic-global', $rules['location_options']['basic']['value']);
+        $this->assertArrayHasKey('logged-in', $rules['user_options']['basic']['value']);
+        $this->assertTrue(function_exists('get_current_screen'));
+        $this->assertTrue(class_exists('WP_Screen', false));
+    }
+
     public function test_layout_ops_refuse_a_post_of_another_type(): void
     {
         $this->activate('astra');

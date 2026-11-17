@@ -198,6 +198,7 @@ final class Theme_Layouts_Astra extends Theme_Layouts_Adapter
         ];
         if (class_exists('\Astra_Target_Rules_Fields')) {
             self::load_role_functions();
+            self::load_screen_functions();
             $out['location_options'] = \Astra_Target_Rules_Fields::get_location_selections();
             $out['user_options']     = \Astra_Target_Rules_Fields::get_user_selections();
         }
