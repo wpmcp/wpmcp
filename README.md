@@ -24,7 +24,7 @@ Give an AI agent (Claude, Cursor, or any MCP client) the keys to your WordPress 
 
 Every supported write is snapshotted before it happens. If a post-write check fails (for example, block markup that no longer parses), the change rolls back on its own. If you do not like what the agent did, you undo one operation, or the agent's entire session, from the AI or with one click in wp-admin. A few kinds of change cannot be snapshotted, and this README lists them in [What cannot be undone](#what-cannot-be-undone) instead of leaving you to find out.
 
-> **Status:** version 0.9.1, for WordPress 6.9 to 7.1 and PHP 8.1 or later. The pre-push test gate runs the PHPUnit suite on the minimum and the current WordPress, on multisite, and against real installs of the third-party plugins wpmcp integrates with. A full manual test pass of 0.8.180 is under way ([#579](https://github.com/wpmcp/wpmcp/issues/579)) and the bugs it finds are tracked as open issues. What is next is in the [Roadmap](#roadmap).
+> **Status:** for WordPress 6.9 to 7.1 and PHP 8.1 or later. The pre-push test gate runs the PHPUnit suite on the minimum and the current WordPress, on multisite, and against real installs of the third-party plugins wpmcp integrates with. Known bugs are tracked as open issues in this repo. What is next is in the [Roadmap](#roadmap).
 
 **What is in it.** 407 abilities (MCP tools) across 61 domains: 274 in the free plugin and 133 Pro. Which abilities a site has depends on which integrations are active: tools for optional plugins (ACF, SEO and translation plugins, form plugins and the other integrations) register only where that plugin is active, and a single site with none of them sees about 350, about 240 of them free. `list-tool-catalog` lists exactly what your site has. The count is pinned by the ability manifest (`tests/support/ability-manifest.php`), which the test suite checks on every run.
 
@@ -75,11 +75,10 @@ Snapshots cover WordPress data: posts and their content, meta and terms, options
 - **Package updates and deletes.** `update-plugin`, `update-theme`, the core update in `manage-updates`, `delete-plugin` and `delete-theme` do not back up package files. Off by default, and each needs `confirm: true`.
 - **Raw database row writes.** `update-rows` and `delete-rows` write a before-image to a capped audit log, not a restorable snapshot. Off by default.
 - **A `.php` file undo whose site check cannot run.** File writes and deletes are undoable since [#602](https://github.com/wpmcp/wpmcp/issues/602), but a `.php` restore is refused when the site check cannot run, and the response gives the backup path for a manual copy. File tools are off by default.
-- **Media file bytes.** Rolling back a force-deleted attachment restores its record, not its files ([#24](https://github.com/wpmcp/wpmcp/issues/24)). Media force-delete is off by default.
 - **Other one-way actions.** Deleting a menu, importing content, the security incident tools (ending sessions, rotating salts), and other plugins' abilities run through the abilities bridge (`execute-site-ability`).
-- **Snapshot coverage.** Excerpt and parent are not yet captured, and history keeps the last 20 operations by default (see [Known limitations](#known-limitations)).
+- **Snapshot history depth.** History keeps the last 20 operations by default, so older writes can no longer be undone (see [Known limitations](#known-limitations)).
 
-Rollback bugs found in the current test pass are tracked as open issues in this repo.
+Rollback bugs are tracked as open issues in this repo.
 
 ## Requirements
 
@@ -293,7 +292,7 @@ Compact mode is exposure-only and off by default. It never changes which abiliti
 
 Choose the mode site-wide with the `wpmcp_tool_exposure_mode` option (`full` or `compact`), per scoped identity via the identity's `exposure` field (`create-identity` accepts it; it overrides the site setting for that agent), or in code via the `wpmcp_tool_exposure_mode` filter. The `wpmcp_compact_exposed_abilities` filter can add tools to the compact core (the three meta-tools are always included).
 
-Measured `tools/list` payload for 0.8.180 (test environment, unlicensed, optional test plugins active): **full** 135,075 bytes across 270 tools; **compact** 2,265 bytes across 5 tools, a **98.3% reduction**. A checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) caps the compact payload and prints these numbers on every test run.
+Measured `tools/list` payload in the test environment (unlicensed, optional test plugins active): **full** about 136,000 bytes across 270 tools; **compact** about 2,200 bytes across 5 tools, a **98% reduction**. A checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) caps the compact payload and prints these numbers on every test run.
 
 ## Pinning an identity to IP ranges
 
@@ -368,14 +367,13 @@ Credentials are already wired: `wpmcp.php` defines `WPMCP_FS_ID` and `WPMCP_FS_P
 
 - [ ] `preview-change` dry-run diffs before applying
 - [ ] Session-aware retention so large agent sessions stay fully reversible
-- [ ] Broader snapshot capture (excerpt, parent)
 - [ ] Visual before / after regression on edited pages
 - [ ] Multi-site fleet management
 - [ ] wp.org listing
 
 ## Known limitations
 
-Snapshot history keeps the last 20 operations by default; raise it with the `wpmcp_snapshot_history_limit` filter (minimum 1). Pro keeps unlimited history while the licence is active. Pruning works on whole sessions: single writes in the `default` session are pruned one by one to the limit, but a named session (a bulk run such as a background optimize-media run, a product import or a multi-call database cleanup) is kept or dropped whole, never cut. The newest session and the newest session larger than the limit (the last bulk run) are always kept, so the table holds at most the limit plus those two sessions. A session that has been dropped makes `rollback-session` refuse with the reason rather than undo part of it. Snapshot capture currently covers post content, title, status, meta, and taxonomy terms, but not every post field (e.g. excerpt, parent). Force-deleting media (or deleting without `MEDIA_TRASH` enabled) restores the media record on rollback but not the physical file bytes, until issue #24 lands; media force-delete is disabled by default. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
+Snapshot history keeps the last 20 operations by default; raise it with the `wpmcp_snapshot_history_limit` filter (minimum 1). Pro keeps unlimited history while the licence is active. Pruning works on whole sessions: single writes in the `default` session are pruned one by one to the limit, but a named session (a bulk run such as a background optimize-media run, a product import or a multi-call database cleanup) is kept or dropped whole, never cut. The newest session and the newest session larger than the limit (the last bulk run) are always kept, so the table holds at most the limit plus those two sessions. A session that has been dropped makes `rollback-session` refuse with the reason rather than undo part of it. A post snapshot captures the full post row (including excerpt, parent, slug, dates and menu order), its meta, terms and, for a force-delete, its comments. Deleting media without `MEDIA_TRASH` backs up the attachment's files first, so rollback restores both the record and the file bytes ([#24](https://github.com/wpmcp/wpmcp/issues/24)); a file that cannot be copied at delete time is left out of the backup. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
 
 ## Development
 

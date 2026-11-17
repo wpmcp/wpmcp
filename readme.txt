@@ -8,13 +8,13 @@ Stable tag: 0.9.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-The AI agent that builds your WordPress site and physically can't wreck it. MCP server with a snapshot before every write and one-click rollback.
+Let an AI agent build your WordPress site and undo any supported change. MCP server with a snapshot before every write and one-click rollback.
 
 == Description ==
 
 WP MCP turns your WordPress site into an MCP (Model Context Protocol) server, built on the official WordPress Abilities API. Connect Claude, Cursor, or any MCP client and let an AI agent build pages, edit content, manage plugins, and configure your site.
 
-The difference: **every mutating operation takes a snapshot first.** If the agent gets something wrong, you roll it back in one click from the History screen. The AI physically cannot make an unrecoverable change.
+The difference: **every supported write takes a snapshot first.** If the agent gets something wrong, you roll it back in one click from the History screen. The few writes that cannot be snapshotted, such as plugin and theme updates or deletes and raw database row writes, are off by default or need explicit confirmation, and each one says in its result that it cannot be undone (for example `recoverable: false`) instead of claiming an undo it cannot do.
 
 = Safety model =
 
@@ -27,7 +27,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 
 = What agents can do =
 
-200+ abilities across content, structure, media, and site management:
+274 abilities in the free plugin (133 more with Pro) across content, structure, media, and site management. Abilities for optional plugins register only where that plugin is active:
 
 * Posts, pages, custom post types, taxonomies, menus, users, options
 * Gutenberg: surgical block edits, custom block building, full page composition, and block theme templates, template parts and navigation
@@ -105,7 +105,7 @@ The Model Context Protocol is an open standard that lets AI assistants use tools
 
 = Can the AI destroy my site? =
 
-Every mutating tool snapshots the affected data first, and destructive escape hatches (WP-CLI, PHP execution) ship disabled by default and only run in development environments. You can restore any snapshot, or roll back an entire agent session.
+Every supported write snapshots the affected data first, the few that cannot be snapshotted are off by default or need confirmation and say so in their result, and destructive escape hatches (WP-CLI, PHP execution) ship disabled by default and only run in development environments. You can restore any snapshot, or roll back an entire agent session.
 
 = Does this replace my backup plugin? =
 
