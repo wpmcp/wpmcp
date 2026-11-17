@@ -135,6 +135,7 @@ final class Code_Posts
         }
         $note = self::content_note($post);
         if (null !== $note) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Post_Write_Refused escapes the message it is given.
             throw self::refused($note, $post_id);
         }
     }
@@ -156,6 +157,7 @@ final class Code_Posts
             $guarded = array_merge((array) ($rule['code_meta'] ?? []), (array) ($rule['switch_meta'] ?? []));
             foreach ($keys as $key) {
                 if (in_array((string) $key, $guarded, true)) {
+                    // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Post_Write_Refused escapes the message it is given.
                     throw self::refused(sprintf('Meta key "%s" holds or switches on layout code. %s', esc_html((string) $key), self::note($rule)), $post_id);
                 }
             }
