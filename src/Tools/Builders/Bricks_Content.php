@@ -24,10 +24,19 @@ class Bricks_Content
 {
     public const META_KEY = '_bricks_page_content_2';
 
+    /**
+     * The row Bricks reads a post's elements from: the header or footer row
+     * for a header or footer template, else the content row (issue #914).
+     */
+    public static function row_key(int $post_id): string
+    {
+        return Bricks_Cache::area_key(Bricks_Cache::area($post_id));
+    }
+
     /** Return the element tree as an array, or null if missing/invalid. */
     public static function get(int $post_id): ?array
     {
-        $raw = get_post_meta($post_id, self::META_KEY, true);
+        $raw = get_post_meta($post_id, self::row_key($post_id), true);
 
         // How real Bricks stores it: a native array in postmeta.
         if (is_array($raw)) {
@@ -49,6 +58,11 @@ class Bricks_Content
         // Store a native array exactly as Bricks does so Bricks can read it.
         // wp_slash keeps clean (unslashed) data byte-accurate through
         // update_post_meta's internal wp_unslash.
-        update_post_meta($post_id, self::META_KEY, wp_slash($elements));
+        update_post_meta($post_id, self::row_key($post_id), wp_slash($elements));
+
+        // What Bricks' own save does after the layout row (issue #914): the
+        // editor mode that makes Bricks render the page, then the CSS file.
+        Bricks_Cache::sync_editor_mode($post_id);
+        Bricks_Cache::regenerate($post_id);
     }
 }

@@ -10,7 +10,8 @@ if (! defined('ABSPATH')) {
  * Cache and performance plugin settings (issue #692) as paid-tier ops on the
  * theme dispatcher pair, next to the cache status and purge ops, so they add
  * no top-level tools. One adapter per plugin (Cache_Settings_WP_Rocket,
- * Cache_Settings_Perfmatters, Cache_Settings_FlyingPress) names its option,
+ * Cache_Settings_Perfmatters, Cache_Settings_FlyingPress,
+ * Cache_Settings_LiteSpeed) names its option,
  * its readable and writable settings and its credentials; this pack builds
  * the same ops for each:
  *
@@ -30,8 +31,11 @@ if (! defined('ABSPATH')) {
  *  - preload-<plugin>-cache (WP Rocket, FlyingPress): start the plugin's
  *    own cache preload. Not snapshotted: warming the cache destroys
  *    nothing, and the reply says recoverable:false.
+ *  - purge-<plugin>-cache (LiteSpeed): purge one post or one same-site URL.
+ *    Not snapshotted (recoverable:false) and, like the purge-all op in
+ *    Page_Cache_Detector, not behind the write opt-in.
  *
- * Writes are off until the site opts in through the
+ * Settings writes and preload are off until the site opts in through the
  * wpmcp_enable_cache_settings_write filter (or per op through
  * wpmcp_integration_op_enabled). Every op runs at manage_options, the
  * capability each plugin's settings screen needs. Without the plugin the
@@ -53,7 +57,7 @@ final class Cache_Settings_Pack
     /** @return Cache_Settings_Adapter[] */
     public static function adapters(): array
     {
-        return [ new Cache_Settings_WP_Rocket(), new Cache_Settings_Perfmatters(), new Cache_Settings_FlyingPress() ];
+        return [ new Cache_Settings_WP_Rocket(), new Cache_Settings_Perfmatters(), new Cache_Settings_FlyingPress(), new Cache_Settings_LiteSpeed() ];
     }
 
     /** @return array<string, array<string, mixed>> op name => definition for the theme pair. */
@@ -92,9 +96,29 @@ final class Cache_Settings_Pack
                     'required'   => [ 'values' ],
                 ],
                 'validate'     => static fn (array $args): ?array => self::refusal($adapter, (array) $args['values']),
-                'snapshot'     => static fn (): array => [ 'object_type' => 'option', 'object_id' => $adapter->option() ],
+                'snapshot'     => static fn (): array => $adapter->snapshot_target(),
                 'handler'      => static fn (array $args): array => self::write($adapter, (array) $args['values']),
             ];
+
+            if ($adapter->supports_targeted_purge()) {
+                // Ungated like the purge-all in Page_Cache_Detector: a purge destroys nothing.
+                $ops[ "purge-{$slug}-cache" ] = $base + [
+                    'mode'         => 'write',
+                    'description'  => sprintf('Purge %s\'s page cache for one post (post_id) or one URL on this site (url). Not snapshotted: a purge destroys nothing', $label),
+                    'input_schema' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'post_id' => [ 'type' => 'integer', 'minimum' => 1 ],
+                            'url'     => [ 'type' => 'string', 'maxLength' => Cache_Settings_Adapter::MAX_LENGTH ],
+                        ],
+                    ],
+                    'objects'      => [ 'post_id' => 'post' ],
+                    'validate'     => static fn (array $args): ?array => self::purge_refusal($args),
+                    'handler'      => static fn (array $args): array => [ 'plugin' => $adapter->slug() ] + (isset($args['post_id'])
+                        ? $adapter->purge_post((int) $args['post_id'])
+                        : $adapter->purge_url(esc_url_raw(trim((string) $args['url']), [ 'http', 'https' ]))),
+                ];
+            }
 
             if ($adapter->supports_preload()) {
                 $ops[ "preload-{$slug}-cache" ] = $write + [
@@ -146,10 +170,34 @@ final class Cache_Settings_Pack
     {
         $names = array_map('strval', $names);
         foreach (self::adapters() as $adapter) {
-            if (in_array($adapter->option(), $names, true) && $adapter->active()) {
+            if ($adapter->owns_options($names) && $adapter->active()) {
                 $adapter->after_restore();
             }
         }
+    }
+
+    /**
+     * Why a targeted purge cannot run: exactly one of post_id (an existing
+     * post) or url (http or https on this site's host).
+     *
+     * @return array{code: string, message: string}|null
+     */
+    private static function purge_refusal(array $args): ?array
+    {
+        $has_post = isset($args['post_id']);
+        $has_url  = isset($args['url']) && '' !== trim((string) $args['url']);
+        if ($has_post === $has_url) {
+            return [ 'code' => 'invalid_args', 'message' => 'Pass exactly one of post_id or url.' ];
+        }
+        if ($has_post) {
+            return get_post((int) $args['post_id']) ? null : [ 'code' => 'not_found', 'message' => sprintf('Post %d does not exist.', (int) $args['post_id']) ];
+        }
+        $url  = esc_url_raw(trim((string) $args['url']), [ 'http', 'https' ]);
+        $host = (string) wp_parse_url($url, PHP_URL_HOST);
+        if ('' === $url || strtolower($host) !== strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST))) {
+            return [ 'code' => 'invalid_args', 'message' => 'url must be an http or https URL on this site.' ];
+        }
+        return null;
     }
 
     /** @return array<string, mixed> */

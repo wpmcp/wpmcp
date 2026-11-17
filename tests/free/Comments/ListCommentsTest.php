@@ -42,9 +42,26 @@ class ListCommentsTest extends \WP_UnitTestCase
         $row = $out['comments'][0];
         $this->assertSame('First', $row['content']);
         $this->assertSame('Ada', $row['author']);
-        $this->assertSame('ada@example.com', $row['author_email']);
+        $this->assertSame('a***@example.com', $row['author_email']);
+        $this->assertTrue($out['masked']);
         $this->assertSame('approved', $row['status']);
         $this->assertSame($post_id, $row['post_id']);
+    }
+
+    public function test_get_comment_returns_the_full_author_email(): void
+    {
+        $id = $this->comment([
+            'comment_post_ID'      => self::factory()->post->create(),
+            'comment_author'       => 'Ada',
+            'comment_author_email' => 'ada@example.com',
+        ]);
+
+        // Full values at manage_options; below it get-comment masks too (issue #718).
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        $row = (new \WPMCP\Tools\Comments\Get_Comment())->handle(['id' => $id]);
+
+        $this->assertSame('ada@example.com', $row['author_email']);
+        $this->assertSame('Ada', $row['author']);
     }
 
     public function test_list_filters_by_status(): void

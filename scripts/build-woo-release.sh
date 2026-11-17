@@ -21,6 +21,12 @@
 # the whitelist below is not.
 set -euo pipefail
 
+# --check-only: run just the strip and the class-reference gates in a
+# throwaway stage and exit, with no composer install, zip or Plugin Check.
+# `composer check:flavors` calls this.
+CHECK_ONLY=0
+[ "${1:-}" = "--check-only" ] && CHECK_ONLY=1
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(sed -n "s/^define( 'WPMCP_VERSION', '\([0-9.]*\)' );/\1/p" "$ROOT/wpmcp.php")"
 [ -n "$VERSION" ] || { echo "could not read WPMCP_VERSION from wpmcp.php" >&2; exit 1; }
@@ -55,6 +61,9 @@ sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/readme.txt" > 
 # ships as Plugin Check's mismatched_plugin_name; a restricted term in the
 # name or slug is its Trademarks_Check. Tag findings are left to the engine
 # run at the end and to ReleaseHeadersTest.
+# Skipped by --check-only: it needs the dev autoloader and is a naming check,
+# not a class-reference check.
+if [ "$CHECK_ONLY" != 1 ]; then
 php -r '
 require $argv[2] . "/vendor/autoload.php";
 $context = WPMCP\Compliance\Rule_Context::for_path($argv[1], WPMCP\Compliance\Profile::wporg_free());
@@ -80,6 +89,7 @@ foreach ((new WPMCP\Compliance\Rules\Trademark_Rule())->check($context) as $find
 }
 if ($errors) { fwrite(STDERR, implode("\n", $errors) . "\n"); exit(1); }
 ' "$STAGE" "$ROOT" || { echo "ERROR: the staged $SLUG name fails the WPORG-17-TRADEMARK / mismatched_plugin_name gate" >&2; exit 1; }
+fi
 
 # The shared wp.org strip, then this flavor's manifest. The strip removes the
 # paid tier (src/Pro, src/Freemius, every paid predicate and pro-tier
@@ -109,6 +119,32 @@ lint_stage() {
   done < <(find "$STAGE/src" "$STAGE/$SLUG.php" "$STAGE/uninstall.php" -name '*.php')
 }
 lint_stage "after the strip"
+
+# The class-reference gates, defined once so the full build and --check-only
+# run the same commands. See the long comments at the original call sites in
+# git history for why each scope is what it is: inheritance edges, the
+# always-loaded src/Safety core, and hook callbacks across all of src.
+class_ref_gates() {
+  php "$ROOT/scripts/lib/check-dangling-inheritance.php" "$STAGE/src" \
+    || { echo "ERROR: dangling inheritance edge to a pruned domain in the $SLUG build" >&2; exit 1; }
+  # src/Safety loads on every request and nothing flavor-gates it, so it must
+  # never name a class this zip prunes (Php_Snippet_Store was the case).
+  php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src/Safety \
+    || { echo "ERROR: the $SLUG safety core names a class the build does not ship" >&2; exit 1; }
+  # Every hook callback in the whole tree, Plugin.php included, must name a
+  # shipped class unless the branch it sits in cannot run in this flavor.
+  php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --hooks --flavor=woocommerce \
+    || { echo "ERROR: a hook in the $SLUG build names a class the build does not ship" >&2; exit 1; }
+}
+
+if [ "$CHECK_ONLY" = 1 ]; then
+  # shellcheck source=scripts/lib/stage-classmap.sh
+  . "$ROOT/scripts/lib/stage-classmap.sh"
+  stage_classmap "$STAGE"
+  class_ref_gates
+  echo "ok: the $SLUG build names no class it does not ship"
+  exit 0
+fi
 
 # The free-tier invariants the directory cut is held to, re-derived from this
 # stage by the same script build-wporg-release.sh runs (registrar names no
@@ -215,39 +251,9 @@ case "$gate_status" in
 esac
 
 # Belt and braces: fail the build if the prune list left a dangling
-# inheritance edge. The flavor gate is a RUNTIME check, so a class that a
-# still-registered group instantiates (register_woocommerce_abilities, say)
-# fatals with "Class not found" the moment it is autoloaded, and nothing
-# catches that. Lazy `use` imports are fine and stay quiet; only extends /
-# implements edges are checked. See the script header for the issue #68 case
-# this exists to prevent.
-php "$ROOT/scripts/lib/check-dangling-inheritance.php" "$STAGE/src" \
-  || { echo "ERROR: dangling inheritance edge to a pruned domain in the $SLUG build" >&2; exit 1; }
-
-# Every WPMCP class the ALWAYS-LOADED SAFETY CORE names must still exist.
-# Scoped to src/Safety on purpose: unlike the wp.org build, this one does not
-# rewrite Plugin.php, it gates at runtime through Plugin::FLAVOR_GROUPS, so
-# Plugin.php legitimately names hundreds of classes this zip does not ship in
-# branches it never reaches. src/Safety is different: nothing flavor-gates it,
-# every request loads it, and it hard-references the stores it restores. That
-# is the mistake this catches, and the one it was written for: pruning
-# Php_Snippet_Store.php built green and fataled at runtime on any pre-existing
-# php_snippet snapshot row. Same technique as gate 4 in
-# build-wporg-release.sh (both call scripts/lib/class-ref-gate.php, which
-# also resolves aliased, comma-listed and grouped imports), resolved against
-# composer's authoritative classmap.
-php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src/Safety \
-  || { echo "ERROR: the $SLUG safety core names a class the build does not ship" >&2; exit 1; }
-
-# Every hook callback in the whole tree, Plugin.php included, must name a class
-# this build ships unless the branch it sits in cannot run here: a
-# class_exists() check on that class, or a group_enabled() branch for a group
-# Plugin::FLAVOR_GROUPS['woocommerce'] never enables. A callback naming a
-# pruned class loads fine and fatals when its hook fires: v0.8.46 to v0.8.56
-# hooked Theme_Framework_Pack (pruned with src/Integrations) on every option
-# rollback, and the src/Safety scope above could not see Plugin.php.
-php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --hooks --flavor=woocommerce \
-  || { echo "ERROR: a hook in the $SLUG build names a class the build does not ship" >&2; exit 1; }
+# inheritance edge, the always-loaded safety core names a pruned class, or a
+# hook callback does (class_ref_gates, defined after the strip above).
+class_ref_gates
 
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"

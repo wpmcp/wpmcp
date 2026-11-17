@@ -311,6 +311,8 @@ class KnowledgeBaseSupportPackTest extends \WP_UnitTestCase
         $this->assertSame([ $open ], array_column($list['tickets'], 'id'));
         $this->assertSame('j***@example.com', $list['tickets'][0]['customer']['email']);
         $this->assertTrue($list['emails_masked']);
+        $this->assertTrue($list['masked']);
+        $this->assertMatchesRegularExpression('/^.\*\*\*$/u', $list['tickets'][0]['customer']['name'], 'a list masks the customer name');
         $this->assertStringNotContainsString('jane.doe', (string) wp_json_encode($list));
         $this->assertSame([ $closed ], array_column($this->ok($this->read('fluent-support-list-tickets', [ 'status' => 'closed' ]))['tickets'], 'id'));
 
@@ -438,6 +440,8 @@ class KnowledgeBaseSupportPackTest extends \WP_UnitTestCase
         $list = $this->ok($this->read('awesome-support-list-tickets', [ 'status' => 'open' ]));
         $this->assertSame([ $open ], array_column($list['tickets'], 'id'));
         $this->assertSame('s***@example.org', $list['tickets'][0]['customer']['email']);
+        $this->assertTrue($list['masked']);
+        $this->assertMatchesRegularExpression('/^.\*\*\*$/u', $list['tickets'][0]['customer']['name']);
         $this->assertSame([ $closed ], array_column($this->ok($this->read('awesome-support-list-tickets', [ 'status' => 'closed' ]))['tickets'], 'id'));
 
         $ticket = $this->ok($this->read('awesome-support-get-ticket', [ 'ticket_id' => $open ]))['ticket'];

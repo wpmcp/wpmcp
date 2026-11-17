@@ -155,3 +155,53 @@ if ( ! function_exists( 'wpmcp_test_register_memberpress_types' ) ) {
 		return $wpdb->get_results( $wpdb->prepare( "SELECT access_type, access_operator, access_condition FROM {$wpdb->prefix}mepr_rule_access_conditions WHERE rule_id = %d ORDER BY id ASC", $rule_id ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- test fixture.
 	}
 }
+
+/*
+ * The part of MeprCptModel the rules and memberships caches depend on
+ * (issue #867), taken from MemberPress 1.14.3 app/lib/MeprCptModel.php:
+ * all() returns the transient 'mepr_all_models_for_class_<class>' while it
+ * is set and a reset is not asked for, otherwise rebuilds it from the
+ * published posts of the model's post type and keeps it for a year.
+ * MeprCptCtrl::update_all_models_for_class_transient() rebuilds it on
+ * save_post only when is_admin(), which an MCP request is not.
+ */
+if ( ! class_exists( 'MeprCptModel' ) ) {
+	class MeprCptModel {
+		private const TYPES = [
+			'MeprRule'    => 'memberpressrule',
+			'MeprProduct' => 'memberpressproduct',
+		];
+
+		public static function all( $class, $reset_transients = false ) {
+			$transient = 'mepr_all_models_for_class_' . strtolower( $class );
+			$cached    = get_transient( $transient );
+			if ( ! empty( $cached ) && ! $reset_transients ) {
+				return $cached;
+			}
+			$models = [];
+			foreach ( get_posts( [ 'numberposts' => -1, 'post_type' => self::TYPES[ $class ], 'post_status' => 'publish' ] ) as $post ) {
+				$models[] = (object) [ 'ID' => $post->ID, 'post_type' => $post->post_type ];
+			}
+			delete_transient( $transient );
+			set_transient( $transient, $models, YEAR_IN_SECONDS );
+			return $models;
+		}
+	}
+}
+
+if ( ! function_exists( 'wpmcp_test_memberpress_locked' ) ) {
+	/**
+	 * Whether MemberPress would lock a page for a visitor without access: the
+	 * way MeprRule::get_rules() finds a single_page rule, from the cached list
+	 * MeprCptModel::all() returns, and MeprRule::is_locked_for_user() treats
+	 * a visitor with no ID as locked out of any content that has a rule.
+	 */
+	function wpmcp_test_memberpress_locked( int $page_id ): bool {
+		foreach ( MeprCptModel::all( 'MeprRule' ) as $rule ) {
+			if ( 'single_page' === get_post_meta( $rule->ID, '_mepr_rules_type', true ) && (string) $page_id === (string) get_post_meta( $rule->ID, '_mepr_rules_content', true ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+}

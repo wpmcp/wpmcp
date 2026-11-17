@@ -89,7 +89,20 @@ class BuddyPressPrivateGroupLiveTest extends \WP_UnitTestCase
     {
         $out = $this->read($user, 'buddypress-list-group-members', [ 'group_id' => $this->ids['group'] ] + $args);
         $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
-        $rows = array_column($out['result']['members'], 'role', 'name');
+        // Names are masked in the list (S***), so rows are told apart by user id,
+        // which every member row carries, then named from the fixture for the asserts.
+        $names = [];
+        foreach ([ 'owner', 'mod', 'member', 'pending', 'banned', 'outsider', 'admin' ] as $key) {
+            $names[ (int) $this->ids[ $key ] ] = (string) get_userdata((int) $this->ids[ $key ])->display_name;
+        }
+        $rows = [];
+        foreach ($out['result']['members'] as $member) {
+            $this->assertIsInt($member['user_id'] ?? null, 'every masked member row carries its user id');
+            $this->assertArrayHasKey($member['user_id'], $names, 'a member row names a fixture user');
+            $this->assertArrayNotHasKey($names[ $member['user_id'] ], $rows, 'one row per member');
+            $this->assertNotSame($names[ $member['user_id'] ], $member['name'] ?? null, 'the member name is masked');
+            $rows[ $names[ $member['user_id'] ] ] = $member['role'];
+        }
         ksort($rows);
         $this->assertSame(count($rows), $out['result']['total']);
         return $rows;

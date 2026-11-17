@@ -169,4 +169,39 @@ class ContactForm7LiveTest extends \WP_UnitTestCase
         $this->assertSame(\Flamingo_Inbound_Message::post_type, get_post_type($id));
         $this->assertSame($name, $this->read('get-entry', [ 'entry_id' => $id ])['entry']['fields']['your-name'], 'Rollback resurrects the submission with its values');
     }
+
+    /**
+     * Issue #674 against the real model: the edits go through
+     * WPCF7_ContactForm::save(), so CF7 itself writes them, and a rollback
+     * puts the real form back.
+     */
+    public function test_mail_and_message_edits_save_through_cf7_and_roll_back(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $original = \WPCF7_ContactForm::get_instance($this->form_id)->prop('mail');
+
+        $edit = $this->integration->handle_write([ 'operation' => 'update-notification', 'args' => [ 'form_id' => $this->form_id, 'notification_id' => 'mail', 'subject' => 'Live subject', 'reply_to' => '[your-email]' ] ]);
+        $this->assertArrayNotHasKey('error', $edit, wp_json_encode($edit));
+        $this->assertTrue($edit['recoverable']);
+        $this->assertSame('Live subject', \WPCF7_ContactForm::get_instance($this->form_id)->prop('mail')['subject']);
+
+        $recipients = $this->integration->handle_write([ 'operation' => 'set-notification-recipients', 'confirm' => true, 'args' => [ 'form_id' => $this->form_id, 'notification_id' => 'mail', 'to' => 'boss@example.test', 'bcc' => 'audit@example.test' ] ]);
+        $this->assertArrayNotHasKey('error', $recipients, wp_json_encode($recipients));
+        $mail = \WPCF7_ContactForm::get_instance($this->form_id)->prop('mail');
+        $this->assertSame('boss@example.test', $mail['recipient']);
+        $this->assertStringContainsString('Bcc: audit@example.test', $mail['additional_headers']);
+        $this->assertStringContainsString('Reply-To: [your-email]', $mail['additional_headers']);
+
+        $keys = array_keys($this->read('list-messages', [ 'form_id' => $this->form_id ])['messages']);
+        $this->assertContains('mail_sent_ok', $keys, 'The real wpcf7_messages() keys');
+        $msg = $this->integration->handle_write([ 'operation' => 'update-messages', 'args' => [ 'form_id' => $this->form_id, 'messages' => [ 'mail_sent_ok' => 'Live thanks' ] ] ]);
+        $this->assertArrayNotHasKey('error', $msg, wp_json_encode($msg));
+        $this->assertSame('Live thanks', \WPCF7_ContactForm::get_instance($this->form_id)->prop('messages')['mail_sent_ok']);
+
+        foreach ([ $msg, $recipients, $edit ] as $out) {
+            ( new Rollback_Operation() )->handle([ 'operation_id' => $out['operation_id'] ]);
+        }
+        $this->assertSame($original, \WPCF7_ContactForm::get_instance($this->form_id)->prop('mail'));
+        $this->assertNotSame('Live thanks', \WPCF7_ContactForm::get_instance($this->form_id)->prop('messages')['mail_sent_ok']);
+    }
 }

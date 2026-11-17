@@ -957,6 +957,18 @@ $plugin_edits = [
         '',
         1,
     ],
+    // The MemberPress pack's rollback refresher entries: the class they name is not in this build (issue #867).
+    [
+        "        // MemberPress rebuilds its cached rule and membership lists only on a\n"
+            . "        // wp-admin save, so an undo that restores or trashes a rule or\n"
+            . "        // membership post, or puts a rule's access rows back, rebuilds them\n"
+            . "        // as the write did (issue #867).\n"
+            . "        [\\WPMCP\\Integrations\\MemberPress_Pack::class, 'after_post_change', 'wpmcp_rollback_post_restored'],\n"
+            . "        [\\WPMCP\\Integrations\\MemberPress_Pack::class, 'after_post_change', 'trashed_post'],\n"
+            . "        [\\WPMCP\\Integrations\\MemberPress_Pack::class, 'after_rows_restored', 'wpmcp_rollback_table_rows_restored'],\n",
+        '',
+        1,
+    ],
     // The paid SEO registrations chained off the free SEO group (issue #67).
     ["\n        \$this->register_seo_pro_abilities(\$registrar);\n", "\n", 1],
 ];
@@ -1422,10 +1434,11 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
 $edits['src/Integrations/Theme_Integration.php'] = [
     [
         "            Redirection_Pack::operations(),\n"
+            . "            Rank_Math_Redirects_Pack::operations(),\n"
             . "            Elementor_Addon_Packs::operations(),\n"
             . "            FunnelKit_Pack::operations(),\n"
             . "            \\WPMCP\\Tools\\ThemeBuilder\\Dynamic\\Dynamic_Template_Ops::operations()\n",
-        "            Redirection_Pack::operations()\n",
+        "            Redirection_Pack::operations(),\n            Rank_Math_Redirects_Pack::operations()\n",
         1,
     ],
     [
@@ -1654,9 +1667,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs'\n"
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails'\n"
             . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails';\n",
         1,
     ],
     [

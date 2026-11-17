@@ -88,10 +88,18 @@ class Switch_Theme
         $session_id = (string) ($args['session_id'] ?? 'default');
         $args_hash  = hash('sha256', wp_json_encode($args));
 
+        // The two undo points are linked (issue #869): undoing either one
+        // puts both options back, so a child theme never comes apart from
+        // its parent. The operation_ids returned stay one per option.
+        $ids = [
+            'template'   => wp_generate_uuid4(),
+            'stylesheet' => wp_generate_uuid4(),
+        ];
+
         $operation_ids = [];
-        foreach (['template', 'stylesheet'] as $option_name) {
-            $operation_id = wp_generate_uuid4();
+        foreach ($ids as $option_name => $operation_id) {
             $snapshot     = Snapshot::capture('option', $option_name);
+            $snapshot['data']['theme_switch_partner'] = $ids['template' === $option_name ? 'stylesheet' : 'template'];
             // Whoever may switch themes may switch back (issue #502).
             $snapshot['data']['restore_capability'] = 'switch_themes';
             Snapshot_Store::save(

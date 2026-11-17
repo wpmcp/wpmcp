@@ -118,8 +118,14 @@ class SubSiteAllowedThemesTest extends \WP_UnitTestCase
         $out = (new Switch_Theme())->handle(['stylesheet' => $this->target]);
         $this->assertSame($this->target, get_stylesheet());
 
-        foreach ($out['operation_ids'] as $operation_id) {
-            $this->assertTrue((new Rollback_Operation())->handle(['operation_id' => $operation_id])['restored']);
+        // One switch is one undo (issue #869): the first id puts the template
+        // and the stylesheet back together, and its partner is then already undone.
+        $ids = $out['operation_ids'];
+        $this->assertTrue((new Rollback_Operation())->handle(['operation_id' => $ids[0]])['restored']);
+        $this->assertSame($before, get_stylesheet());
+        $this->assertSame(wp_get_theme($before)->get_template(), get_option('template'));
+        foreach (array_slice($ids, 1) as $partner) {
+            $this->assertFalse((new Rollback_Operation())->handle(['operation_id' => $partner])['restored'], 'the paired undo point must not be applied twice');
         }
         $this->assertSame($before, get_stylesheet());
     }

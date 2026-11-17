@@ -13,6 +13,7 @@ use WPMCP\Tools\Builders\Avada_Cache;
 use WPMCP\Tools\Builders\Beaver_Builder_Cache;
 use WPMCP\Tools\Builders\BeTheme_Cache;
 use WPMCP\Tools\Builders\Breakdance_Cache;
+use WPMCP\Tools\Builders\Bricks_Cache;
 use WPMCP\Tools\Builders\Builder_Design_Refresh;
 use WPMCP\Tools\Builders\Oxygen_Classic_Cache;
 use WPMCP\Tools\Builders\Elementor_Cache;
@@ -147,10 +148,59 @@ class Rollback_Service
             self::warn(sprintf('operation %s refused: %s', $operation_id, $locked->get_error_message()));
             return false;
         }
+        // One theme switch is one undo (issue #869): either half puts both
+        // the template and the stylesheet back, and no undo may leave them
+        // as a broken pair.
+        $partner = null;
+        if (Theme_Switch_Snapshot::is_theme_option((array) $row['snapshot'])) {
+            $partner_id  = Theme_Switch_Snapshot::partner_id((array) $row['snapshot']);
+            $partner_row = '' === $partner_id ? null : Snapshot_Store::get_by_operation($partner_id);
+            if ($partner_row && null === Snapshot_Store::rolled_back_at($partner_row)) {
+                $partner = $partner_row;
+            }
+            $refused = Theme_Switch_Snapshot::refusal(array_filter([ $row['snapshot'], $partner ? $partner['snapshot'] : null ]));
+            if (null !== $refused) {
+                self::warn(sprintf('operation %s refused: %s Nothing was changed.', $operation_id, $refused));
+                return false;
+            }
+        }
         // Claimed before it is applied, atomically, so two undos racing for
         // the same operation cannot both apply it. Released again when the
         // restore throws, or when a file restore is refused by its own site
-        // check (issue #602), so a failed undo stays retryable.
+        // check (issue #602), so a failed undo stays retryable. A theme
+        // switch claims BOTH halves in one write: if either is taken, nothing
+        // is written, so the pair is never half applied (issue #869).
+        if ($partner) {
+            if (! Snapshot_Store::claim_rows([ (int) $row['id'], (int) $partner['id'] ])) {
+                self::warn(sprintf(
+                    'operation %s refused: it or its paired theme switch operation %s was undone by another request while this undo ran. Nothing was changed.',
+                    $operation_id,
+                    $partner['operation_id']
+                ));
+                return false;
+            }
+            $before = [
+                'template'   => get_option('template'),
+                'stylesheet' => get_option('stylesheet'),
+            ];
+            try {
+                self::apply_for_caller($row['snapshot']);
+                self::apply_for_caller($partner['snapshot']);
+            } catch (\Throwable $e) {
+                // Put the pair back as it was, so it is never left mixed.
+                foreach ($before as $name => $value) {
+                    update_option($name, $value);
+                }
+                Snapshot_Store::release_rollback('', [ (int) $row['id'], (int) $partner['id'] ]);
+                throw $e;
+            }
+            self::warn(sprintf(
+                'operation %s was one half of a theme switch: its paired operation %s was undone with it, so the template and stylesheet are back together.',
+                $operation_id,
+                $partner['operation_id']
+            ));
+            return true;
+        }
         if (! Snapshot_Store::claim_rollback($operation_id)) {
             $row = Snapshot_Store::get_by_operation($operation_id);
             self::warn(self::already_undone($operation_id, $row ? (string) Snapshot_Store::rolled_back_at($row) : ''));
@@ -252,7 +302,7 @@ class Rollback_Service
                 return $store;
             }
             if ($post instanceof \WP_Post) {
-                return self::refused_post_capability('edit_post', $post);
+                return self::refused_post_capability('edit_post', $post) ?? self::refused_by_integration($post);
             }
             $row    = (array) ($snapshot['data']['post'] ?? []);
             $object = get_post_type_object((string) ($row['post_type'] ?? ''));
@@ -272,7 +322,8 @@ class Rollback_Service
                 $post = $post_id > 0 ? get_post($post_id) : null;
                 if ($post instanceof \WP_Post) {
                     $refused = self::refused_store((string) $post->post_type, $post_id)
-                        ?? self::refused_post_capability('delete_post', $post);
+                        ?? self::refused_post_capability('delete_post', $post)
+                        ?? self::refused_by_integration($post);
                     if (null !== $refused) {
                         return $refused;
                     }
@@ -281,6 +332,18 @@ class Rollback_Service
         }
 
         return null;
+    }
+
+    /**
+     * Lets an integration refuse a restore that would write a post it guards
+     * (wpmcp_rollback_post_refusal): the filter gets null and the post, and
+     * returns a reason string to refuse. A synced pattern other people's
+     * posts place is guarded this way.
+     */
+    private static function refused_by_integration(\WP_Post $post): ?string
+    {
+        $why = apply_filters('wpmcp_rollback_post_refusal', null, $post);
+        return is_string($why) && '' !== $why ? $why : null;
     }
 
     /**
@@ -498,6 +561,11 @@ class Rollback_Service
         if (Helpdesk_Ticket_Snapshot::TYPE === $type) {
             return [ [ Helpdesk_Ticket_Snapshot::capability((string) ($snapshot['data']['kind'] ?? '')) ] ];
         }
+        // A queued action's args can hold personal data (issue #702); the
+        // cancel took manage_options, so its undo does.
+        if (Action_Scheduler_Snapshot::TYPE === $type) {
+            return [ [ 'manage_options' ] ];
+        }
         if ('crm_rows' === $type) {
             $kind = (string) ($snapshot['data']['kind'] ?? '');
             if ('mailpoet' === Crm_Rows_Snapshot::plugin($kind)) {
@@ -696,6 +764,17 @@ class Rollback_Service
         // All or nothing: while another user is editing a post the session
         // changed, nothing is restored (issue #452).
         Edit_Lock::assert_restorable($live);
+
+        // The theme options a session puts back must leave a sound template
+        // and stylesheet pair, or nothing is restored (issue #869).
+        $theme_refusal = Theme_Switch_Snapshot::session_refusal($live);
+        if (null !== $theme_refusal) {
+            throw new Mutation_Failed(sprintf(
+                'Session "%s" cannot be rolled back: %s Nothing was restored.',
+                esc_html($session_id),
+                esc_html($theme_refusal)
+            ));
+        }
 
         // No rows left: either the run was pruned long enough ago to have
         // left the exact per-session counts (issue #442), or nothing was ever
@@ -1005,7 +1084,7 @@ class Rollback_Service
      */
     private static function is_session_reverse_snapshot(array $snapshot): bool
     {
-        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'amelia_rows', 'helpdesk_ticket', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
+        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'amelia_rows', 'helpdesk_ticket', 'action_scheduler', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
             || self::is_compiled_widget_snapshot($snapshot);
     }
 
@@ -1810,6 +1889,7 @@ class Rollback_Service
             'bbpress_posts',
             'crm_rows',
             'helpdesk_ticket',
+            'action_scheduler',
             'funnelkit_funnel',
             'funnelkit_funnel_create',
             'amelia_rows',
@@ -2078,6 +2158,12 @@ class Rollback_Service
         // Plugin_Table_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('plugin_table_rows' === $snapshot['object_type']) {
             Plugin_Table_Rows_Snapshot::restore($snapshot);
+            /**
+             * Action: a plugin table's rows were put back by a rollback
+             * (issue #867), so an integration that caches what it derives
+             * from them can rebuild it. Passes the rows' kind.
+             */
+            do_action('wpmcp_rollback_table_rows_restored', (string) ($snapshot['data']['kind'] ?? ''));
             return;
         }
 
@@ -2102,6 +2188,12 @@ class Rollback_Service
         // Helpdesk_Ticket_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('helpdesk_ticket' === $snapshot['object_type']) {
             self::warn_if(Helpdesk_Ticket_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // Action_Scheduler_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('action_scheduler' === $snapshot['object_type']) {
+            self::warn_if(Action_Scheduler_Snapshot::restore($snapshot));
             return;
         }
 
@@ -2310,6 +2402,15 @@ class Rollback_Service
                     Breakdance_Cache::regenerate($object_id, $engine_builder);
                     break;
                 }
+            }
+        }
+
+        // Bricks' page CSS file is rebuilt from the restored layout (issue
+        // #914); its rows, editor mode included, came back with the post's meta.
+        foreach ([Bricks_Cache::CONTENT_KEY, Bricks_Cache::HEADER_KEY, Bricks_Cache::FOOTER_KEY, Bricks_Cache::EDITOR_MODE_KEY] as $bricks_key) {
+            if (isset($snapshotted_meta[ $bricks_key ]) || isset($current_meta[ $bricks_key ])) {
+                Bricks_Cache::regenerate($object_id);
+                break;
             }
         }
 

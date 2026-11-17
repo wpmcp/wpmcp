@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tests\Free\Integrations;
 
+use WPMCP\Integrations\Ops_Status_Packs;
 use WPMCP\Integrations\Theme_Integration;
 use WPMCP\Integrations\Wordfence_Integration;
 use WPMCP\Pro\Gate;
@@ -141,7 +142,11 @@ class WordfenceIntegrationTest extends \WP_UnitTestCase
             public array $calls     = [];
             public array $allowlist = [ '192.0.2.200' ];
             public ?string $own     = '192.0.2.100';
+            public ?bool $installed = true;
+            public string $license  = 'free';
             public function version(): string { return '9.1.0'; }
+            public function installation_complete(): ?bool { return $this->installed; }
+            public function license_type(): string { return $this->license; }
             public function config(string $k) { return $this->config[ $k ] ?? null; }
             public function firewall_mode(): string { return 'learning-mode'; }
             public function scan_running(): bool { return false; }
@@ -300,6 +305,73 @@ class WordfenceIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('failed', $this->read('get-wordfence-status')['result']['scan']['last_scan_result']);
     }
 
+    public function test_status_shows_max_forgot_password_as_its_count(): void
+    {
+        // Issue #884: a count under a password-named key is not a secret.
+        $r = $this->read('get-wordfence-status')['result'];
+        $this->assertSame(3, $r['brute_force']['max_forgot_password']);
+    }
+
+    public function test_redact_keeps_plain_keys_and_still_masks_real_passwords(): void
+    {
+        $out = Ops_Status_Packs::redact(
+            [ 'max_forgot_password' => 3, 'password' => 'hunter2', 'nested' => [ 'max_forgot_password' => 4, 'smtp_pass' => 'x' ] ],
+            [ 'max_forgot_password' ]
+        );
+        $this->assertSame(3, $out['max_forgot_password']);
+        $this->assertSame(4, $out['nested']['max_forgot_password']);
+        $this->assertSame(Ops_Status_Packs::REDACTED, $out['password']);
+        $this->assertSame(Ops_Status_Packs::REDACTED, $out['nested']['smtp_pass']);
+        $this->assertSame(Ops_Status_Packs::REDACTED, Ops_Status_Packs::redact([ 'max_forgot_password' => 3 ])['max_forgot_password']);
+    }
+
+    public function test_status_reports_application_passwords_install_and_license_without_secrets(): void
+    {
+        // Issue #885, Wordfence defaults: application passwords disabled, fresh install, no license.
+        $this->fake->config['loginSec_disableApplicationPasswords'] = 1;
+        $this->fake->installed = false;
+        $this->fake->license   = 'none';
+        $r = $this->read('get-wordfence-status')['result'];
+        $this->assertTrue($r['application_passwords_disabled']);
+        $this->assertStringContainsString('Application Password', $r['application_passwords_note']);
+        $this->assertFalse($r['installation_complete']);
+        $this->assertSame('none', $r['license']);
+
+        $this->fake->config['loginSec_disableApplicationPasswords'] = 0;
+        $this->fake->installed = true;
+        $this->fake->license   = 'free';
+        $r = $this->read('get-wordfence-status')['result'];
+        $this->assertFalse($r['application_passwords_disabled']);
+        $this->assertArrayNotHasKey('application_passwords_note', $r);
+        $this->assertTrue($r['installation_complete']);
+        $this->assertSame('free', $r['license']);
+        $json = (string) wp_json_encode($r);
+        $this->assertStringNotContainsString('SECRET-API-KEY', $json);
+        $this->assertStringNotContainsString('owner@example.com', $json);
+    }
+
+    public function test_every_destructive_op_refuses_without_confirm_and_writes_nothing(): void
+    {
+        // Issue #886: each destructive op, with args that pass its own checks, is refused without confirm:true.
+        $this->block_row('203.0.113.52', 1, 'Manual', 0);
+        $issue  = $this->issue_row('new', 100, 'file', 'a', []);
+        $blocks = $this->all_blocks();
+        $cases  = [
+            'block-wordfence-ip'          => [ 'ip' => '203.0.113.51' ],
+            'unblock-wordfence-ip'        => [ 'ip' => '203.0.113.52' ],
+            'ignore-wordfence-scan-issue' => [ 'issue_id' => $issue ],
+        ];
+        foreach ($cases as $op => $args) {
+            $r = $this->write($op, $args);
+            $this->assertSame('confirmation_required', $r['error']['code'] ?? null, $op);
+            $this->assertStringContainsString('confirm:true', $r['error']['message'], $op);
+        }
+        $this->assertSame([], $this->fake->calls);
+        $this->assertSame($blocks, $this->all_blocks());
+        global $wpdb;
+        $this->assertSame('new', $wpdb->get_var($wpdb->prepare('SELECT status FROM %i WHERE id = %d', self::t('wfIssues'), $issue)));
+    }
+
     public function test_scan_issues_filter_by_status_with_type_severity_and_file(): void
     {
         $a = $this->issue_row('new', 100, 'file', 'Modified <b>core</b> file', [ 'file' => 'wp-includes/x.php' ]);
@@ -340,6 +412,12 @@ class WordfenceIntegrationTest extends \WP_UnitTestCase
         $this->assertStringContainsString('id=1', $attacks['attacks'][0]['url']);
         $this->assertStringNotContainsString('TOPSECRET', (string) wp_json_encode($attacks));
 
+        $wpdb->query($wpdb->prepare('INSERT INTO %i (ctime, IP, statusCode, action, actionDescription, URL) VALUES (%f, UNHEX(%s), 403, %s, %s, %s)', self::t('wfHits'), 1699999000, bin2hex(Wordfence_Integration::ip_binary('203.0.113.8')), 'blocked:waf', 'probe ada@example.com', 'https://example.org/?mail=ada@example.com'));
+        $more = $this->read('list-wordfence-blocked-attacks', [ 'limit' => 50 ])['result'];
+        $this->assertTrue($more['masked']);
+        $this->assertStringNotContainsString('ada@example.com', (string) wp_json_encode($more), 'emails inside the URL and description are masked');
+        $this->assertStringContainsString('a***@example.com', (string) wp_json_encode($more));
+
         $blocks = $this->read('list-wordfence-blocks')['result'];
         $this->assertSame(2, $blocks['count'], 'expired and pattern rows are not IP blocks in force');
         $ips = array_column($blocks['blocks'], 'ip');
@@ -348,8 +426,9 @@ class WordfenceIntegrationTest extends \WP_UnitTestCase
 
         $fails = $this->read('list-wordfence-login-failures')['result'];
         $this->assertSame(1, $fails['count']);
-        $this->assertSame('admin', $fails['failures'][0]['username']);
-        $this->assertSame('192.0.2.1', $fails['failures'][0]['ip']);
+        $this->assertSame('a***', $fails['failures'][0]['username'], 'the username tried is masked in a list');
+        $this->assertTrue($fails['masked']);
+        $this->assertSame('192.0.2.1', $fails['failures'][0]['ip'], 'the IP stays: block-wordfence-ip needs it (product decision pending)');
     }
 
     // ---------------------------------------------------------------

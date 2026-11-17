@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.9.0
+Stable tag: 0.9.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,6 +38,8 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * Events, donations, memberships (read)
 * BuddyPress: groups, group members, activity moderation and extended profile fields
 * Activity logs (read): WP Activity Log and Simple History events listed with IP addresses and emails masked and read one at a time in full
+* Action Scheduler (WooCommerce and many plugins use it): queue actions listed by hook, group, status and date with emails, IPs and tokens masked, read one at a time with their log, and pending actions canceled (undoable) or run now (not undoable, asks for confirmation); both writes are off until the site turns them on
+* Email logs (read): WP Mail Logging, Check and Log Email and Email Log emails listed with recipients masked and no bodies, and read one at a time with the body cut and reset or login links removed
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * WP Mail SMTP: the active mailer and from identity with credentials never returned, the Pro email log, a test send to your own address, and an undoable from name and address change
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
@@ -45,7 +47,7 @@ The difference: **every mutating operation takes a snapshot first.** If the agen
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * With Pro, BetterDocs: knowledge base docs and categories (read, and undoable doc creates and edits)
 * With Pro, Fluent Support and Awesome Support: tickets and their threads (read, customer emails masked in lists), and undoable replies, notes and status changes, off until the site turns them on
-* With Pro, cache and performance settings for WP Rocket, Perfmatters and FlyingPress: lazy load, minify, delay JS, CDN and preload read with license and CDN keys never returned, undoable settings changes and a cache preload (off until the site turns them on)
+* With Pro, cache and performance settings for WP Rocket, Perfmatters, FlyingPress and LiteSpeed Cache: lazy load, minify, delay JS, CDN and preload read with license and CDN keys never returned, undoable settings changes, a cache preload and a LiteSpeed purge for one post or URL (off until the site turns them on)
 * With Pro, Elementor Pro forms: forms found in pages, and form submissions listed, read and exported as CSV, with undoable status changes and deletes (off until the site turns them on)
 * With Pro, Elementor addon packs: Essential Addons, Premium Addons, Ultimate Addons and JetElements widgets listed with their controls, and each pack's modules switched on or off, every toggle undoable
 * Media library plus stock image imports
@@ -121,6 +123,41 @@ Yes. The safety core and the MCP server are free and GPL. Pro adds convenience a
 
 == Changelog ==
 
+= 0.9.1 =
+This update tightens privacy and credential handling across many integrations and adds a dozen new ones.
+
+Security fixes:
+* Personal data is masked in list reads across CRM, LMS, membership, forms, comments, users, Elementor Pro submissions and other integrations. Single-record reads stay complete for users allowed to see them.
+* Credentials are masked in generic option reads, using one central registry of secret options.
+* WPBakery shared template writes now need the edit theme options permission.
+* MemberPress rules and memberships written through WP MCP take effect immediately.
+* BuddyBoss private, scheduled and suspended activity is hidden from users who are not moderators.
+* Forms: notification recipients can only be changed through the dedicated recipients tool, and form saves go through WordPress's own save filters.
+
+New integrations:
+* Rank Math redirections and the 404 log.
+* Pretty Links and ThirstyAffiliates links.
+* WP Activity Log and Simple History events (read only).
+* Site Reviews: list, moderate and reply to reviews.
+* FluentSMTP and Post SMTP: settings, logs, test send and sender name.
+* Action Scheduler: list, get, cancel and run queued actions. Secrets in job arguments (JSON, serialized or key=value) are masked.
+* Email log reads for WP Mail Logging, Check and Log Email and Email Log.
+* Site gate status across WP MCP, core and coming soon plugins, with SeedProd and Under Construction toggles.
+* Synced patterns: list, get, usage, create, update and detach.
+* Forms: edit notifications and confirmations, and undoable entry deletes.
+* UpdraftPlus: list and run backups. All-in-One WP Migration: list backups.
+* Akismet status and spam tools on the comment tools.
+* LiteSpeed Cache settings and targeted purge.
+
+Fixes:
+* Undoing half of a theme switch no longer takes the site down, and one theme switch is one undo.
+* Bricks: the editor mode is set and CSS is rebuilt after writes and undo, including header and footer templates. Non-Bricks posts are refused.
+* Wordfence status shows the real password limit setting, whether application passwords are blocked, and the install and license state.
+* Pattern edits are refused when a pattern is placed in a post the caller cannot edit.
+
+Improvements:
+* Email log reads return no message body by default and redact passwords, codes and tokens.
+
 = 0.9.0 =
 This release roughly triples the plugins WP MCP can drive and makes every change reversible across all of them.
 
@@ -133,7 +170,7 @@ New integrations and operations:
 * LearnDash courses and the Elementor addon pack JetElements.
 * Elementor Pro form submissions; WS Form forms and submissions.
 * bbPress, Code Snippets, Wordfence and WP Mail SMTP.
-* Cache and performance settings for WP Rocket, Perfmatters and FlyingPress, with API keys never returned.
+* Cache and performance settings for WP Rocket, Perfmatters, FlyingPress and LiteSpeed Cache, with API keys never returned.
 * Knowledge base and support: BetterDocs, Fluent Support and Awesome Support.
 * Theme Pro layouts, elements and hooks for Astra Pro, Kadence Pro and GP Premium.
 * Core site identity, homepage and permalink operations.
@@ -900,6 +937,9 @@ Admin and tooling:
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 0.9.1 =
+Security update: masks personal data and credentials in many more reads, tightens permission checks and adds a dozen integrations. Recommended for all sites.
 
 = 0.8.180 =
 Free installs now see a dismissible WP MCP Pro notice on the Dashboard, the Plugins screen and WP MCP's own screens, with a launch coupon and a link to the pricing page. Dismissing hides it for 30 days; the third dismissal hides it for good. It never appears while a Pro licence is active.

@@ -87,6 +87,14 @@ tests_add_filter( 'muplugins_loaded', function () {
     if ( getenv( 'WPMCP_LIVE_FORMS' ) ) {
         wpmcp_maybe_require_plugin( 'contact-form-7/wp-contact-form-7.php' );
         wpmcp_maybe_require_plugin( 'flamingo/flamingo.php' );
+        // Issues #674 and #675: the free form plugins the notification,
+        // confirmation and entry-delete ops are verified against.
+        wpmcp_maybe_require_plugin( 'wpforms-lite/wpforms.php' );
+        wpmcp_maybe_require_plugin( 'formidable/formidable.php' );
+        wpmcp_maybe_require_plugin( 'ninja-forms/ninja-forms.php' );
+        wpmcp_maybe_require_plugin( 'fluentform/fluentform.php' );
+        wpmcp_maybe_require_plugin( 'forminator/forminator.php' );
+        wpmcp_maybe_require_plugin( 'sureforms/sureforms.php' );
     }
 
     // The live blocks job (issue #287, WPMCP_LIVE_BLOCKS=1) renders blocks
@@ -188,6 +196,22 @@ tests_add_filter( 'muplugins_loaded', function () {
     if ( getenv( 'WPMCP_LIVE_BETHEME' ) && is_dir( WP_CONTENT_DIR . '/themes/betheme' ) ) {
         add_filter( 'pre_option_template', static fn () => 'betheme' );
         add_filter( 'pre_option_stylesheet', static fn () => 'betheme' );
+    }
+
+    // The live Bricks job (issue #914, WPMCP_LIVE_BRICKS=1) runs the Bricks
+    // page write against the real Bricks theme, copied into the themes
+    // directory from WPMCP_BRICKS_SRC, made the active theme here. Only on
+    // request: the other Bricks tests stand in for the theme.
+    if ( getenv( 'WPMCP_LIVE_BRICKS' ) && is_dir( WP_CONTENT_DIR . '/themes/bricks' ) ) {
+        add_filter( 'pre_option_template', static fn () => 'bricks' );
+        add_filter( 'pre_option_stylesheet', static fn () => 'bricks' );
+        // CSS loading set to external files, as a site using them stores it,
+        // before Bricks reads its settings: Bricks loads its CSS file
+        // generator (includes/assets/files.php) only from Assets' constructor
+        // in that mode, and its autoloader cannot find that class otherwise.
+        $wpmcp_bricks_files = static fn ( $settings ) => array_merge( is_array( $settings ) ? $settings : [], [ 'cssLoading' => 'file' ] );
+        add_filter( 'option_bricks_global_settings', $wpmcp_bricks_files );
+        add_filter( 'default_option_bricks_global_settings', $wpmcp_bricks_files );
     }
 
     // The live theme add-on job (issue #656, WPMCP_LIVE_THEME_PRO=astra,
@@ -345,6 +369,41 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'simple-history/index.php' );
     }
 
+    // The live Action Scheduler job (issue #702, WPMCP_LIVE_ACTION_SCHEDULER=1)
+    // runs the Action Scheduler ops against the standalone plugin from
+    // wordpress.org. Loaded only on request, and WooCommerce is not installed
+    // in that job, so the copy that loads is the standalone one.
+    if ( getenv( 'WPMCP_LIVE_ACTION_SCHEDULER' ) ) {
+        wpmcp_maybe_require_plugin( 'action-scheduler/action-scheduler.php' );
+    }
+
+    // The live site gate job (issue #903, WPMCP_LIVE_SITE_GATE=1) reads and
+    // toggles the real coming soon and maintenance plugins, one per PHPUnit
+    // run (WPMCP_SITE_GATE_PLUGIN names it): they all claim the front door.
+    if ( getenv( 'WPMCP_LIVE_SITE_GATE' ) && getenv( 'WPMCP_SITE_GATE_PLUGIN' ) ) {
+        $wpmcp_gate_files = [
+            'coming-soon'                 => 'coming-soon/coming-soon.php',
+            'wp-maintenance-mode'         => 'wp-maintenance-mode/wp-maintenance-mode.php',
+            'under-construction-page'     => 'under-construction-page/under-construction.php',
+            'maintenance'                 => 'maintenance/maintenance.php',
+            'cmp-coming-soon-maintenance' => 'cmp-coming-soon-maintenance/niteo-cmp.php',
+        ];
+        $wpmcp_gate_slug = (string) getenv( 'WPMCP_SITE_GATE_PLUGIN' );
+        if ( isset( $wpmcp_gate_files[ $wpmcp_gate_slug ] ) ) {
+            wpmcp_maybe_require_plugin( $wpmcp_gate_files[ $wpmcp_gate_slug ] );
+        }
+    }
+
+    // The live email log job (issue #905, WPMCP_LIVE_EMAIL_LOG=1) runs the
+    // email log ops against the real WP Mail Logging, Check and Log Email
+    // and Email Log. Loaded only on request: the stub-backed tests build
+    // all three tables from a fixture.
+    if ( getenv( 'WPMCP_LIVE_EMAIL_LOG' ) ) {
+        wpmcp_maybe_require_plugin( 'wp-mail-logging/wp-mail-logging.php' );
+        wpmcp_maybe_require_plugin( 'check-email/check-email.php' );
+        wpmcp_maybe_require_plugin( 'email-log/email-log.php' );
+    }
+
     // The live FunnelKit job (issue #500, WPMCP_LIVE_FUNNELKIT=1) runs the
     // FunnelKit funnel writes through the free Funnel Builder's own REST
     // controllers, beside the WooCommerce loaded above. Loaded only on
@@ -382,11 +441,43 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'tablepress/tablepress.php' );
     }
 
+    // The live Rank Math job (issue #681, WPMCP_LIVE_RANK_MATH=1) runs the
+    // Rank Math redirects ops against the real plugin's tables. Loaded only on
+    // request: the stub-backed tests create stand-in tables.
+    if ( getenv( 'WPMCP_LIVE_RANK_MATH' ) ) {
+        wpmcp_maybe_require_plugin( 'seo-by-rank-math/rank-math.php' );
+    }
+
+    // The live links job (issue #682, WPMCP_LIVE_LINKS=1) runs the Pretty
+    // Links and ThirstyAffiliates ops through the real free plugins. Loaded
+    // only on request: the stub-backed tests build their tables from fixtures.
+    if ( getenv( 'WPMCP_LIVE_LINKS' ) ) {
+        wpmcp_maybe_require_plugin( 'pretty-link/pretty-link.php' );
+        wpmcp_maybe_require_plugin( 'thirstyaffiliates/thirstyaffiliates.php' );
+    }
+
+    // The live Site Reviews job (issue #687, WPMCP_LIVE_SITE_REVIEWS=1) runs
+    // the Site Reviews ops through the real free plugin. Loaded only on
+    // request: the stub-backed tests build its tables from fixtures.
+    if ( getenv( 'WPMCP_LIVE_SITE_REVIEWS' ) ) {
+        wpmcp_maybe_require_plugin( 'site-reviews/site-reviews.php' );
+    }
+
     // The live WP Mail SMTP job (WPMCP_LIVE_WP_MAIL_SMTP=1) runs the WP Mail
     // SMTP ops through the real plugin. Loaded only on request: the
     // stub-backed WP Mail SMTP tests define a stand-in for its Options class.
     if ( getenv( 'WPMCP_LIVE_WP_MAIL_SMTP' ) ) {
         wpmcp_maybe_require_plugin( 'wp-mail-smtp/wp_mail_smtp.php' );
+    }
+
+    // The live FluentSMTP and Post SMTP jobs (issue #696, WPMCP_LIVE_FLUENT_SMTP=1
+    // or WPMCP_LIVE_POST_SMTP=1). One per install: both define wp_mail(), and
+    // the stub-backed tests define stand-ins for their settings API.
+    if ( getenv( 'WPMCP_LIVE_FLUENT_SMTP' ) ) {
+        wpmcp_maybe_require_plugin( 'fluent-smtp/fluent-smtp.php' );
+    }
+    if ( getenv( 'WPMCP_LIVE_POST_SMTP' ) ) {
+        wpmcp_maybe_require_plugin( 'post-smtp/postman-smtp.php' );
     }
 
     // The live Code Snippets job (issue #576, WPMCP_LIVE_CODE_SNIPPETS=1) runs
@@ -489,6 +580,15 @@ tests_add_filter( 'init', function () {
     }
 }, 20 );
 
+// The live FluentSMTP job's email log table, built by FluentSMTP's own
+// activator (its DB migrator) once per run, before any test transaction
+// starts. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_FLUENT_SMTP' ) && class_exists( '\\FluentMail\\Includes\\Activator' ) ) {
+        \FluentMail\Includes\Activator::handle( false );
+    }
+}, 1 );
+
 // The live CRM job's tables, built by FluentCRM's and MailPoet's own
 // activation routines once per run, before any test transaction starts.
 // FluentCRM reads its options table from init priority 5, so its tables are
@@ -530,6 +630,24 @@ tests_add_filter( 'init', function () {
     }
 }, 1 );
 
+// The live email log job's tables, built by the plugins' own table managers
+// once per run, before any test transaction starts (WP Mail Logging creates
+// its own at load). A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( ! getenv( 'WPMCP_LIVE_EMAIL_LOG' ) ) {
+        return;
+    }
+    if ( function_exists( 'wpchill_check_email' ) && wpchill_check_email() ) {
+        wpchill_check_email()->table_manager->create_table_if_needed();
+    }
+    if ( function_exists( 'ck_mail_create_error_logs' ) ) {
+        ck_mail_create_error_logs();
+    }
+    if ( function_exists( 'email_log' ) && email_log() ) {
+        email_log()->table_manager->create_table_if_needed();
+    }
+}, 1 );
+
 // The live Amelia job's tables, roles and settings, built by Amelia's own
 // activation routines once per run, before any test transaction starts. A
 // no-op everywhere else.
@@ -541,6 +659,16 @@ tests_add_filter( 'init', function () {
         \AmeliaBooking\Infrastructure\WP\InstallActions\ActivationSettingsHook::init();
     }
 }, 1 );
+
+// The live Site Reviews job's tables, built by Site Reviews' own Tables class
+// once per run, before any test transaction starts, and its role capabilities
+// (the harness activates no plugin). A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_SITE_REVIEWS' ) && function_exists( 'glsr' ) ) {
+        glsr( \GeminiLabs\SiteReviews\Database\Tables::class )->createTables();
+        glsr( \GeminiLabs\SiteReviews\Role::class )->resetAll();
+    }
+}, 20 );
 
 // The live Code Snippets job's table, built by Code Snippets' own DB class
 // once per run, before any test transaction starts. A no-op everywhere else.
@@ -577,6 +705,16 @@ tests_add_filter( 'init', function () {
 tests_add_filter( 'init', function () {
     if ( getenv( 'WPMCP_LIVE_WS_FORM' ) && class_exists( 'WS_Form_Activator' ) ) {
         \WS_Form_Activator::activate();
+    }
+}, 1 );
+
+// The live links job's ThirstyAffiliates tables, created by its own
+// activation routine once per run, before any test transaction starts (the
+// harness activates no plugin). Pretty Links migrates its schema itself on
+// after_setup_theme. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_LIVE_LINKS' ) && function_exists( 'ThirstyAffiliates' ) ) {
+        do_action( 'activate_thirstyaffiliates/thirstyaffiliates.php', false );
     }
 }, 1 );
 

@@ -273,10 +273,32 @@ abstract class Forms_Adapter_Conformance extends \WP_UnitTestCase
         $this->assertTrue($ops['delete-entry']['requires_confirm']);
         $this->assertFalse(
             $ops['delete-entry']['enabled'],
-            'Issue #66: entry deletion is off by default and the site opts in with wpmcp_integration_op_enabled'
+            'Issue #66: entry deletion is off by default and the site opts in with wpmcp_enable_forms_write'
         );
         $this->assertContains($ops['delete-entry']['capability'], [ 'manage_options', 'edit_users' ]);
         $this->assertContains('entry_id', $ops['delete-entry']['input_schema']['required']);
+    }
+
+    /**
+     * Issues #674 and #675: what a form emails and whether a submission can be
+     * deleted are switched on together with one opt-in. Every write an adapter
+     * offers, other than the entry status change, ships off, and a destructive
+     * one needs confirm:true.
+     *
+     * @dataProvider adapters
+     */
+    public function test_forms_config_and_delete_writes_ship_off_and_destructive_ones_confirm(string $class): void
+    {
+        foreach (self::catalog_ops(new $class()) as $name => $op) {
+            if ('read' === $op['mode'] || 'update-entry-status' === $name) {
+                continue;
+            }
+            $this->assertFalse($op['enabled'], "{$name} is off until a site returns true from wpmcp_enable_forms_write");
+            if ('destructive' === $op['mode']) {
+                $this->assertTrue($op['requires_confirm'], "{$name} needs confirm:true");
+            }
+        }
+        $this->addToAssertionCount(1); // An adapter with no such write (Gravity Forms) is conformant.
     }
 
     /**

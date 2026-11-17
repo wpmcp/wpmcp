@@ -26,7 +26,11 @@ if (! defined('ABSPATH')) {
  * the handler's own update(). Entries live in WPForms' wpforms_entries table,
  * so the write is snapshotted as a db_rows before-image of exactly that row
  * and restorable with rollback-operation. Entry deletion is deliberately not
- * offered.
+ * offered (entries are a Pro table and no licensed copy was available to
+ * verify a delete against).
+ *
+ * Issue #674: notifications and confirmations are editable (opt-in, one
+ * snapshot of the form post per write, see config_operations()).
  */
 class WPForms_Integration extends Forms_Integration
 {
@@ -126,6 +130,13 @@ class WPForms_Integration extends Forms_Integration
     }
 
     protected function operations(): array
+    {
+        $ops = $this->read_and_entry_operations();
+
+        return $ops + self::config_operations();
+    }
+
+    protected function read_and_entry_operations(): array
     {
         $form_only = [
             'type'       => 'object',
@@ -308,6 +319,371 @@ class WPForms_Integration extends Forms_Integration
                     return [ 'entry_id' => $entry_id, 'status' => $status, 'previous_status' => $previous, 'changed' => true ];
                 },
                 'snapshot'     => static fn (array $args): ?array => self::row_snapshot('wpforms_entries', 'entry_id', (int) $args['entry_id'], [ 'status' => self::STATUSES[ (string) $args['status'] ] ?? '' ]),
+            ],
+        ];
+    }
+
+    // ------------------------------------------------------------------
+    // Notification and confirmation edits (issue #674)
+    // ------------------------------------------------------------------
+
+    /** @return array<string, mixed>|null a refusal when no WPForms form has that id */
+    private static function form_refusal(int $form_id): ?array
+    {
+        if (null !== self::form_post($form_id)) {
+            return null;
+        }
+
+        return [ 'code' => 'form_not_found', 'message' => 'No WPForms form has that id.', 'data' => [ 'form_id' => $form_id ] ];
+    }
+
+    /**
+     * The confirmations WPForms would use: the stored ones, or, for a form
+     * saved before confirmations existed, the single one built from the
+     * legacy confirmation_* settings (what class-process.php does at submit
+     * time).
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private static function effective_confirmations(array $settings): array
+    {
+        $stored = $settings['confirmations'] ?? null;
+        if (is_array($stored) && [] !== $stored) {
+            $out = [];
+            foreach ($stored as $id => $c) {
+                $out[ (string) $id ] = (array) $c;
+            }
+            return $out;
+        }
+
+        return [ '1' => [
+            'type'           => ! empty($settings['confirmation_type']) ? (string) $settings['confirmation_type'] : 'message',
+            'message'        => ! empty($settings['confirmation_message']) ? (string) $settings['confirmation_message'] : 'Thanks for contacting us! We will be in touch with you shortly.',
+            'message_scroll' => ! empty($settings['confirmation_message_scroll']) ? $settings['confirmation_message_scroll'] : 1,
+            'page'           => ! empty($settings['confirmation_page']) ? (string) $settings['confirmation_page'] : '',
+            'redirect'       => ! empty($settings['confirmation_redirect']) ? (string) $settings['confirmation_redirect'] : '',
+        ] ];
+    }
+
+    /** @return array<string, mixed> one confirmation as list-confirmations reports it */
+    private static function confirmation_view(string $id, array $c): array
+    {
+        return [
+            'id'       => $id,
+            'name'     => (string) ($c['name'] ?? ''),
+            'type'     => '' === (string) ($c['type'] ?? '') ? 'message' : (string) $c['type'],
+            'message'  => (string) ($c['message'] ?? ''),
+            'page'     => (string) ($c['page'] ?? ''),
+            'redirect' => (string) ($c['redirect'] ?? ''),
+        ];
+    }
+
+    /** @return array<string, mixed> one notification as update-notification edits it */
+    private static function notification_view(array $n): array
+    {
+        return [
+            'enabled'        => ! isset($n['enable']) || 0 !== (int) $n['enable'],
+            'name'           => (string) ($n['notification_name'] ?? ''),
+            'to'             => (string) ($n['email'] ?? ''),
+            'sender_name'    => (string) ($n['sender_name'] ?? ''),
+            'sender_address' => (string) ($n['sender_address'] ?? ''),
+            'replyto'        => (string) ($n['replyto'] ?? ''),
+            'subject'        => (string) ($n['subject'] ?? ''),
+            'message'        => (string) ($n['message'] ?? ''),
+        ];
+    }
+
+    /** Save a changed form through Save_Filters::update_post, the way WPForms stores it (JSON, slashed). */
+    private static function save_form_data(\WP_Post $post, array $data): void
+    {
+        // The form is JSON in post_content. For a caller without unfiltered_html
+        // (a sub-site administrator on a network, or DISALLOW_UNFILTERED_HTML),
+        // content_save_pre runs wp_filter_post_kses over that JSON as if it were
+        // HTML and corrupts it ("<\/p>" is dropped). WPForms lifts those filters
+        // for its own form saves (WPForms_Form_Handler::remove_form_content_filters),
+        // so this does too, and gives such a caller the same kses on the decoded
+        // values instead, so no tag is allowed that the post kses would not allow.
+        if (! current_user_can('unfiltered_html')) {
+            $data = map_deep($data, static fn ($value) => is_string($value) ? wp_kses_post($value) : $value);
+        }
+        $json   = function_exists('wpforms_encode') ? wpforms_encode($data) : wp_slash(wp_json_encode($data));
+        $result = \WPMCP\Safety\Save_Filters::without(
+            [ 'content_save_pre' ],
+            static fn () => \WPMCP\Safety\Save_Filters::update_post([ 'ID' => $post->ID, 'post_content' => $json ], true)
+        );
+        if (is_wp_error($result) || ! $result) {
+            throw new Operation_Error('update_failed', 'WPForms did not save the form.', [ 'form_id' => (int) $post->ID ]);
+        }
+        clean_post_cache($post->ID);
+    }
+
+    /**
+     * Plan one notification edit: the form, its data, the notification as it
+     * is and as it would be, or a refusal.
+     *
+     * @return array{0: ?array, 1: ?array}  [refusal, plan]
+     */
+    private static function notification_plan(array $args, bool $with_recipients = false): array
+    {
+        $post = self::form_post((int) $args['form_id']);
+        if (null === $post) {
+            return [ self::form_refusal((int) $args['form_id']), null ];
+        }
+        $data = self::form_data($post);
+        $id   = (string) $args['notification_id'];
+        $all  = (array) ($data['settings']['notifications'] ?? []);
+        if (! isset($all[ $id ]) || ! is_array($all[ $id ])) {
+            return [ [ 'code' => 'notification_not_found', 'message' => 'This form has no notification with that id (see list-notifications).', 'data' => [ 'form_id' => (int) $post->ID, 'notification_id' => $id ] ], null ];
+        }
+        $before = self::notification_view($all[ $id ]);
+        $next   = $all[ $id ];
+        $map    = [ 'name' => 'notification_name', 'sender_name' => 'sender_name', 'sender_address' => 'sender_address', 'replyto' => 'replyto', 'subject' => 'subject', 'message' => 'message' ];
+        foreach ($map as $arg => $key) {
+            if (isset($args[ $arg ])) {
+                $next[ $key ] = (string) $args[ $arg ];
+            }
+        }
+        if (isset($args['enabled'])) {
+            $next['enable'] = $args['enabled'] ? '1' : '0';
+        }
+        // Who a notification goes to is changed only by set-notification-recipients
+        // (confirm, validation, domain filter, preview), never by the plain edit.
+        if ($with_recipients && isset($args['to'])) {
+            $next['email'] = (string) $args['to'];
+        }
+
+        $new_data = $data;
+        $new_data['settings']['notifications'][ $id ] = $next;
+
+        return [ null, [ 'post' => $post, 'new_data' => $new_data, 'id' => $id, 'before' => $before, 'after' => self::notification_view($next) ] ];
+    }
+
+    /**
+     * Plan one confirmation edit.
+     *
+     * @return array{0: ?array, 1: ?array}  [refusal, plan]
+     */
+    private static function confirmation_plan(array $args): array
+    {
+        $post = self::form_post((int) $args['form_id']);
+        if (null === $post) {
+            return [ self::form_refusal((int) $args['form_id']), null ];
+        }
+        $data = self::form_data($post);
+        $all  = self::effective_confirmations((array) ($data['settings'] ?? []));
+        $id   = (string) $args['confirmation_id'];
+        if (! isset($all[ $id ])) {
+            return [ [ 'code' => 'confirmation_not_found', 'message' => 'This form has no confirmation with that id (see list-confirmations).', 'data' => [ 'form_id' => (int) $post->ID, 'confirmation_id' => $id ] ], null ];
+        }
+        $before = self::confirmation_view($id, $all[ $id ]);
+        $next   = $all[ $id ];
+        if (isset($args['name'])) {
+            $next['name'] = (string) $args['name'];
+        }
+        if (isset($args['type'])) {
+            $next['type'] = (string) $args['type'];
+        }
+        if (isset($args['message'])) {
+            $next['message'] = wp_kses_post((string) $args['message']);
+        }
+        if (isset($args['page'])) {
+            $next['page'] = (string) (int) $args['page'];
+        }
+        if (isset($args['redirect']) && (string) $args['redirect'] !== $before['redirect']) {
+            // Judge what was given, before esc_url_raw() can turn "not a url" into one.
+            if (! preg_match('#^https?://[^\s]+$#i', (string) $args['redirect'])) {
+                return [ [ 'code' => 'invalid_confirmation', 'message' => 'A redirect confirmation needs an http or https url.', 'data' => [ 'form_id' => (int) $post->ID, 'confirmation_id' => $id ] ], null ];
+            }
+            $raw_redirect = (string) $args['redirect'];
+            $redirect_problem = self::redirect_tag_problem($raw_redirect);
+            $has_tags = (bool) preg_match('/[{}\[\]]/', $raw_redirect);
+            if (null === $redirect_problem && ! $has_tags && esc_url_raw($raw_redirect) !== $raw_redirect) {
+                $redirect_problem = 'The redirect url contains characters WordPress would strip, so it would be saved altered. Use a plain url.';
+            }
+            if (null !== $redirect_problem) {
+                return [ [ 'code' => 'invalid_confirmation', 'message' => $redirect_problem, 'data' => [ 'form_id' => (int) $post->ID, 'confirmation_id' => $id ] ], null ];
+            }
+            $next['redirect'] = $has_tags ? $raw_redirect : esc_url_raw($raw_redirect);
+        }
+        $after   = self::confirmation_view($id, $next);
+        $problem = self::confirmation_problem([ 'type' => $after['type'], 'message' => $after['message'], 'page' => $after['page'], 'url' => $after['redirect'], 'url_unchanged' => 'redirect' === $before['type'] && $after['redirect'] === $before['redirect'] ]);
+        if (null !== $problem) {
+            return [ [ 'code' => 'invalid_confirmation', 'message' => $problem, 'data' => [ 'form_id' => (int) $post->ID, 'confirmation_id' => $id ] ], null ];
+        }
+
+        $new_data                                         = $data;
+        $new_data['settings']                             = (array) ($data['settings'] ?? []);
+        $new_data['settings']['confirmations']            = $all;
+        $new_data['settings']['confirmations'][ $id ]     = $next;
+
+        return [ null, [ 'post' => $post, 'new_data' => $new_data, 'id' => $id, 'before' => $before, 'after' => $after ] ];
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private static function config_operations(): array
+    {
+        $id    = [ 'type' => 'integer', 'minimum' => 1 ];
+        $note  = [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 20 ];
+        // WPForms registers its form post type with map_meta_cap off, so core's
+        // edit_post is false even for an administrator: the writes sit behind
+        // manage_options (WPForms' own bar) and declare no per-post object, and
+        // the undo is a db_rows before-image of the form's posts row (which
+        // Rollback_Service restores at manage_options) rather than a post
+        // snapshot, whose restore would ask core for edit_post.
+        $write = [
+            'capability' => 'manage_options',
+            'snapshot'   => static function (array $args): ?array {
+                $plan = isset($args['confirmation_id']) ? self::confirmation_plan($args)[1] : self::notification_plan($args, array_key_exists('to', $args))[1];
+                return null === $plan ? null : self::row_snapshot('posts', 'ID', (int) $plan['post']->ID, [ 'post_content' => wp_json_encode($plan['new_data']) ]);
+            },
+        ] + self::write_flags();
+
+        return [
+            'list-confirmations'          => [
+                'mode'         => 'read',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true ] ],
+                'description'  => 'List one form\'s confirmations (what a visitor sees after submitting): id, name, type (message, page, redirect), message, page id and redirect url. A form saved before confirmations existed reports its single legacy one as id 1',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'form_id' => $id ], 'required' => [ 'form_id' ] ],
+                'handler'      => static function (array $args): array {
+                    $post = self::form_post((int) $args['form_id']);
+                    if (null === $post) {
+                        return [ 'form_id' => (int) $args['form_id'], 'confirmations' => null ];
+                    }
+                    $out = [];
+                    foreach (self::effective_confirmations((array) (self::form_data($post)['settings'] ?? [])) as $cid => $c) {
+                        $out[] = self::confirmation_view((string) $cid, $c);
+                    }
+                    return [ 'form_id' => (int) $post->ID, 'confirmations' => $out ];
+                },
+            ],
+            'update-notification'         => $write + [
+                'mode'         => 'write',
+                'description'  => 'Edit one notification of a form: enabled, name, subject, message, sender_name, sender_address and replyto. The recipient is changed with set-notification-recipients. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after of every changed field. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'          => 'object',
+                    'properties'    => [
+                        'form_id'         => $id,
+                        'notification_id' => $note,
+                        'enabled'         => [ 'type' => 'boolean' ],
+                        'name'            => [ 'type' => 'string', 'maxLength' => 200 ],
+                        'subject'         => [ 'type' => 'string', 'maxLength' => 998 ],
+                        'message'         => [ 'type' => 'string', 'maxLength' => 100000 ],
+                        'sender_name'     => [ 'type' => 'string', 'maxLength' => 200 ],
+                        'sender_address'  => [ 'type' => 'string', 'maxLength' => 320 ],
+                        'replyto'         => [ 'type' => 'string', 'maxLength' => 320 ],
+                    ],
+                    'required'             => [ 'form_id', 'notification_id' ],
+                    'minProperties'        => 3,
+                    'additionalProperties' => false,
+                ],
+                'validate'     => static function (array $args): ?array {
+                    [ $refusal ] = self::notification_plan($args);
+                    if (null !== $refusal) {
+                        return $refusal;
+                    }
+                    $bad = static fn (string $message): array => [ 'code' => 'invalid_notification', 'message' => $message, 'data' => [ 'form_id' => (int) $args['form_id'] ] ];
+                    foreach ([ 'subject', 'message' ] as $field) {
+                        if (isset($args[ $field ]) && '' === trim((string) $args[ $field ])) {
+                            return $bad(sprintf('%s must not be empty.', ucfirst($field)));
+                        }
+                    }
+                    foreach ([ 'name' => 'Name', 'subject' => 'Subject', 'sender_name' => 'Sender name' ] as $field => $label) {
+                        if (isset($args[ $field ]) && null !== ($problem = self::header_text_problem((string) $args[ $field ], $label))) {
+                            return $bad($problem);
+                        }
+                    }
+                    foreach ([ 'sender_address' => 'Sender address', 'replyto' => 'Reply-to' ] as $field => $label) {
+                        if (isset($args[ $field ])) {
+                            $problem = self::address_problem((string) $args[ $field ], $label, 'replyto' === $field, true);
+                            if (null !== $problem) {
+                                return $bad($problem);
+                            }
+                        }
+                    }
+                    return null;
+                },
+                'handler'      => static function (array $args): array {
+                    [ , $plan ] = self::notification_plan($args);
+                    $changes    = self::diff_fields($plan['before'], $plan['after']);
+                    if ([] !== $changes) {
+                        self::save_form_data($plan['post'], $plan['new_data']);
+                    }
+                    return [ 'form_id' => (int) $plan['post']->ID, 'notification_id' => $plan['id'], 'changed' => [] !== $changes, 'changes' => $changes ];
+                },
+            ],
+            'set-notification-recipients' => $write + [
+                'mode'            => 'destructive',
+                'description'     => 'Change who a notification is sent to (to: one or more addresses or smart tags such as {admin_email}). This redirects personal data, so it needs confirm:true, and the confirmation shows the recipient before and after. Off by default (opt in with wpmcp_enable_forms_write). Undo: rollback-operation',
+                'input_schema'    => [
+                    'type'       => 'object',
+                    'properties' => [ 'form_id' => $id, 'notification_id' => $note, 'to' => [ 'type' => 'string', 'maxLength' => 2000 ] ],
+                    'required'   => [ 'form_id', 'notification_id', 'to' ],
+                ],
+                'validate'        => static function (array $args): ?array {
+                    [ $refusal ] = self::notification_plan($args, true);
+                    if (null !== $refusal) {
+                        return $refusal;
+                    }
+                    $problem = self::address_problem((string) $args['to'], 'To', false);
+                    return null === $problem ? null : [ 'code' => 'invalid_recipients', 'message' => $problem, 'data' => [ 'form_id' => (int) $args['form_id'] ] ];
+                },
+                'confirm_preview' => static function (array $args): array {
+                    [ , $plan ] = self::notification_plan($args, true);
+                    return [
+                        'message' => sprintf('It changes who notification %s of form %d is sent to. Undo: rollback-operation.', $plan['id'], (int) $plan['post']->ID),
+                        'data'    => [ 'form_id' => (int) $plan['post']->ID, 'before' => [ 'to' => $plan['before']['to'] ], 'after' => [ 'to' => $plan['after']['to'] ] ],
+                    ];
+                },
+                'handler'         => static function (array $args): array {
+                    [ , $plan ] = self::notification_plan($args, true);
+                    $changed    = $plan['before']['to'] !== $plan['after']['to'];
+                    if ($changed) {
+                        self::save_form_data($plan['post'], $plan['new_data']);
+                    }
+                    return [
+                        'form_id'           => (int) $plan['post']->ID,
+                        'notification_id'   => $plan['id'],
+                        'changed'           => $changed,
+                        'recipient_changed' => $changed,
+                        'before'            => [ 'to' => $plan['before']['to'] ],
+                        'after'             => [ 'to' => $plan['after']['to'] ],
+                    ];
+                },
+            ],
+            'update-confirmation'         => $write + [
+                'mode'         => 'destructive',
+                'description'  => 'Edit one confirmation of a form (needs confirm:true; the confirmation shows the confirmation before and after, since a redirect sends visitors, and smart tag values, to another page): name, type (message, page, redirect), message (post HTML only), page (id of a published page) and redirect (an http or https url). The result must be coherent for its type. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'          => 'object',
+                    'properties'    => [
+                        'form_id'         => $id,
+                        'confirmation_id' => $note,
+                        'name'            => [ 'type' => 'string', 'maxLength' => 200 ],
+                        'type'            => [ 'type' => 'string', 'enum' => [ 'message', 'page', 'redirect' ] ],
+                        'message'         => [ 'type' => 'string', 'maxLength' => 100000 ],
+                        'page'            => $id,
+                        'redirect'        => [ 'type' => 'string', 'maxLength' => 2000 ],
+                    ],
+                    'required'             => [ 'form_id', 'confirmation_id' ],
+                    'minProperties'        => 3,
+                    'additionalProperties' => false,
+                ],
+                'validate'     => static fn (array $args): ?array => self::confirmation_plan($args)[0],
+                'confirm_preview' => static function (array $args): array {
+                    [ , $plan ] = self::confirmation_plan($args);
+                    return [
+                        'message' => sprintf('It changes confirmation %s of form %d. Undo: rollback-operation.', $plan['id'], (int) $plan['post']->ID),
+                        'data'    => [ 'form_id' => (int) $plan['post']->ID, 'before' => $plan['before'], 'after' => $plan['after'] ],
+                    ];
+                },
+                'handler'      => static function (array $args): array {
+                    [ , $plan ] = self::confirmation_plan($args);
+                    $changes    = self::diff_fields($plan['before'], $plan['after']);
+                    if ([] !== $changes) {
+                        self::save_form_data($plan['post'], $plan['new_data']);
+                    }
+                    return [ 'form_id' => (int) $plan['post']->ID, 'confirmation_id' => $plan['id'], 'changed' => [] !== $changes, 'changes' => $changes ];
+                },
             ],
         ];
     }

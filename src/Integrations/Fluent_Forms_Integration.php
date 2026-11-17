@@ -25,7 +25,9 @@ if (! defined('ABSPATH')) {
  * add-on listening for status changes still hears about it. Submissions live
  * in Fluent Forms' own table, so the write is snapshotted as a db_rows
  * before-image of exactly that row and restorable with rollback-operation.
- * Entry deletion is deliberately not offered.
+ * delete-entry (issue #675) removes the submission's rows directly, each
+ * table's rows under a db_rows before-image in one session, so
+ * rollback-session restores them.
  */
 class Fluent_Forms_Integration extends Forms_Integration
 {
@@ -101,6 +103,9 @@ class Fluent_Forms_Integration extends Forms_Integration
         }
         return $out;
     }
+
+    /** Payment tables (Fluent Forms Pro) whose rows keep an entry from being deleted here. */
+    private const PAYMENT_TABLES = [ 'fluentform_transactions', 'fluentform_order_items', 'fluentform_subscriptions' ];
 
     protected function operations(): array
     {
@@ -260,6 +265,51 @@ class Fluent_Forms_Integration extends Forms_Integration
                 },
                 'snapshot'     => static fn (array $args): ?array => self::row_snapshot('fluentform_submissions', 'id', (int) $args['entry_id'], [ 'status' => (string) $args['status'] ]),
             ],
+            'delete-entry' => [
+                'mode'              => 'destructive',
+                'self_snapshotting' => true,
+                'objects'           => [ 'entry_id' => 'entry' ],
+                'capability'        => self::ENTRY_CAPABILITY,
+                'description'       => 'Permanently delete one Fluent Forms submission with its values, logs and meta (the rows of fluentform_submissions, _submission_meta, _logs and _entry_details, removed directly: Fluent Forms\' own delete hooks do not run, uploaded files stay on disk, and queued scheduled actions are left alone). Refused with entry_has_payments when the submission has a payment record. Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true and manage_options. Reversible: every row is snapshotted first and rollback-session puts them back. ' . self::NOT_ERASURE,
+                'input_schema'      => [
+                    'type'       => 'object',
+                    'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
+                    'required'   => [ 'entry_id' ],
+                ],
+                'validate'          => static function (array $args): ?array {
+                    $entry_id = (int) $args['entry_id'];
+                    if (! self::submission($entry_id)) {
+                        return [ 'code' => 'entry_not_found', 'message' => 'Fluent Forms has no entry with that id.', 'data' => [ 'entry_id' => $entry_id ] ];
+                    }
+                    $payments = self::payment_refusal($entry_id, array_map(static fn (string $table): array => [ $table, 'submission_id' ], self::PAYMENT_TABLES));
+                    if (null !== $payments) {
+                        return $payments;
+                    }
+                    return null;
+                },
+                'confirm_preview'   => static function (array $args): array {
+                    $entry_id = (int) $args['entry_id'];
+                    $row      = self::submission($entry_id);
+                    $values   = self::count_rows('fluentform_entry_details', 'submission_id', $entry_id);
+                    return [
+                        'message' => sprintf('It permanently deletes Fluent Forms entry %d of form %d (%d stored values). Uploaded files stay on disk. Undo: rollback-session.', $entry_id, (int) self::col($row, 'form_id'), $values),
+                        'data'    => [ 'entry_id' => $entry_id, 'form_id' => (int) self::col($row, 'form_id'), 'date' => (string) self::col($row, 'created_at'), 'values' => $values, 'files_stay_on_disk' => true ],
+                    ];
+                },
+                'handler'           => static function (array $args, array $context): array {
+                    $entry_id = (int) $args['entry_id'];
+                    $done     = self::delete_rows_in_session([
+                        [ 'table' => 'fluentform_entry_details', 'primary_key' => [ 'id' ], 'where' => [ 'submission_id' => $entry_id ], 'optional' => true ],
+                        [ 'table' => 'fluentform_logs', 'primary_key' => [ 'id' ], 'where' => [ 'source_id' => $entry_id, 'source_type' => 'submission_item' ], 'optional' => true ],
+                        [ 'table' => 'fluentform_submission_meta', 'primary_key' => [ 'id' ], 'where' => [ 'response_id' => $entry_id ], 'optional' => true ],
+                        [ 'table' => 'fluentform_submissions', 'primary_key' => [ 'id' ], 'where' => [ 'id' => $entry_id ] ],
+                    ], $args, $context);
+                    return [
+                        'result'        => [ 'entry_id' => $entry_id, 'deleted' => ($done['result']['fluentform_submissions'] ?? 0) > 0, 'rows' => $done['result'] ],
+                        'operation_ids' => $done['operation_ids'],
+                    ];
+                },
+            ] + self::write_flags(),
         ];
     }
 }

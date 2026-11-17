@@ -4,6 +4,8 @@ namespace WPMCP\Tests\Free\Integrations;
 
 use SRFM\Inc\Database\Tables\Entries;
 use WPMCP\Integrations\SureForms_Integration;
+use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Rollback_Operation;
 
 require_once __DIR__ . '/../../support/sureforms-stubs.php';
 
@@ -25,9 +27,22 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
     private SureForms_Integration $integration;
     private int $form_id;
 
+    public static function set_up_before_class(): void
+    {
+        parent::set_up_before_class();
+        Entries::install(); // DDL, outside any test transaction
+    }
+
+    public static function tear_down_after_class(): void
+    {
+        Entries::uninstall();
+        parent::tear_down_after_class();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
+        Snapshot_Store::install();
         register_post_type('sureforms_form', [ 'public' => true, 'label' => 'Forms' ]);
         Entries::reset();
         $this->integration = new SureForms_Integration();
@@ -37,7 +52,7 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         // off-by-default contract itself is asserted in
         // test_delete_entry_is_off_by_default and in the shared conformance
         // suite; WP_UnitTestCase restores hooks between tests.
-        add_filter('wpmcp_integration_op_enabled', static fn ($enabled, $integration, $op) => ('sureforms' === $integration && 'delete-entry' === $op) ? true : $enabled, 10, 3);
+        add_filter('wpmcp_enable_forms_write', '__return_true');
         $this->form_id     = self::factory()->post->create([
             'post_type'    => 'sureforms_form',
             'post_title'   => 'Contact',
@@ -122,7 +137,7 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertSame(2, $out['result']['total']);
         $this->assertSame(201, $out['result']['entries'][0]['id']);
         $this->assertSame('unread', $out['result']['entries'][0]['status']);
-        $this->assertSame('ada@example.test', $out['result']['entries'][0]['values']['email']);
+        $this->assertSame('a***@example.test', $out['result']['entries'][0]['values']['email']);
 
         $paged = $this->integration->handle_read([
             'operation' => 'list-entries',
@@ -130,6 +145,23 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         ]);
         $this->assertCount(1, $paged['result']['entries']);
         $this->assertSame(202, $paged['result']['entries'][0]['id']);
+    }
+
+    public function test_list_entries_masks_personal_values_but_get_entry_stays_full(): void
+    {
+        $list = $this->integration->handle_read([
+            'operation' => 'list-entries',
+            'args'      => [ 'form_id' => $this->form_id ],
+        ])['result'];
+        $this->assertTrue($list['masked']);
+        $this->assertSame('A***', $list['entries'][0]['values']['name']);
+        $this->assertSame('unread', $list['entries'][0]['status']);
+        $this->assertStringNotContainsString('ada@example.test', wp_json_encode($list));
+
+        $one = $this->integration->handle_read([ 'operation' => 'get-entry', 'args' => [ 'entry_id' => 201 ] ])['result'];
+        $this->assertArrayNotHasKey('masked', $one);
+        $this->assertSame('ada@example.test', $one['entry']['values']['email']);
+        $this->assertSame('Ada', $one['entry']['values']['name']);
     }
 
     public function test_get_entry_and_missing_entry(): void
@@ -159,7 +191,16 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertSame([], Entries::$deleted);
     }
 
-    public function test_delete_entry_with_confirm_deletes_and_reports_unrecoverable(): void
+    public function test_delete_entry_preview_carries_no_values(): void
+    {
+        $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => 201 ] ]);
+
+        $this->assertSame('confirmation_required', $out['error']['code']);
+        $this->assertSame(2, $out['error']['data']['values']);
+        $this->assertStringNotContainsString('ada@example.test', wp_json_encode($out));
+    }
+
+    public function test_delete_entry_snapshots_the_row_and_rollback_restores_it(): void
     {
         $out = $this->integration->handle_write([
             'operation' => 'delete-entry',
@@ -168,12 +209,18 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         ]);
 
         $this->assertTrue($out['result']['deleted']);
-        $this->assertFalse($out['recoverable']);
-        $this->assertArrayNotHasKey('operation_id', $out);
+        $this->assertTrue($out['recoverable']);
+        $this->assertNotEmpty($out['operation_id']);
         $this->assertSame([ 201 ], Entries::$deleted);
+        $this->assertNull(Entries::table_row(201));
+
+        ( new Rollback_Operation() )->handle([ 'operation_id' => $out['operation_id'] ]);
+        $restored = Entries::table_row(201);
+        $this->assertSame($this->form_id, (int) $restored['form_id']);
+        $this->assertStringContainsString('ada@example.test', $restored['form_data']);
     }
 
-    public function test_delete_entry_reports_not_found_without_calling_delete(): void
+    public function test_delete_entry_reports_not_found_without_calling_delete_or_snapshotting(): void
     {
         $out = $this->integration->handle_write([
             'operation' => 'delete-entry',
@@ -184,6 +231,7 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertFalse($out['result']['deleted']);
         $this->assertSame('not_found', $out['result']['reason']);
         $this->assertSame([], Entries::$deleted);
+        $this->assertArrayNotHasKey('operation_id', $out);
     }
 
     public function test_delete_entry_requires_manage_options(): void
@@ -216,7 +264,7 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
 
     public function test_delete_entry_is_off_by_default(): void
     {
-        remove_all_filters('wpmcp_integration_op_enabled');
+        remove_all_filters('wpmcp_enable_forms_write');
 
         $ops = array_column($this->integration->catalog()['operations'], null, 'name');
         $this->assertFalse($ops['delete-entry']['enabled'], 'Issue #66: entry deletion ships off');
@@ -228,11 +276,24 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         ]);
 
         $this->assertSame('opt_in_required', $out['error']['code']);
+        $this->assertStringContainsString('wpmcp_enable_forms_write', $out['error']['message']);
     }
 
     /** @return array<string, int> the args a valid delete-entry call takes here. */
     private function delete_entry_args(): array
     {
         return [ 'entry_id' => 201 ];
+    }
+
+    public function test_delete_entry_refuses_an_entry_with_a_payment_record(): void
+    {
+        global $wpdb;
+        $wpdb->insert($wpdb->prefix . 'srfm_payments', [ 'entry_id' => 201 ]);
+
+        $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => 201 ], 'confirm' => true ]);
+
+        $this->assertSame('entry_has_payments', $out['error']['code']);
+        $this->assertSame([], Entries::$deleted);
+        $this->assertNotNull(Entries::table_row(201));
     }
 }

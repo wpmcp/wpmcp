@@ -80,7 +80,7 @@ class ActivityLogPackTest extends \WP_UnitTestCase
         $this->assertSame($id, $event['id']);
         $this->assertSame('2026-11-06T21:20:00Z', $event['time']);
         $this->assertSame('203.0.*.*', $event['ip']);
-        $this->assertSame('ada', $event['username']);
+        $this->assertSame('a***', $event['username'], 'a list masks the username');
         $this->assertSame(12, $event['object']['id']);
         $this->assertArrayNotHasKey('user_agent', $event);
         $this->assertArrayNotHasKey('details', $event);
@@ -88,6 +88,7 @@ class ActivityLogPackTest extends \WP_UnitTestCase
 
         $one = $this->ok($this->read('activitylog-get-activity', [ 'id' => $id ]))['event'];
         $this->assertSame('203.0.113.7', $one['ip']);
+        $this->assertSame('ada', $one['username']);
         $this->assertSame('Mozilla/5.0 (X11; Linux x86_64)', $one['user_agent']);
         $this->assertSame('ada@example.com', $one['details']['Email']);
         $this->assertStringNotContainsString('sess-secret', (string) wp_json_encode($one));
@@ -134,7 +135,7 @@ class ActivityLogPackTest extends \WP_UnitTestCase
         $this->assertSame('simple-history', $list['source']);
         $this->assertSame(1, $list['total']);
         $event = $list['events'][0];
-        $this->assertSame('User ada (a***@example.com) logged in', $event['message']);
+        $this->assertSame('User a*** (a***@example.com) logged in', $event['message'], 'the username inside a message is masked too');
         $this->assertSame('2001:db8:*', $event['ip']);
         $this->assertSame('2026-11-10T09:30:00Z', $event['time']);
         $this->assertSame('SimpleUserLogger', $event['event']);
