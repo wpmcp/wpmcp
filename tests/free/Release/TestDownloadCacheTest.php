@@ -219,7 +219,8 @@ SH);
         }
 
         $calls = $this->calls();
-        $this->assertCount(5, $calls, implode("\n", $calls));
+        $logs  = "\n--- one.log\n" . (string) file_get_contents($this->tmp . '/one.log') . "\n--- two.log\n" . (string) file_get_contents($this->tmp . '/two.log');
+        $this->assertCount(5, $calls, implode("\n", $calls) . $logs);
         $this->assertSame($calls, array_values(array_unique($calls)));
         $this->assertSame([], glob($this->downloads . '/plugins/*.tmp*') ?: []);
     }
