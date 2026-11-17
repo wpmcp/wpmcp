@@ -448,6 +448,29 @@ class BuddyPressLiveTest extends \WP_UnitTestCase
         $this->assertSame('Color', xprofile_get_field($field, null, false)->name, "BuddyPress's caches no longer hold the edit");
     }
 
+    /**
+     * Issue #941: the action BuddyPress itself records for a member joining a
+     * group links the member by slug and display name; a masked list hides
+     * both, and keeps the group readable.
+     */
+    public function test_a_masked_activity_list_hides_a_member_named_in_the_action_buddypress_recorded(): void
+    {
+        $group  = groups_create_group([ 'creator_id' => $this->admin, 'name' => 'Join Club', 'description' => 'Open', 'status' => 'public' ]);
+        $member = self::factory()->user->create([ 'user_login' => 'beajoiner', 'user_nicename' => 'beajoiner', 'display_name' => 'Bea Joiner' ]);
+        $this->assertTrue((bool) groups_join_group($group, $member));
+
+        $out = (new Plugin_Data_Integration())->handle_read([ 'operation' => 'buddypress-list-activity', 'args' => [ 'type' => 'joined_group', 'per_page' => 100 ] ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertTrue($out['result']['masked']);
+        $items = array_values(array_filter($out['result']['activity'], static fn (array $item): bool => $member === $item['user']['id']));
+        $this->assertCount(1, $items, 'BuddyPress recorded the join');
+        $this->assertSame($group, $items[0]['item_id']);
+        $json = (string) wp_json_encode($items);
+        foreach ([ 'Bea Joiner', 'beajoiner', 'Ada Admin' ] as $leak) {
+            $this->assertStringNotContainsString($leak, $json, "\"$leak\" must not appear in a masked list");
+        }
+    }
+
     public function test_hiding_activity_saves_it_through_buddypress_and_rolls_back(): void
     {
         $id = bp_activity_add([ 'user_id' => $this->admin, 'component' => 'activity', 'type' => 'activity_update', 'content' => 'Noisy post' ]);

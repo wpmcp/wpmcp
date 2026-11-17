@@ -964,21 +964,98 @@ final class BuddyPress_Pack
     }
 
     /**
-     * A listed activity item with the author's name and email masked, also
-     * where the name sits inside the item's action text, and every email or
-     * IP address in the action and the content masked.
+     * A listed activity item with every member it names masked (issue #941):
+     * the author's name and email, the name of every other member the item
+     * names (a friendship's friend, a member linked or mentioned in the text),
+     * the anchor text of every member link and the member slug (the login)
+     * in every member URL, including primary_link. Every email or IP address
+     * in the action and the content is masked too. Ids, types, dates and
+     * flags stay readable.
      *
-     * @param array<string, mixed> $item
+     * @param array<string, mixed>          $item
+     * @param array<int, \WP_User|false>    $users user cache shared with activity_view()
      * @return array<string, mixed>
      */
-    private static function mask_activity(array $item): array
+    private static function mask_activity(array $item, array &$users): array
     {
-        $name = (string) ($item['user']['name'] ?? '');
+        $root   = function_exists('bp_get_members_root_slug') ? trim((string) bp_get_members_root_slug(), '/') : '';
+        $root   = '' === $root ? 'members' : $root;
+        $in_url = '#(/' . preg_quote($root, '#') . '/)([^/?\#"\'\s<>]+)#i';
+
+        // The members the item names: its author, a friendship's friend, and every member a URL points at.
+        $people = [ (int) ($item['user']['id'] ?? 0) ];
+        if ('friends' === ($item['component'] ?? '') && (int) $item['secondary_item_id'] > 0) {
+            $people[] = (int) $item['secondary_item_id'];
+        }
+        foreach ([ 'action', 'content', 'primary_link' ] as $field) {
+            if (preg_match_all($in_url, (string) $item[ $field ], $found)) {
+                foreach ($found[2] as $slug) {
+                    $user = get_user_by('slug', rawurldecode($slug));
+                    $user = $user instanceof \WP_User ? $user : get_user_by('login', rawurldecode($slug));
+                    if ($user instanceof \WP_User) {
+                        $people[] = (int) $user->ID;
+                    }
+                }
+            }
+        }
+        $names = [];
+        $slugs = [];
+        foreach (array_unique(array_filter($people)) as $user_id) {
+            self::user_view($user_id, $users);
+            $user = $users[ $user_id ] ?? false;
+            if (! $user instanceof \WP_User) {
+                continue;
+            }
+            $names[] = (string) $user->display_name;
+            $slugs[] = (string) $user->user_nicename;
+            $slugs[] = (string) $user->user_login;
+            if (function_exists('bp_members_get_user_slug')) {
+                $slugs[] = (string) bp_members_get_user_slug($user_id);
+            }
+        }
+        $by_length = static function (array $list): array {
+            $list = array_values(array_unique(array_filter($list, static fn (string $text): bool => '' !== $text)));
+            usort($list, static fn (string $a, string $b): int => strlen($b) - strlen($a));
+            return $list;
+        };
+        $names = $by_length($names);
+        $slugs = $by_length($slugs);
+
+        $mask_urls = static function (string $text) use ($in_url, $slugs): string {
+            $text = (string) preg_replace_callback($in_url, static fn (array $m): string => $m[1] . Masking::value(rawurldecode($m[2])), $text);
+            foreach ($slugs as $slug) {
+                // A slug left in another URL form (?bp_members=slug) or an @mention.
+                $text = (string) preg_replace_callback(
+                    '#(?<=[/=@])' . preg_quote($slug, '#') . '(?=[/&"\'?\#\s<]|$)#i',
+                    static fn (array $m): string => (string) Masking::value($m[0]),
+                    $text
+                );
+            }
+            return $text;
+        };
+
         $item['user'] = Masking::keys((array) $item['user'], [ 'name', 'email' ]);
         foreach ([ 'action', 'content' ] as $field) {
-            $text = '' === $name ? (string) $item[ $field ] : str_replace($name, (string) $item['user']['name'], (string) $item[ $field ]);
-            $item[ $field ] = Activity_Log_Pack::mask_text($text);
+            $text = (string) $item[ $field ];
+            foreach ($names as $name) {
+                $text = str_replace($name, (string) Masking::value($name), $text);
+            }
+            // The text of a member link names a member even when it is not a known display name.
+            $text = (string) preg_replace_callback(
+                '#(<a\b[^>]*\bhref=(["\'])[^"\']*/' . preg_quote($root, '#') . '/[^"\']*\2[^>]*>)([^<]*)(</a>)#i',
+                static function (array $m): string {
+                    $label = trim($m[3]);
+                    if ('' === $label || false !== strpos($label, '***')) {
+                        return $m[0];
+                    }
+                    $label = '@' === $label[0] ? '@' . Masking::value(substr($label, 1)) : (string) Masking::value($label);
+                    return $m[1] . $label . $m[4];
+                },
+                $text
+            );
+            $item[ $field ] = Activity_Log_Pack::mask_text($mask_urls($text));
         }
+        $item['primary_link'] = $mask_urls((string) $item['primary_link']);
         return $item;
     }
 
@@ -1024,7 +1101,7 @@ final class BuddyPress_Pack
         $users = [];
         $items = [];
         foreach ($rows as $row) {
-            $items[] = self::mask_activity(self::activity_view($row, $users));
+            $items[] = self::mask_activity(self::activity_view($row, $users), $users);
         }
         return [ 'total' => $total, 'masked' => true, 'activity' => $items ];
     }
