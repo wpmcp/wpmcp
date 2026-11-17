@@ -2,6 +2,8 @@
 
 namespace WPMCP\Safety;
 
+use WPMCP\Tools\Content\Code_Posts;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -74,6 +76,10 @@ final class Save_Filters
      */
     public static function update_post(array $postarr, bool $wp_error = false)
     {
+        // A theme layout's code is never changed through a post write (#893).
+        if (array_key_exists('post_content', $postarr) && ! empty($postarr['ID'])) {
+            Code_Posts::assert_content_writable((int) $postarr['ID'], (string) wp_unslash((string) $postarr['post_content']));
+        }
         $hooks = [];
         foreach (self::POST_COLUMNS as $column => $filters) {
             if (! array_key_exists($column, $postarr)) {

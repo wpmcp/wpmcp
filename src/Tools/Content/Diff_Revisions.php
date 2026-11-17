@@ -57,8 +57,13 @@ class Diff_Revisions
             }
         }
 
+        // A theme layout's code is not diffed (issue #893).
+        $code    = Code_Posts::content_note($from);
         $changes = [];
         foreach (self::FIELDS as $field) {
+            if (null !== $code && 'post_title' !== $field) {
+                continue;
+            }
             $before = (string) $from->{$field};
             $after  = (string) $to->{$field};
 
@@ -79,7 +84,7 @@ class Diff_Revisions
             'to'        => $this->describe($to),
             'identical' => [] === $changes,
             'changes'   => $changes,
-        ];
+        ] + (null === $code ? [] : [ 'code_withheld' => true, 'note' => $code ]);
     }
 
     /** @return array{id: int, is_revision: bool, modified: string, author: int} */

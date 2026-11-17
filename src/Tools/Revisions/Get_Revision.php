@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Revisions;
 
+use WPMCP\Tools\Content\Code_Posts;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -16,14 +18,21 @@ class Get_Revision
             throw new \InvalidArgumentException('Revision not found');
         }
 
-        return [
+        // A theme layout's code is withheld with a note (issue #893).
+        $code = Code_Posts::content_note($revision);
+        $out  = [
             'revision_id' => (int) $revision->ID,
             'post_id'     => (int) $revision->post_parent,
             'author_id'   => (int) $revision->post_author,
             'date'        => (string) $revision->post_date,
             'title'       => (string) $revision->post_title,
-            'content'     => (string) $revision->post_content,
-            'excerpt'     => (string) $revision->post_excerpt,
+            'content'     => null === $code ? (string) $revision->post_content : '',
+            'excerpt'     => null === $code ? (string) $revision->post_excerpt : '',
         ];
+        if (null !== $code) {
+            $out['code_withheld'] = true;
+            $out['note']          = $code;
+        }
+        return $out;
     }
 }

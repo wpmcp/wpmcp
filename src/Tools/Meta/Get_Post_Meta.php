@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Meta;
 
+use WPMCP\Tools\Content\Code_Posts;
 use WPMCP\Tools\Content\Content_Guard;
 
 if (! defined('ABSPATH')) {
@@ -30,7 +31,7 @@ class Get_Post_Meta
 
         if (null !== $key) {
             $meta = [];
-            if (! $this->is_protected($key)) {
+            if (! $this->is_protected($key) && ! Code_Posts::is_code_meta((string) $post->post_type, $key)) {
                 $meta[ $key ] = get_post_meta($post_id, $key, true);
             }
             return ['post_id' => $post_id, 'meta' => $meta];
@@ -39,7 +40,7 @@ class Get_Post_Meta
         $meta_raw = get_post_meta($post_id);
         $meta     = [];
         foreach ((array) $meta_raw as $meta_key => $values) {
-            if ($this->is_protected((string) $meta_key)) {
+            if ($this->is_protected((string) $meta_key) || Code_Posts::is_code_meta((string) $post->post_type, (string) $meta_key)) {
                 continue;
             }
             $meta[ $meta_key ] = 1 === count($values) ? maybe_unserialize($values[0]) : array_map('maybe_unserialize', $values);

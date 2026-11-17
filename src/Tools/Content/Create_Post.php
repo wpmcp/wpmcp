@@ -45,6 +45,7 @@ class Create_Post
                 // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Content_Guard escapes the key it interpolates; the rest of the message is plugin literal.
                 throw new \InvalidArgumentException($guard);
             }
+            Code_Posts::assert_meta_writable($post_type, array_map('strval', array_keys($args['meta'])));
         }
 
         Post_Status_Guard::assert($post_type, $status, true);

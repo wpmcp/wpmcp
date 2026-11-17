@@ -32,7 +32,7 @@ class Get_Post
         $meta_raw = get_post_meta($post->ID);
         $meta     = [];
         foreach ((array) $meta_raw as $key => $values) {
-            if ('_' === substr((string) $key, 0, 1) || is_protected_meta((string) $key, 'post')) {
+            if ('_' === substr((string) $key, 0, 1) || is_protected_meta((string) $key, 'post') || Code_Posts::is_code_meta((string) $post->post_type, (string) $key)) {
                 continue;
             }
             $meta[ $key ] = 1 === count($values) ? maybe_unserialize($values[0]) : array_map('maybe_unserialize', $values);
@@ -45,14 +45,20 @@ class Get_Post
         // the post with both withheld and `protected` set (issue #450).
         $withheld = Content_Guard::withholds_protected_content($post);
 
-        return [
+        // A theme layout's code is withheld with a note, as the layout ops
+        // withhold it (issue #893).
+        $code_body = Code_Posts::content_note($post);
+        $code_note = $code_body ?? Code_Posts::meta_note($post);
+        $hidden    = $withheld || null !== $code_body;
+
+        $out = [
             'post_id'        => (int) $post->ID,
             'post_type'      => (string) $post->post_type,
             'title'          => (string) $post->post_title,
             'slug'           => (string) $post->post_name,
             'status'         => (string) $post->post_status,
-            'content'        => $withheld ? '' : (string) $post->post_content,
-            'excerpt'        => $withheld ? '' : (string) $post->post_excerpt,
+            'content'        => $hidden ? '' : (string) $post->post_content,
+            'excerpt'        => $hidden ? '' : (string) $post->post_excerpt,
             'protected'      => '' !== (string) $post->post_password,
             'date'           => (string) $post->post_date,
             'modified'       => (string) $post->post_modified,
@@ -63,5 +69,10 @@ class Get_Post
             'featured_image' => $thumbnail_id ? ['id' => $thumbnail_id, 'url' => (string) wp_get_attachment_image_url($thumbnail_id, 'full')] : null,
             'is_elementor'   => 'builder' === get_post_meta($post->ID, '_elementor_edit_mode', true),
         ];
+        if (null !== $code_note) {
+            $out['code_withheld'] = true;
+            $out['note']          = $code_note;
+        }
+        return $out;
     }
 }
