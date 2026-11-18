@@ -37,6 +37,10 @@ if (! defined('ABSPATH')) {
  *    counts and masked visitor IPs, and created, changed and trashed (off
  *    until wpmcp_enable_pretty_links_write or
  *    wpmcp_enable_thirstyaffiliates_write), each write undoable.
+ *  - Issue #688 adds the Advanced Ads ops (Advanced_Ads_Pack): ads and
+ *    placements listed and read, ads created as drafts, changed, enabled
+ *    and disabled, and placements pointed at an ad or group (off until
+ *    wpmcp_enable_advanced_ads_write), each write under a post snapshot.
  *  - Issue #687 adds the Site Reviews ops (Site_Reviews_Pack): reviews
  *    listed (reviewer emails and IPs masked), read one at a time and
  *    summarised, and approved, unapproved, trashed or replied to (off until
@@ -124,7 +128,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Site_Reviews_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || EDD_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || EDD_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
@@ -144,7 +148,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans, Easy Digital Downloads stores'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans, Easy Digital Downloads stores'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
@@ -175,6 +179,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'WP Mail Logging, Check and Log Email, Email Log', true, Email_Log_Pack::operations() ],
             [ 'Pretty Links', false, Pretty_Links_Pack::operations() ],
             [ 'ThirstyAffiliates', false, Thirsty_Affiliates_Pack::operations() ],
+            [ 'Advanced Ads', false, Advanced_Ads_Pack::operations() ],
             [ 'Site Reviews', false, Site_Reviews_Pack::operations() ],
             [ 'WP Simple Pay', false, Simple_Pay_Pack::operations() ],
             [ 'Paid Member Subscriptions', false, Paid_Member_Subscriptions_Pack::operations() ],
@@ -223,6 +228,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Email_Log_Pack::operations(),
             Pretty_Links_Pack::operations(),
             Thirsty_Affiliates_Pack::operations(),
+            Advanced_Ads_Pack::operations(),
             Site_Reviews_Pack::operations(),
             Simple_Pay_Pack::operations(),
             Paid_Member_Subscriptions_Pack::operations(),
