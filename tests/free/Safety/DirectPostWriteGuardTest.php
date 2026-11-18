@@ -37,6 +37,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new Avada library post from a page element (issue #637); every field is new.',
         ],
+        'Integrations/Thrive_Ultimatum_Pack.php'      => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new Thrive Ultimatum campaign post (issue #828); every field is new. Its other writes are metas and the plugin\'s own tables.',
+        ],
         'Integrations/Theme_Layouts_Pack.php'         => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new theme add-on layout post (issue #656); every field is new. Updates go through Save_Filters.',

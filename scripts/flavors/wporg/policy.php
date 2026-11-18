@@ -263,6 +263,12 @@ return [
         // only. strip.php takes out the lines in Plugin_Data_Integration that
         // merge the ops and count the pack towards availability.
         'src/Integrations/Offload_Media_Pack.php',
+        // Thrive Ultimatum countdown campaigns (issue #828), paid-tier.
+        // strip.php takes out the lines in Plugin_Data_Integration that merge
+        // the ops, count the pack towards availability and name it. The
+        // tve_ult plugin_table_rows kinds stay: they act on the plugin's own
+        // tables and need no Thrive class.
+        'src/Integrations/Thrive_Ultimatum_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

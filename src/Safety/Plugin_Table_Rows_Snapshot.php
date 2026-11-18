@@ -56,6 +56,13 @@ if (! defined('ABSPATH')) {
  * "links") are keyed by their own id. A create reserves its id before the
  * snapshot, so the restore removes the row the write inserted.
  *
+ * Thrive Ultimatum (issue #828) keeps a campaign's timeline
+ * (`tve_ult_events`, kind tve_ult_events, suffix "events") and its display
+ * settings (`tve_ult_settings_campaign`, kind tve_ult_display, suffix
+ * "settings_campaign") in tables of its own, keyed here by the campaign they
+ * belong to (`campaign_id`), so a snapshot taken before a write covers the
+ * rows it inserts and the ones it deletes. Restoring takes manage_options.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
  * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
@@ -72,6 +79,8 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'mepr_rule_access_',
         'rank_math'        => 'rank_math_',
         'prli'             => 'prli_',
+        'tve_ult_events'   => 'tve_ult_',
+        'tve_ult_display'  => 'tve_ult_',
     ];
 
     /**
@@ -87,6 +96,8 @@ final class Plugin_Table_Rows_Snapshot
     private const KEY_COLUMNS = [
         'mepr_rule_access' => 'rule_id',
         'wordfence_blocks' => 'IP',
+        'tve_ult_events'   => 'campaign_id',
+        'tve_ult_display'  => 'campaign_id',
     ];
 
     /** kind => the only suffixes it allows, for a kind with a fixed table. */
@@ -94,6 +105,8 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => [ 'conditions' ],
         'rank_math'        => [ 'redirections' ],
         'prli'             => [ 'links' ],
+        'tve_ult_events'   => [ 'events' ],
+        'tve_ult_display'  => [ 'settings_campaign' ],
     ];
 
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
@@ -456,6 +469,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('trp_dictionary' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring TranslatePress translations requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('tve_ult_events' === $kind || 'tve_ult_display' === $kind) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring a Thrive Ultimatum campaign\'s ' . ('tve_ult_events' === $kind ? 'timeline' : 'display rules') . ' requires the manage_options capability.');
             }
             return;
         }
