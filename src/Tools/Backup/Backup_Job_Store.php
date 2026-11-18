@@ -43,6 +43,11 @@ if (! defined('ABSPATH')) {
  * every catch block), it is marked failed with the last progress in the
  * reason, and its partial archive is removed. Jobs without progress (the WXR
  * export, records written by older versions) keep the long limit.
+ *
+ * A restore job (issue #860) is also marked failed as soon as its run is
+ * known to have stopped (Restore_Site_Backup::stopped_run()): a restore
+ * that died mid-import, or one whose run lock is gone, would otherwise
+ * block the very restore that puts the site back.
  */
 class Backup_Job_Store
 {
@@ -178,7 +183,28 @@ class Backup_Job_Store
 
     private static function is_stale(array $job, int $now): bool
     {
-        return 'running' === ($job['status'] ?? '') && $now - (int) ($job['updated_at'] ?? 0) > self::stale_after($job);
+        if ('running' !== ($job['status'] ?? '')) {
+            return false;
+        }
+
+        return $now - (int) ($job['updated_at'] ?? 0) > self::stale_after($job)
+            || null !== self::stopped_restore($job);
+    }
+
+    /**
+     * The fields of a restore job whose run has stopped (issue #860), or
+     * null for any other job: Restore_Site_Backup decides from its locks
+     * and progress file, which outlive the options table it replaces.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function stopped_restore(array $job): ?array
+    {
+        if (Restore_Site_Backup::JOB_TYPE !== ($job['type'] ?? null)) {
+            return null;
+        }
+
+        return Restore_Site_Backup::stopped_run($job);
     }
 
     /**
@@ -208,12 +234,11 @@ class Backup_Job_Store
                 if (! is_array($job) || ! self::is_stale($job, $now)) {
                     continue;
                 }
-                $stored['jobs'][ $id ] = array_merge($job, [
-                    'status'     => 'failed',
-                    'error'      => self::stale_error($job, $now),
-                    'updated_at' => $now,
-                ]);
-                $failed[] = $job;
+                $stored['jobs'][ $id ] = array_merge($job, self::stopped_restore($job) ?? [
+                    'status' => 'failed',
+                    'error'  => self::stale_error($job, $now),
+                ], ['updated_at' => $now]);
+                $failed[]              = $job;
             }
             if ([] !== $failed) {
                 self::save($stored);

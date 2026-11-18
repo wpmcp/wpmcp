@@ -34,6 +34,12 @@ if (! defined('ABSPATH')) {
  * record is written back here in full (Backup_Job_Store::put), always, so
  * the outcome is not lost. While the import runs, get-backup-status reads the restore's
  * progress file instead (Restore_Site_Backup::progress()).
+ *
+ * The run holds a MySQL named lock of its own for as long as it lasts (issue
+ * #860) and marks the record with run_lock. The server drops that lock with
+ * the process, so a record still "running" while its lock is free is a run
+ * that stopped (or a record brought back by a restored database), and
+ * Backup_Job_Store marks it failed rather than let it block later restores.
  */
 class Run_Restore_Job
 {
@@ -72,14 +78,72 @@ class Run_Restore_Job
             return;
         }
 
+        // Held for the whole run (issue #860): a MySQL named lock goes with
+        // the process, so a running record whose lock is free belongs to a
+        // run that stopped, and Backup_Job_Store marks it failed instead of
+        // letting it block every later restore. Without GET_LOCK the run
+        // goes ahead unmarked, as before.
+        $run_lock = self::take_lock($job_id);
+
         $claimed = Backup_Job_Store::transition($job_id, 'queued', [
             'status'     => 'running',
             'started_at' => gmdate('c'),
-        ]);
+        ] + ($run_lock ? ['run_lock' => true] : []));
         if (null === $claimed) {
+            if ($run_lock) {
+                self::release_lock($job_id);
+            }
             return;
         }
 
+        try {
+            $this->run($job_id, $job, $claimed, $owner);
+        } finally {
+            if ($run_lock) {
+                self::release_lock($job_id);
+            }
+        }
+    }
+
+    /**
+     * The run lock of one restore job, per install: GET_LOCK names are
+     * server-wide. Public so the job store and tests can look at it.
+     */
+    public static function lock_name(int $job_id): string
+    {
+        global $wpdb;
+
+        return 'wpmcp_rrun_' . substr(md5((defined('DB_NAME') ? DB_NAME : '') . '|' . $wpdb->base_prefix), 0, 16) . '_' . $job_id;
+    }
+
+    /** Whether the run of $job_id is alive, judged by its run lock. */
+    public static function run_is_alive(int $job_id): bool
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MySQL named lock; no API exists.
+        return '1' !== (string) $wpdb->get_var($wpdb->prepare('SELECT IS_FREE_LOCK(%s)', self::lock_name($job_id)));
+    }
+
+    private static function take_lock(int $job_id): bool
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MySQL named lock; no API exists.
+        return '1' === (string) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 0)', self::lock_name($job_id)));
+    }
+
+    private static function release_lock(int $job_id): void
+    {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MySQL named lock; no API exists.
+        $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', self::lock_name($job_id)));
+    }
+
+    /** Run a claimed restore job and record its outcome. */
+    private function run(int $job_id, array $job, array $claimed, int $owner): void
+    {
         $previous_user = get_current_user_id();
         wp_set_current_user($owner);
 
