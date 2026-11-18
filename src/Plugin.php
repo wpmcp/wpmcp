@@ -900,6 +900,10 @@ final class Plugin
             // `wp wpmcp gateway-revoke` kill switch. src/Gateway ships on every
             // flavor, so this is unconditional.
             \WPMCP\Gateway\Gateway_Guard::register();
+            // The hardening settings set-hardening switches on (issue #847):
+            // WP MCP's own hooks, each a no-op until its setting is on.
+            // src/Tools/Security ships on every flavor.
+            \WPMCP\Tools\Security\Hardening_Settings::register();
             // OAuth access levels (issue #454): a connection approved as
             // read-only runs read abilities only, and one bound to a scoped
             // identity acts as it. The consent screen is where the approving

@@ -86,6 +86,7 @@ final class Opt_In_Settings
             'wpmcp_enable_advanced_ads_write'      => [ 'owner' => $i . 'Advanced_Ads_Pack.php', 'destructive' => false ],
             'wpmcp_enable_image_optimizer_write'   => [ 'owner' => $i . 'Image_Optimizer_Pack.php', 'destructive' => true ],
             'wpmcp_enable_search_write'            => [ 'owner' => $i . 'Search_Plugin_Support.php', 'destructive' => false ],
+            'wpmcp_enable_hardening_write'         => [ 'owner' => $i . 'Hardening_Pack.php', 'destructive' => false ],
         ];
     }
 
@@ -127,6 +128,7 @@ final class Opt_In_Settings
             'wpmcp_enable_advanced_ads_write'      => __('Advanced Ads: writes', 'wpmcp'),
             'wpmcp_enable_image_optimizer_write'   => __('Image optimization plugins: optimize an image', 'wpmcp'),
             'wpmcp_enable_search_write'            => __('Search plugins (Relevanssi, FiboSearch): settings writes', 'wpmcp'),
+            'wpmcp_enable_hardening_write'         => __('Security hardening settings: writes', 'wpmcp'),
         ];
     }
 
