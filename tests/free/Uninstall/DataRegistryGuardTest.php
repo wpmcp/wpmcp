@@ -93,6 +93,12 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // Post SMTP's settings, whose from address and name the
             // set-post-smtp-from op changes (issue #696).
             'postman_options',
+            // FiboSearch's settings, changed by update-fibosearch-settings
+            // on the theme pair (issue #700).
+            'dgwt_wcas_settings',
+            // Relevanssi's own settings, one option per name, changed by
+            // update-relevanssi-settings on the theme pair (issue #700).
+            'relevanssi_*',
         ],
         'transient'      => [
             'scrape_key_*',
