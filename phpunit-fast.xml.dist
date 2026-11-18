@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<!--
+  The fast tier: test classes that pass with no WordPress and no database
+  (tests/bootstrap-fast.php), run first by the parallel gate under paratest,
+  one process per class:
+    vendor/bin/paratest -c phpunit-fast.xml.dist
+  A class lands here only when it passes alone without WordPress. Those
+  under 3 seconds form the "fast" suite, which fails the gate fast; the
+  slower ones (build, compliance and gate checks) form "heavy". The
+  parallel gate runs both once instead of in every suite leg, since without
+  WordPress they cannot differ between legs; a serial run keeps running
+  them in the full suite.
+-->
+<phpunit bootstrap="tests/bootstrap-fast.php" colors="true" cacheResult="false">
+  <testsuites>
+    <testsuite name="fast">
+      <file>tests/free/Auth/PkceTest.php</file>
+      <file>tests/free/Auth/ProtectedResourceMetadataTest.php</file>
+      <file>tests/free/Cli/WpCliExecutorKillTest.php</file>
+      <file>tests/free/Code/PhpSnippetRunnerTest.php</file>
+      <file>tests/free/Code/PhpSnippetValidatorTest.php</file>
+      <file>tests/free/Code/ValidatePhpSnippetTest.php</file>
+      <file>tests/free/Compliance/CliTest.php</file>
+      <file>tests/free/Compliance/CodeRulesTest.php</file>
+      <file>tests/free/Compliance/EdgeCasesTest.php</file>
+      <file>tests/free/Compliance/EngineTest.php</file>
+      <file>tests/free/Compliance/ExecGateTest.php</file>
+      <file>tests/free/Compliance/LicensingRulesTest.php</file>
+      <file>tests/free/Compliance/ListingRulesTest.php</file>
+      <file>tests/free/Compliance/NetworkRulesTest.php</file>
+      <file>tests/free/Compliance/PackagingRulesTest.php</file>
+      <file>tests/free/Compliance/PatternDirectoryDisclosureTest.php</file>
+      <file>tests/free/Compliance/SecurityRulesTest.php</file>
+      <file>tests/free/Compliance/SeoDataDisclosureTest.php</file>
+      <file>tests/free/Compliance/ShippedGuardRegressionTest.php</file>
+      <file>tests/free/Compliance/ShippedReadmeDisclosureTest.php</file>
+      <file>tests/free/Compliance/SpectraLibraryDisclosureTest.php</file>
+      <file>tests/free/Compliance/UpdaterGateTest.php</file>
+      <file>tests/free/Cron/CronHookRegistryTest.php</file>
+      <file>tests/free/Diagnostics/GetDebugConfigTest.php</file>
+      <file>tests/free/I18n/ListLanguagesTest.php</file>
+      <file>tests/free/Lint/PhpcsBaselineTest.php</file>
+      <file>tests/free/MCP/AbilityAnnotationsTest.php</file>
+      <file>tests/free/Performance/FindingTest.php</file>
+      <file>tests/free/Platform/AbilityDriftGuardTest.php</file>
+      <file>tests/free/Platform/WporgStripTest.php</file>
+      <file>tests/free/PluginBootstrapTest.php</file>
+      <file>tests/free/Privacy/MaskingTest.php</file>
+      <file>tests/free/Proxy/ProxyGatewayRoutingTest.php</file>
+      <file>tests/free/Proxy/ProxyProtocolTest.php</file>
+      <file>tests/free/Proxy/ProxySiteResolutionTest.php</file>
+      <file>tests/free/Release/TestGateTest.php</file>
+      <file>tests/free/Safety/AnyStatusQueryGuardTest.php</file>
+      <file>tests/free/Safety/DirectPostWriteGuardTest.php</file>
+      <file>tests/free/Security/MalwareAuditHelpersTest.php</file>
+      <file>tests/free/Security/MalwareAuditScanCodeTest.php</file>
+      <file>tests/free/Security/SecurityFindingTest.php</file>
+      <file>tests/free/Security/SecurityScannerScanTest.php</file>
+      <file>tests/free/Security/SecurityScannerTest.php</file>
+      <file>tests/free/Security/SoftwareAuditTest.php</file>
+      <file>tests/pro/Analysis/A11yAnalyzerTest.php</file>
+      <file>tests/pro/Analysis/ColorContrastTest.php</file>
+      <file>tests/pro/Analysis/ContrastSuggesterTest.php</file>
+      <file>tests/pro/Analysis/SeoAnalyzerTest.php</file>
+      <file>tests/pro/Integrations/TablePressStubsTest.php</file>
+    </testsuite>
+    <testsuite name="heavy">
+      <file>tests/free/Compliance/FlavorBuildBlockersTest.php</file>
+      <file>tests/free/Compliance/RunnerIntegrationTest.php</file>
+      <file>tests/free/Release/FlavorClassGuardTest.php</file>
+      <file>tests/free/Release/TestCacheHygieneTest.php</file>
+      <file>tests/free/Release/TestDownloadCacheTest.php</file>
+      <file>tests/free/Release/TestPluginRefreshTest.php</file>
+      <file>tests/free/WporgStripTest.php</file>
+    </testsuite>
+  </testsuites>
+  <php>
+    <const name="WPMCP_TESTING" value="true"/>
+  </php>
+</phpunit>

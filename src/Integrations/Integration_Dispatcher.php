@@ -510,6 +510,26 @@ abstract class Integration_Dispatcher
         }
 
         if (! $this->is_available()) {
+            // Issue #980: an op that knows which plugin it needs names it
+            // (plugin_missing or plugin_inactive with the plugins link), the
+            // answer it gives while another of the pair's plugins is active.
+            // The capability checks come first, so a caller who could not
+            // run the op learns no plugin name.
+            $known = $this->channel_operations($channel)[ $op ] ?? null;
+            if (is_array($known) && isset($known['requires'])) {
+                $denied = $this->capability_refusal($op, $known);
+                if (null !== $denied) {
+                    return $denied;
+                }
+                $requirement = self::op_requirement($known);
+                if (true !== $requirement) {
+                    return $this->error(
+                        (string) ($requirement['code'] ?? 'dependency_unavailable'),
+                        (string) ($requirement['message'] ?? sprintf('Operation "%s" is missing a dependency.', $op)),
+                        (array) ($requirement['data'] ?? []) + [ 'operation' => $op ]
+                    );
+                }
+            }
             return $this->error('integration_unavailable', sprintf(
                 'The %s integration is not available: its host plugin is not active on this site.',
                 $this->integration()
@@ -538,25 +558,9 @@ abstract class Integration_Dispatcher
             ), [ 'reason' => 'governance' ]);
         }
 
-        // A pair whose abilities take a lower floor than capability()
-        // (pair_capability()) still holds every op to capability() unless
-        // the op's own capability replaces it ('own_capability').
-        $base = $this->capability();
-        if ($base !== $this->pair_capability() && empty($def['own_capability']) && ! current_user_can($base)) {
-            return $this->error('operation_denied', sprintf(
-                'Operation "%s" requires the "%s" capability.',
-                $op,
-                $base
-            ), [ 'reason' => 'capability' ]);
-        }
-
-        $capability = $def['capability'] ?? null;
-        if (null !== $capability && ! current_user_can($capability)) {
-            return $this->error('operation_denied', sprintf(
-                'Operation "%s" requires the "%s" capability.',
-                $op,
-                $capability
-            ), [ 'reason' => 'capability' ]);
+        $denied = $this->capability_refusal($op, $def);
+        if (null !== $denied) {
+            return $denied;
         }
 
         $requirement = self::op_requirement($def);
@@ -790,6 +794,36 @@ abstract class Integration_Dispatcher
     private function op_capability(array $def): string
     {
         return (string) ($def['capability'] ?? $this->capability());
+    }
+
+    /**
+     * The operation_denied refusal when the caller lacks the pair's floor or
+     * the op's own capability, otherwise null.
+     */
+    private function capability_refusal(string $op, array $def): ?array
+    {
+        // A pair whose abilities take a lower floor than capability()
+        // (pair_capability()) still holds every op to capability() unless
+        // the op's own capability replaces it ('own_capability').
+        $base = $this->capability();
+        if ($base !== $this->pair_capability() && empty($def['own_capability']) && ! current_user_can($base)) {
+            return $this->error('operation_denied', sprintf(
+                'Operation "%s" requires the "%s" capability.',
+                $op,
+                $base
+            ), [ 'reason' => 'capability' ]);
+        }
+
+        $capability = $def['capability'] ?? null;
+        if (null !== $capability && ! current_user_can($capability)) {
+            return $this->error('operation_denied', sprintf(
+                'Operation "%s" requires the "%s" capability.',
+                $op,
+                $capability
+            ), [ 'reason' => 'capability' ]);
+        }
+
+        return null;
     }
 
     /**
