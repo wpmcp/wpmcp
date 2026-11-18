@@ -130,7 +130,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
@@ -148,12 +148,12 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
     public function operation_hosts(): array
     {
         $groups = [
-            [ 'bbPress', false, BbPress_Pack::operations() ],
+            [ 'bbPress, BuddyBoss Platform', true, BbPress_Pack::operations() ],
             [ 'JetEngine', false, JetEngine_Pack::operations() ],
             [ 'Pods', false, Pods_Pack::operations() ],
             [ 'TranslatePress', false, TranslatePress_Pack::operations() ],
             [ 'Code Snippets', false, Code_Snippets_Pack::operations() ],
-            [ 'BuddyPress', false, BuddyPress_Pack::operations() ],
+            [ 'BuddyPress, BuddyBoss Platform', true, BuddyPress_Pack::operations() ],
             [ 'WS Form', false, WS_Form_Pack::operations() ],
             [ 'WP Activity Log, Simple History', true, Activity_Log_Pack::operations() ],
             [ 'Action Scheduler', false, Action_Scheduler_Pack::operations() ],

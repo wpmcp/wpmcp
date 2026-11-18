@@ -48,6 +48,7 @@ final class Plugin_Refusal
         'Code Snippets'    => [ 'file' => 'code-snippets/code-snippets.php', 'slug' => 'code-snippets' ],
         'bbPress'          => [ 'file' => 'bbpress/bbpress.php', 'slug' => 'bbpress' ],
         'BuddyPress'       => [ 'file' => 'buddypress/bp-loader.php', 'slug' => 'buddypress' ],
+        'BuddyBoss Platform' => [ 'file' => 'buddyboss-platform/bp-loader.php', 'url' => 'https://www.buddyboss.com/platform/' ],
         'JetEngine'        => [ 'file' => 'jet-engine/jet-engine.php', 'url' => 'https://crocoblock.com/plugins/jetengine/' ],
         'Pods'             => [ 'file' => 'pods/init.php', 'slug' => 'pods' ],
         'TranslatePress'   => [ 'file' => 'translatepress-multilingual/index.php', 'slug' => 'translatepress-multilingual' ],
