@@ -63,6 +63,10 @@ final class Plugin_Refusal
         'Weglot'           => [ 'file' => 'weglot/weglot.php', 'slug' => 'weglot' ],
         'GTranslate'       => [ 'file' => 'gtranslate/gtranslate.php', 'slug' => 'gtranslate' ],
         'SureCart'         => [ 'file' => 'surecart/surecart.php', 'slug' => 'surecart' ],
+        'Smush'            => [ 'file' => 'wp-smushit/wp-smush.php', 'slug' => 'wp-smushit' ],
+        'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
+        'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
+        'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
