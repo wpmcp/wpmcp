@@ -44,6 +44,8 @@ class PluginDataIntegrationTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Snapshot_Store::install();
+        // Start from an empty undo history, whatever an earlier test left (issue #963).
+        $GLOBALS['wpdb']->query('DELETE FROM ' . Snapshot_Store::table_name());
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
         foreach (self::ACTIVE_FILTERS as $filter) {
             add_filter($filter, '__return_true');

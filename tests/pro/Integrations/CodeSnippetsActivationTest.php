@@ -41,6 +41,8 @@ class CodeSnippetsActivationTest extends \WP_UnitTestCase
             $this->markTestSkipped('The real Code Snippets is loaded; see CodeSnippetsLiveTest.');
         }
         Snapshot_Store::install();
+        // Start from an empty undo history, whatever an earlier test left (issue #963).
+        $GLOBALS['wpdb']->query('DELETE FROM ' . Snapshot_Store::table_name());
         delete_option(Governance_Audit_Log::OPTION);
         Gate::set_pro_for_tests(true);
         $admin = self::factory()->user->create([ 'role' => 'administrator' ]);
