@@ -82,6 +82,7 @@ final class Opt_In_Settings
             'wpmcp_enable_thirstyaffiliates_write' => [ 'owner' => $i . 'Thirsty_Affiliates_Pack.php', 'destructive' => false ],
             'wpmcp_enable_site_reviews_write'      => [ 'owner' => $i . 'Site_Reviews_Pack.php', 'destructive' => false ],
             'wpmcp_enable_translation_settings_write' => [ 'owner' => $i . 'Translation_Settings_Pack.php', 'destructive' => false ],
+            'wpmcp_enable_cartflows_write'         => [ 'owner' => $i . 'CartFlows_Pack.php', 'destructive' => false ],
         ];
     }
 
@@ -119,6 +120,7 @@ final class Opt_In_Settings
             'wpmcp_enable_thirstyaffiliates_write' => __('ThirstyAffiliates: writes', 'wpmcp'),
             'wpmcp_enable_site_reviews_write'      => __('Site Reviews: writes', 'wpmcp'),
             'wpmcp_enable_translation_settings_write' => __('GTranslate: language settings writes', 'wpmcp'),
+            'wpmcp_enable_cartflows_write'         => __('CartFlows: flow, step and checkout product writes', 'wpmcp'),
         ];
     }
 
