@@ -57,6 +57,10 @@ final class Plugin_Refusal
         'ACF Pro'          => [ 'file' => 'advanced-custom-fields-pro/acf.php', 'url' => 'https://www.advancedcustomfields.com/pro/' ],
         'SeedProd'         => [ 'file' => 'coming-soon/coming-soon.php', 'slug' => 'coming-soon' ],
         'Under Construction' => [ 'file' => 'under-construction-page/under-construction.php', 'slug' => 'under-construction-page' ],
+        'Smush'            => [ 'file' => 'wp-smushit/wp-smush.php', 'slug' => 'wp-smushit' ],
+        'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
+        'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
+        'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
