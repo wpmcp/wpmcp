@@ -21,12 +21,35 @@ if (! defined('ABSPATH')) {
  * - The catalog comes from the loaded Divi 5: the module metadata its
  *   ModuleRegistration keeps, summarised to each module's attributes and
  *   the setting groups under them, with the module's default attributes.
+ *   Divi lists its WooCommerce, Gravity Forms, Contact Form 7 and Imagely
+ *   modules whether or not those plugins run, and they render nothing
+ *   without them, so such entries name the plugin (`requires`) and say
+ *   whether it is loaded (`available`), checked the way Divi checks it
+ *   (issue #836).
+ * - A layout with no content reads as `format: empty` rather than Divi 4:
+ *   Divi creates empty layouts for new Theme Builder templates (#836).
  */
 class Divi5_Design
 {
     public const LAYOUT_TYPES = ['et_pb_layout', 'et_header_layout', 'et_body_layout', 'et_footer_layout'];
 
     private const REGISTRATION = 'ET\\Builder\\Packages\\ModuleLibrary\\ModuleRegistration';
+
+    /** Plugin slug => the class Divi 5.18's module checks before rendering. */
+    private const PLUGIN_CLASSES = [
+        'woocommerce'     => 'WooCommerce',
+        'gravityforms'    => 'GFForms',
+        'contact-form-7'  => 'WPCF7_ContactForm',
+        'nextgen-gallery' => 'C_NextGEN_Bootstrap',
+    ];
+
+    /** Module name => required plugin slug, besides every divi/woocommerce-* module. */
+    private const MODULE_PLUGINS = [
+        'divi/shop'            => 'woocommerce',
+        'divi/gravity-forms'   => 'gravityforms',
+        'divi/contact-form-7'  => 'contact-form-7',
+        'divi/imagely-gallery' => 'nextgen-gallery',
+    ];
 
     /** @return array<string,mixed> */
     public static function templates(): array
@@ -45,7 +68,7 @@ class Divi5_Design
                 'title'  => $post->post_title,
                 'status' => $post->post_status,
                 'type'   => 'et_pb_layout' === $post->post_type ? self::library_kind((int) $post->ID) : substr($post->post_type, 3, -7),
-                'format' => Divi5_Blocks::is_divi5($content) ? 'divi5' : 'divi4',
+                'format' => self::layout_format($content),
             ];
             if ('divi5' === $layout['format']) {
                 try {
@@ -136,15 +159,38 @@ class Divi5_Design
         return is_array($metadata) ? $metadata : null;
     }
 
+    private static function layout_format(string $content): string
+    {
+        if ('' === trim($content)) {
+            return 'empty';
+        }
+
+        return Divi5_Blocks::is_divi5($content) ? 'divi5' : 'divi4';
+    }
+
     /** @return array<string,mixed> */
     private static function summary(array $module): array
     {
-        return [
-            'name'     => (string) $module['name'],
+        $name    = (string) $module['name'];
+        $summary = [
+            'name'     => $name,
             'title'    => (string) ($module['title'] ?? ''),
             'category' => (string) ($module['category'] ?? ''),
             'children' => array_values(array_filter((array) ($module['childrenName'] ?? []), 'is_string')),
         ];
+
+        $plugin = self::MODULE_PLUGINS[ $name ] ?? (0 === strpos($name, 'divi/woocommerce-') ? 'woocommerce' : null);
+        if (null !== $plugin) {
+            $summary['requires']  = $plugin;
+            $summary['available'] = self::plugin_active($plugin);
+        }
+
+        return $summary;
+    }
+
+    private static function plugin_active(string $plugin): bool
+    {
+        return (bool) apply_filters('wpmcp_divi_module_plugin_active', class_exists(self::PLUGIN_CLASSES[ $plugin ]), $plugin);
     }
 
     /**
