@@ -20,7 +20,8 @@ if (! defined('ABSPATH')) {
  *   open editor of a concurrent change are bumped the way its own class
  *   save does.
  * - Breakdance renders its selectors and global settings into CSS files
- *   only on its own saves, so they are rebuilt through the engine.
+ *   only on its own saves, so they are rebuilt through the engine; so does
+ *   Oxygen 6 with its selectors, variables and global settings (#805).
  * - Avada compiles every page's CSS from its global options
  *   (`fusion_options`, issue #637) and keeps the result until its own
  *   options save resets it, so that reset is done here (Avada_Cache).
@@ -34,6 +35,8 @@ final class Builder_Design_Refresh
     private const BRICKS_STYLE_MANAGER = ['bricks_color_palette', 'bricks_global_variables'];
 
     private const BREAKDANCE_GLOBAL = ['breakdance_breakdance_classes_json_string', 'breakdance_global_settings_json_string'];
+
+    private const OXYGEN_GLOBAL = ['oxygen_oxy_selectors_json_string', 'oxygen_variables_json_string', 'oxygen_global_settings_json_string'];
 
     private const AVADA_OPTIONS = 'fusion_options';
 
@@ -50,7 +53,11 @@ final class Builder_Design_Refresh
         }
 
         if ([] !== array_intersect(self::BREAKDANCE_GLOBAL, $names)) {
-            self::breakdance_global();
+            self::breakdance_global('breakdance');
+        }
+
+        if ([] !== array_intersect(self::OXYGEN_GLOBAL, $names)) {
+            self::breakdance_global('oxygen');
         }
 
         if (in_array(self::AVADA_OPTIONS, $names, true)) {
@@ -75,9 +82,9 @@ final class Builder_Design_Refresh
         }
     }
 
-    private static function breakdance_global(): void
+    private static function breakdance_global(string $builder): void
     {
-        if (! Breakdance_Cache::plugin_active('breakdance') || ! function_exists('Breakdance\\Render\\generateCacheForGlobalSettings')) {
+        if (! Breakdance_Cache::plugin_active($builder) || ! function_exists('Breakdance\\Render\\generateCacheForGlobalSettings')) {
             return;
         }
 

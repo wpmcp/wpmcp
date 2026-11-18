@@ -34,8 +34,20 @@ if (! defined('ABSPATH')) {
  *   the way the engine's set_global_option() does (JSON-encoded twice).
  *   Every other global setting is left as it was.
  *
- * Not written: Breakdance variables and all Oxygen 6 design data, whose
- * storage could not be confirmed from either product's source.
+ * - Oxygen 6 (storage per its 6.1 source, issue #805): selectors
+ *   `classes/<id>` in `oxygen_oxy_selectors_json_string` and variables
+ *   `variables/<id>` in `oxygen_variables_json_string`, each a list its
+ *   savers (saveSelectors(), saveVariables()) hand set_global_option() as
+ *   an array, so it is JSON-encoded once, with empty objects as null the way
+ *   those savers leave them; palette colors `palettes/<cssVariableName>`
+ *   in `oxygen_global_settings_json_string`, stored like Breakdance's. Both
+ *   lists are keyed by id because elements reference a selector by id and
+ *   selectors a variable by {var-<id>}; a new entry gets a uuid id and the
+ *   builder's default collection, and must name a collection the builder
+ *   lists. Oxygen must be loaded (plugin_missing otherwise).
+ *
+ * Not written: Breakdance variables, whose storage could not be confirmed
+ * from its source.
  *
  * Global design data styles every page, so writing it (and undoing a
  * write) takes edit_theme_options, the capability core gates site-wide
@@ -56,7 +68,21 @@ final class Builder_Design_Write
             'classes'  => 'breakdance_breakdance_classes_json_string',
             'palettes' => 'breakdance_global_settings_json_string',
         ],
+        'oxygen'     => [
+            'classes'   => 'oxygen_oxy_selectors_json_string',
+            'variables' => 'oxygen_variables_json_string',
+            'palettes'  => 'oxygen_global_settings_json_string',
+        ],
     ];
+
+    /** Where Oxygen keeps the collection names its builder groups each list by. */
+    private const OXYGEN_COLLECTIONS = [
+        'classes'   => 'oxygen_oxy_selectors_collections_json_string',
+        'variables' => 'oxygen_variables_collections_json_string',
+    ];
+
+    /** The collection Oxygen's builder files a new entry under when none is chosen. */
+    private const OXYGEN_DEFAULT_COLLECTION = 'Default';
 
     /** Error codes, by the code of the \InvalidArgumentException apply() throws. */
     private const ERRORS = [
@@ -79,8 +105,15 @@ final class Builder_Design_Write
         if (! isset(self::OPTIONS[ $builder ])) {
             return new \WP_Error(
                 'unsupported_builder',
-                "Design writes support 'bricks' and 'breakdance'; got '{$builder}'. Oxygen 6 design data is read-only."
+                "Design writes support 'bricks', 'breakdance' and 'oxygen'; got '{$builder}'."
             );
+        }
+
+        if ('oxygen' === $builder) {
+            $unavailable = Oxygen_Page::unavailable();
+            if (null !== $unavailable) {
+                return $unavailable;
+            }
         }
 
         if (! current_user_can(self::CAPABILITY)) {
@@ -118,13 +151,16 @@ final class Builder_Design_Write
             return $document;
         }
 
+        $collections = 'oxygen' === $builder && isset(self::OXYGEN_COLLECTIONS[ $list ]) ? self::oxygen_collections($list) : [];
+
         try {
-            [$document, $path] = self::apply($builder, $list, $document, $operation, $key, $sub, $args);
+            [$document, $path] = self::apply($builder, $list, $document, $operation, $key, $sub, $args, $collections);
         } catch (\InvalidArgumentException $e) {
             return new \WP_Error(self::ERRORS[ $e->getCode() ] ?? 'invalid_design_entry', $e->getMessage());
         }
 
-        $value = 'breakdance' === $builder ? Builder_Design_Data::engine_encode($document) : $document;
+        $value = self::encode($builder, $list, $document);
+        $engine = 'bricks' !== $builder;
 
         try {
             $out = Safe_Mutation::run(
@@ -136,8 +172,8 @@ final class Builder_Design_Write
                     'args'                => $args,
                     'extra_snapshot_data' => ['restore_capability' => self::CAPABILITY],
                 ],
-                static function () use ($option, $value, $builder) {
-                    update_option($option, $value, 'breakdance' === $builder ? false : null);
+                static function () use ($option, $value, $engine) {
+                    update_option($option, $value, $engine ? false : null);
                     return get_option($option);
                 },
                 static fn ($stored) => $stored === $value
@@ -229,7 +265,7 @@ final class Builder_Design_Write
         }
         $document = $document ?? [];
 
-        $entries = 'classes' === $list ? $document : self::dig($document, self::BREAKDANCE_PALETTE);
+        $entries = 'palettes' === $list ? self::dig($document, self::BREAKDANCE_PALETTE) : $document;
         if (null !== $entries && (! is_array($entries) || ! self::is_list($entries))) {
             return self::bad_storage($option);
         }
@@ -249,9 +285,10 @@ final class Builder_Design_Write
      * @param array<string,mixed>     $args
      * @return array{0:array<int|string,mixed>,1:?string} new document, and the entry's path
      */
-    private static function apply(string $builder, string $list, array $document, string $operation, string $key, string $sub, array $args): array
+    private static function apply(string $builder, string $list, array $document, string $operation, string $key, string $sub, array $args, array $collections = []): array
     {
-        if ('breakdance' === $builder && 'palettes' === $list) {
+        if ('bricks' !== $builder && 'palettes' === $list) {
+            // Oxygen 6 keeps its palette where Breakdance does, in the same shape.
             $colors = self::dig($document, self::BREAKDANCE_PALETTE) ?? [];
             [$colors, $id] = self::apply_list($colors, 'breakdance_color', $operation, $key, $args);
 
@@ -274,7 +311,7 @@ final class Builder_Design_Write
         }
 
         $kind = $builder . '_' . ['classes' => 'class', 'variables' => 'variable', 'palettes' => 'palette'][ $list ];
-        [$document, $id] = self::apply_list($document, $kind, $operation, $key, $args);
+        [$document, $id] = self::apply_list($document, $kind, $operation, $key, $args, $collections);
 
         return [$document, null === $id ? null : "{$list}/{$id}"];
     }
@@ -284,9 +321,10 @@ final class Builder_Design_Write
      *
      * @param array<int,mixed>    $entries
      * @param array<string,mixed> $args
+     * @param string[]            $collections the collections an Oxygen entry may name ([] when not checked)
      * @return array{0:array<int,mixed>,1:?string} new list, and the entry's key when it still exists
      */
-    private static function apply_list(array $entries, string $kind, string $operation, string $key, array $args): array
+    private static function apply_list(array $entries, string $kind, string $operation, string $key, array $args, array $collections = []): array
     {
         $field = self::key_field($kind);
 
@@ -295,8 +333,8 @@ final class Builder_Design_Write
             if (! is_array($entry) || ([] !== $entry && self::is_list($entry))) {
                 throw new \InvalidArgumentException(esc_html('add needs element: the entry as an object.'), 1);
             }
-            $entry     = self::complete($kind, $entry, $entries);
-            self::validate($kind, $entry, $entries);
+            $entry     = self::complete($kind, $entry, $entries, $collections);
+            self::validate($kind, $entry, $entries, $collections);
             $entries[] = $entry;
 
             return [$entries, (string) $entry[ $field ]];
@@ -318,6 +356,10 @@ final class Builder_Design_Write
             throw new \InvalidArgumentException(esc_html('update needs attrs: the fields to merge (null removes one).'), 3);
         }
         $entry = is_array($entries[ $index ]) ? $entries[ $index ] : [];
+        if ('oxygen_class' === $kind || 'oxygen_variable' === $kind) {
+            // Only what the caller sends is normalized; the rest of the entry stays as stored.
+            $attrs = array_intersect_key(self::oxygen_entry($attrs), $attrs);
+        }
         foreach ($attrs as $name => $value) {
             if (null === $value) {
                 unset($entry[ $name ]);
@@ -331,7 +373,7 @@ final class Builder_Design_Write
         }
         $others = $entries;
         unset($others[ $index ]);
-        self::validate($kind, $entry, $others);
+        self::validate($kind, $entry, $others, $collections);
         $entries[ $index ] = $entry;
 
         return [$entries, (string) $entry[ $field ]];
@@ -352,10 +394,27 @@ final class Builder_Design_Write
      *
      * @param array<string,mixed> $entry
      * @param array<int,mixed>    $siblings
+     * @param string[]            $collections
      * @return array<string,mixed>
      */
-    private static function complete(string $kind, array $entry, array $siblings): array
+    private static function complete(string $kind, array $entry, array $siblings, array $collections = []): array
     {
+        if ('oxygen_class' === $kind || 'oxygen_variable' === $kind) {
+            // The way Oxygen's builder makes a new entry: a uuid id, and for
+            // a variable a CSS name slugged from its label.
+            if (! isset($entry['id'])) {
+                $entry = ['id' => wp_generate_uuid4()] + $entry;
+            }
+            if ('oxygen_variable' === $kind && ! isset($entry['cssVariableName']) && is_string($entry['label'] ?? null)) {
+                $entry['cssVariableName'] = sanitize_title($entry['label']);
+            }
+            $entry += ['collection' => $collections[0] ?? self::first_collection($siblings)];
+
+            $entry = 'oxygen_class' === $kind ? $entry + ['type' => 'class', 'properties' => [], 'children' => []] : $entry;
+
+            return self::oxygen_entry($entry);
+        }
+
         if ('breakdance_class' === $kind) {
             return $entry + ['type' => 'class', 'properties' => []];
         }
@@ -399,12 +458,21 @@ final class Builder_Design_Write
      *
      * @param array<string,mixed> $entry
      * @param array<int,mixed>    $others the list's other entries
+     * @param string[]            $collections the collections an Oxygen entry may name ([] when not checked)
      */
-    private static function validate(string $kind, array $entry, array $others): void
+    private static function validate(string $kind, array $entry, array $others, array $collections = []): void
     {
         $problem = self::problem($kind, $entry);
+        if (null === $problem && [] !== $collections && ! in_array($entry['collection'], $collections, true)) {
+            $problem = "collection '{$entry['collection']}' is not one of the builder's collections (" . implode(', ', $collections) . ')';
+        }
         if (null === $problem) {
-            $unique = 'bricks_class' === $kind || 'bricks_variable' === $kind ? [self::key_field($kind), 'name'] : [self::key_field($kind)];
+            $unique = [
+                'bricks_class'    => ['id', 'name'],
+                'bricks_variable' => ['id', 'name'],
+                'oxygen_class'    => ['id', 'name'],
+                'oxygen_variable' => ['id', 'cssVariableName'],
+            ][ $kind ] ?? [self::key_field($kind)];
             foreach ($unique as $field) {
                 if (null !== self::find($others, $field, (string) $entry[ $field ])) {
                     $problem = "{$field} '{$entry[ $field ]}' is already taken in that list";
@@ -490,6 +558,44 @@ final class Builder_Design_Write
                 }
                 return self::object_field($entry, 'properties');
 
+            case 'oxygen_class':
+                $type = $entry['type'] ?? null;
+                if (! in_array($type, ['class', 'custom'], true)) {
+                    return "type must be 'class' or 'custom'";
+                }
+                $name = $entry['name'] ?? null;
+                if ('class' === $type ? ! self::class_name($name) : (! is_string($name) || '' === trim($name))) {
+                    return 'class' === $type ? 'name must be a class name without spaces or a leading dot' : 'name must be a non-empty selector';
+                }
+                if (null !== ($entry['properties'] ?? null) && null !== self::object_field($entry, 'properties')) {
+                    return 'properties must be an object';
+                }
+                $children = $entry['children'] ?? [];
+                if (! is_array($children) || ! self::is_list($children)) {
+                    return 'children must be a list of nested selectors';
+                }
+                foreach ($children as $child) {
+                    if (! is_array($child) || ! is_string($child['id'] ?? null) || '' === $child['id'] || ! is_string($child['name'] ?? null)) {
+                        return 'every child needs a string id and name';
+                    }
+                }
+                return self::collection_field($entry);
+
+            case 'oxygen_variable':
+                if (! is_string($entry['cssVariableName'] ?? null) || ! preg_match($token, $entry['cssVariableName'])) {
+                    return 'cssVariableName must be a non-empty string of letters, digits, _ or - (give a label to derive it)';
+                }
+                if (! is_string($entry['label'] ?? null) || '' === trim($entry['label'])) {
+                    return 'label must be a non-empty string';
+                }
+                if (! is_string($entry['type'] ?? null) || '' === $entry['type']) {
+                    return "type must be a non-empty string, such as 'color', 'unit', 'font_family' or 'image_url'";
+                }
+                if (! array_key_exists('value', $entry)) {
+                    return 'value is required';
+                }
+                return self::collection_field($entry);
+
             case 'breakdance_color':
                 $problem = self::string_fields($entry, ['label']);
                 if (null !== $problem) {
@@ -503,6 +609,104 @@ final class Builder_Design_Write
         }
 
         return 'unknown entry kind';
+    }
+
+    /** @param array<string,mixed> $entry */
+    private static function collection_field(array $entry): ?string
+    {
+        return is_string($entry['collection'] ?? null) && '' !== trim($entry['collection']) ? null : 'collection must be a non-empty string';
+    }
+
+    /**
+     * The collections an Oxygen entry may name: the list the builder stores
+     * for its collection picker. When none is stored the builder derives it
+     * from the entries themselves, so any name is accepted ([]).
+     *
+     * @return string[]
+     */
+    private static function oxygen_collections(string $list): array
+    {
+        [$ok, $stored] = Builder_Design_Data::engine_decode(self::OXYGEN_COLLECTIONS[ $list ]);
+        if (! $ok || ! is_array($stored)) {
+            return [];
+        }
+
+        return array_values(array_filter($stored, static fn ($name) => is_string($name) && '' !== $name));
+    }
+
+    /** @param array<int,mixed> $siblings */
+    private static function first_collection(array $siblings): string
+    {
+        foreach ($siblings as $sibling) {
+            if (is_array($sibling) && is_string($sibling['collection'] ?? null) && '' !== $sibling['collection']) {
+                return $sibling['collection'];
+            }
+        }
+
+        return self::OXYGEN_DEFAULT_COLLECTION;
+    }
+
+    /**
+     * The option value for a document, stored the way the builder's own
+     * saver stores it.
+     *
+     * @param array<int|string,mixed> $document
+     * @return array<int|string,mixed>|string
+     */
+    private static function encode(string $builder, string $list, array $document)
+    {
+        if ('bricks' === $builder) {
+            return $document;
+        }
+        if ('oxygen' === $builder && 'palettes' !== $list) {
+            return (string) wp_json_encode($document);
+        }
+
+        return Builder_Design_Data::engine_encode($document);
+    }
+
+    /**
+     * Oxygen's selector and variable savers turn every empty JSON object
+     * into null before decoding, so PHP never stores one as a list; the
+     * entry (or attrs) being written has its empty properties, the empty
+     * objects within them and an empty variable value stored that way too.
+     *
+     * @param mixed $entry
+     * @return mixed
+     */
+    private static function oxygen_entry($entry)
+    {
+        if (! is_array($entry)) {
+            return $entry;
+        }
+        foreach (['properties', 'value'] as $field) {
+            if (array_key_exists($field, $entry) && is_array($entry[ $field ])) {
+                $entry[ $field ] = self::empty_objects_to_null($entry[ $field ]);
+            }
+        }
+        if (isset($entry['children']) && is_array($entry['children'])) {
+            $entry['children'] = array_map([self::class, 'oxygen_entry'], $entry['children']);
+        }
+
+        return $entry;
+    }
+
+    /**
+     * @param array<int|string,mixed> $value
+     * @return array<int|string,mixed>|null
+     */
+    private static function empty_objects_to_null(array $value): ?array
+    {
+        if ([] === $value) {
+            return null;
+        }
+        foreach ($value as $key => $item) {
+            if (is_array($item)) {
+                $value[ $key ] = self::empty_objects_to_null($item);
+            }
+        }
+
+        return $value;
     }
 
     /** @param mixed $name */

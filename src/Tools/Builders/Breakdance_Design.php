@@ -7,7 +7,7 @@ if (! defined('ABSPATH')) {
 }
 
 /**
- * Read-only view of a Breakdance or Oxygen 6 site's design system, local
+ * Read view of a Breakdance or Oxygen 6 site's design system, local
  * templates and element catalog (issue #391). Both products run the same
  * engine and keep their site-wide data under their own prefix (`breakdance_`
  * or `oxygen_`), so every method takes the builder slug.
@@ -79,13 +79,19 @@ class Breakdance_Design
         ];
 
         // The lists update-builder-content can write, each with the hash of
-        // the option it lives in (Breakdance only: see Builder_Design_Write).
-        if ('breakdance' === $builder) {
-            $out['hashes'] = [
+        // the option it lives in (see Builder_Design_Write). Oxygen 6 writes
+        // its own selectors list (issue #805), which is what classes shows
+        // unless that list is empty.
+        $out['hashes'] = 'oxygen' === $builder
+            ? [
+                'classes'   => Builder_Design_Data::option_hash($prefix . 'oxy_selectors_json_string'),
+                'variables' => Builder_Design_Data::option_hash($prefix . 'variables_json_string'),
+                'palettes'  => Builder_Design_Data::option_hash($prefix . 'global_settings_json_string'),
+            ]
+            : [
                 'classes'  => Builder_Design_Data::option_hash($prefix . 'breakdance_classes_json_string'),
                 'palettes' => Builder_Design_Data::option_hash($prefix . 'global_settings_json_string'),
             ];
-        }
 
         return $out;
     }

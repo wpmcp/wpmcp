@@ -180,4 +180,51 @@ class OxygenLiveTest extends \WP_UnitTestCase
         $this->assertContains('OxygenElements\\Text', $types);
         $this->assertContains('OxygenElements\\Component', $types);
     }
+    /**
+     * Issue #805: design writes land where Oxygen's own readers find them,
+     * a selector written against a variable renders as that variable, and
+     * rollback puts back the exact rows Oxygen's savers wrote.
+     */
+    public function test_design_writes_are_read_back_by_oxygen_and_roll_back(): void
+    {
+        \Breakdance\Variables\saveVariables((string) wp_json_encode(['variables' => [[
+            'id' => 'live-var-1', 'cssVariableName' => 'live-brand', 'type' => 'color', 'label' => 'Live brand', 'value' => '#123456', 'collection' => 'Default',
+        ]], 'collections' => ['Default']]));
+        \Breakdance\BreakdanceOxygen\Selectors\saveSelectors((string) wp_json_encode(['selectors' => [], 'collections' => ['Default']]));
+        $raw_variables = get_option('oxygen_variables_json_string');
+        $raw_selectors = get_option('oxygen_oxy_selectors_json_string');
+
+        $read = (new Get_Builder_Content())->handle(['builder' => 'oxygen', 'scope' => 'design_system']);
+        $this->assertIsArray($read);
+
+        $variable = (new Update_Builder_Content())->handle([
+            'builder' => 'oxygen', 'scope' => 'design_system', 'operation' => 'add', 'to' => 'variables',
+            'element' => ['label' => 'Live gap', 'type' => 'unit', 'value' => '2rem'],
+            'expected_hash' => $read['hashes']['variables'],
+        ]);
+        $this->assertIsArray($variable, is_wp_error($variable) ? $variable->get_error_message() : '');
+
+        $selector = (new Update_Builder_Content())->handle([
+            'builder' => 'oxygen', 'scope' => 'design_system', 'operation' => 'add', 'to' => 'classes',
+            'element' => ['name' => 'live-card', 'properties' => ['breakpoint_base' => ['typography' => ['color' => '{var-live-var-1}']]]],
+            'expected_hash' => $read['hashes']['classes'],
+        ]);
+        $this->assertIsArray($selector, is_wp_error($selector) ? $selector->get_error_message() : '');
+
+        $names = array_column(\Breakdance\Variables\getVariables(), 'cssVariableName');
+        $this->assertContains('live-gap', $names);
+
+        $selectors = \Breakdance\Data\get_global_option('oxy_selectors_json_string');
+        $this->assertIsArray($selectors, 'Oxygen decodes the selectors list in one step');
+        $this->assertSame('live-card', $selectors[0]['name']);
+
+        $css = \Breakdance\BreakdanceOxygen\Selectors\cssForSelectors($selectors);
+        $this->assertStringContainsString('.live-card', $css);
+        $this->assertStringContainsString('var(--live-brand)', $css);
+
+        Rollback_Service::restore_operation($selector['operation_id']);
+        Rollback_Service::restore_operation($variable['operation_id']);
+        $this->assertSame($raw_selectors, get_option('oxygen_oxy_selectors_json_string'));
+        $this->assertSame($raw_variables, get_option('oxygen_variables_json_string'));
+    }
 }
