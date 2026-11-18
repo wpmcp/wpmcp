@@ -43,6 +43,37 @@ namespace {
         }
     }
 
+    if (! class_exists('Astra_Target_Rules_Fields')) {
+        /**
+         * Astra Pro's display rule lists. Like the real class, the location
+         * list runs astra_addon_location_rule_post_types, where Astra Pro's
+         * own callback (Astra_Ext_Advanced_Hooks_Meta::location_rule_post_types)
+         * calls get_current_screen(), a wp-admin function (issue #894).
+         */
+        class Astra_Target_Rules_Fields
+        {
+            /** @return array<string,mixed> */
+            public static function get_location_selections(): array
+            {
+                // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Astra Pro's own filter, as the real class applies it.
+                $types = (array) apply_filters('astra_addon_location_rule_post_types', [ 'post' => 'post', 'page' => 'page' ]);
+                $screen = get_current_screen();
+                unset($screen);
+                return [
+                    'basic'   => [ 'label' => 'Basic', 'value' => [ 'basic-global' => 'Entire Website', 'basic-singulars' => 'All Singulars', 'basic-archives' => 'All Archives' ] ],
+                    'special' => [ 'label' => 'Special Pages', 'value' => [ 'special-404' => '404 Page' ] ],
+                    'post'    => [ 'label' => 'Posts', 'value' => array_map(static fn ($t) => $t . '|all', $types) ],
+                ];
+            }
+
+            /** @return array<string,mixed> */
+            public static function get_user_selections(): array
+            {
+                return [ 'basic' => [ 'label' => 'Basic', 'value' => [ 'all' => 'All', 'logged-in' => 'Logged In', 'logged-out' => 'Logged Out' ] ] ];
+            }
+        }
+    }
+
     if (! class_exists('GeneratePress_Elements_Helper')) {
         class GeneratePress_Elements_Helper
         {

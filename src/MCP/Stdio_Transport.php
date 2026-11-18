@@ -529,6 +529,16 @@ class Stdio_Transport
         $ability_name = self::ability_for_tool($tool_name);
 
         if (null === $ability_name) {
+            // A dispatcher pair held back because no plugin it covers is
+            // active (issue #876): a direct call is told which to activate.
+            if (class_exists('\\WPMCP\\Plugin')) {
+                $arguments = is_array($params['arguments'] ?? null) ? $params['arguments'] : [];
+                $inactive  = \WPMCP\Plugin::instance()->registrar()->plugin_inactive_for_tool($tool_name, $arguments);
+                if (null !== $inactive) {
+                    return self::result_response($id, Hidden_Tool_Refusal::result($inactive));
+                }
+            }
+
             // A declared Pro tool is not registered on an unlicensed install
             // (Registrar::tier_permitted), so the client would otherwise be
             // told it does not exist. Answer with call-tool's refusal, which
@@ -545,6 +555,16 @@ class Stdio_Transport
         }
 
         $input = is_array($params['arguments'] ?? null) ? $params['arguments'] : [];
+
+        // The permission check first, as the HTTP adapter does: a refusal that
+        // names what is missing (issue #875) is shown, where execute() would
+        // hand back core's generic "does not have necessary permission".
+        if (method_exists($ability, 'check_permissions')) {
+            $permission = $ability->check_permissions($input);
+            if (is_wp_error($permission)) {
+                return self::result_response($id, self::tool_result($permission));
+            }
+        }
 
         // Confirm gates as elicitation (issue #387): 'answer' is a 2026
         // retry carrying the question's answer, 'ask' the channel to ask on.
@@ -847,7 +867,7 @@ class Stdio_Transport
      * Ability name to MCP tool name, using the adapter's sanitizer when it
      * is loaded so stdio and HTTP advertise byte-identical names.
      */
-    private static function tool_name(string $ability_name): string
+    public static function tool_name(string $ability_name): string
     {
         $sanitizer = '\\WP\\MCP\\Domain\\Utils\\McpNameSanitizer';
         if (class_exists($sanitizer)) {

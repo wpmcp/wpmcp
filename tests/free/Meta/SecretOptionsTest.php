@@ -28,7 +28,7 @@ class SecretOptionsTest extends \WP_UnitTestCase
 
     protected function tearDown(): void
     {
-        foreach ([ 'wp_rocket_settings', 'FLYING_PRESS_CONFIG', 'wp_mail_smtp', 'wpmcp_test_unregistered', 'wpmcp_test_custom_secret', 'updraft_s3', 'imagify_settings', 'mc4wp', 'sib_main_option', 'backwpup_jobs', 'weglot-translate-v3', 'wordpress_api_key', 'sib_token_store' ] as $name) {
+        foreach ([ 'wp_rocket_settings', 'FLYING_PRESS_CONFIG', 'wp_mail_smtp', 'wpmcp_test_unregistered', 'wpmcp_test_custom_secret', 'updraft_s3', 'imagify_settings', 'mc4wp', 'sib_main_option', 'backwpup_jobs', 'weglot-translate-v3', 'wordpress_api_key', 'sib_token_store', 'updraft_ftp', 'updraft_sftp', 'updraft_webdav', 'updraft_ftp_login' ] as $name) {
             delete_option($name);
         }
         remove_all_filters('wpmcp_enable_option_write');
@@ -113,9 +113,57 @@ class SecretOptionsTest extends \WP_UnitTestCase
         $this->assertSame(self::MASK, $value['license']['key']);
         $this->assertSame(self::MASK, $value['mailgun']['api_key']);
         $this->assertSame('smtp.example.com', $value['smtp']['host']);
-        $this->assertSame('bob', $value['smtp']['user']);
+        $this->assertSame(self::MASK, $value['smtp']['user'], 'the SMTP login is the other half of the credential (#939)');
         $this->assertSame('mg.example.com', $value['mailgun']['domain']);
         $this->assertSame('a@example.com', $value['mail']['from_email']);
+    }
+
+    // ---- Issue #939: the login half of a credential, through get-option.
+
+    public function test_get_option_masks_the_smtp_user_and_the_updraft_storage_logins(): void
+    {
+        update_option('wp_mail_smtp', [ 'mail' => [ 'mailer' => 'smtp' ], 'smtp' => [ 'host' => 'smtp.example.com', 'user' => 'mailer@example.com', 'pass' => 'smtp-pw' ] ]);
+        update_option('updraft_ftp', [ 'version' => 1, 'settings' => [ 'ftp-1' => [ 'host' => 'ftp.example.com', 'user' => 'ftp-login', 'pass' => 'ftp-pw', 'path' => 'backups' ] ] ]);
+        update_option('updraft_sftp', [ 'version' => 1, 'settings' => [ 'sftp-1' => [ 'host' => 'sftp.example.com', 'user' => 'sftp-login', 'pass' => 'sftp-pw', 'port' => 22 ] ] ]);
+        update_option('updraft_webdav', [ 'version' => 1, 'settings' => [ 'dav-1' => [ 'url' => 'webdavs://dav-login:dav-pw@dav.example.com/b', 'username' => 'dav-login', 'instance_label' => 'Mine' ] ] ]);
+        update_option('updraft_ftp_login', 'legacy-ftp-login');
+
+        $smtp = (new Get_Option())->handle([ 'name' => 'wp_mail_smtp' ])['value'];
+        $ftp  = (new Get_Option())->handle([ 'name' => 'updraft_ftp' ])['value'];
+        $sftp = (new Get_Option())->handle([ 'name' => 'updraft_sftp' ])['value'];
+        $dav  = (new Get_Option())->handle([ 'name' => 'updraft_webdav' ])['value'];
+        $flat = (new Get_Option())->handle([ 'name' => 'updraft_ftp_login' ])['value'];
+
+        $this->assertSame(self::MASK, $smtp['smtp']['user']);
+        $this->assertSame('smtp.example.com', $smtp['smtp']['host']);
+        $this->assertSame(self::MASK, $ftp['settings']['ftp-1']['user']);
+        $this->assertSame('ftp.example.com', $ftp['settings']['ftp-1']['host']);
+        $this->assertSame('backups', $ftp['settings']['ftp-1']['path']);
+        $this->assertSame(self::MASK, $sftp['settings']['sftp-1']['user']);
+        $this->assertSame(22, $sftp['settings']['sftp-1']['port']);
+        $this->assertSame(self::MASK, $dav['settings']['dav-1']['username']);
+        $this->assertSame('Mine', $dav['settings']['dav-1']['instance_label']);
+        $this->assertSame(self::MASK, $flat);
+        $this->assertStringNotContainsString('login', wp_json_encode([ $smtp, $ftp, $sftp, $dav, $flat ]));
+        $this->assertStringNotContainsString('mailer@example.com', wp_json_encode($smtp));
+    }
+
+    public function test_update_option_keeps_the_masked_logins_as_stored(): void
+    {
+        add_filter('wpmcp_enable_option_write', '__return_true');
+        update_option('wp_mail_smtp', [ 'smtp' => [ 'host' => 'old-host', 'user' => 'mailer@example.com', 'pass' => 'smtp-pw' ] ]);
+        update_option('updraft_ftp', [ 'version' => 1, 'settings' => [ 'ftp-1' => [ 'host' => 'ftp.example.com', 'user' => 'ftp-login', 'pass' => 'ftp-pw', 'path' => 'old' ] ] ]);
+
+        $smtp = (new Get_Option())->handle([ 'name' => 'wp_mail_smtp' ])['value'];
+        $smtp['smtp']['host'] = 'new-host';
+        (new Update_Option())->handle([ 'name' => 'wp_mail_smtp', 'value' => $smtp ]);
+
+        $ftp = (new Get_Option())->handle([ 'name' => 'updraft_ftp' ])['value'];
+        $ftp['settings']['ftp-1']['path'] = 'new';
+        (new Update_Option())->handle([ 'name' => 'updraft_ftp', 'value' => $ftp ]);
+
+        $this->assertSame([ 'host' => 'new-host', 'user' => 'mailer@example.com', 'pass' => 'smtp-pw' ], get_option('wp_mail_smtp')['smtp']);
+        $this->assertSame([ 'host' => 'ftp.example.com', 'user' => 'ftp-login', 'pass' => 'ftp-pw', 'path' => 'new' ], get_option('updraft_ftp')['settings']['ftp-1']);
     }
 
     public function test_a_prefix_registered_option_masks_remote_storage_credentials_at_any_depth(): void
@@ -192,7 +240,7 @@ class SecretOptionsTest extends \WP_UnitTestCase
             'Weglot settings'        => [ 'weglot-translate-v3', [ 'api_key' => 'wg_real', 'original_language' => 'en' ], [ 'api_key' ], [ 'original_language' => 'en' ] ],
             'Updraft S3 session'     => [ 'updraft_s3', [ 'version' => 1, 'settings' => [ 's3-x' => [ 'accesskey' => 'AKIA', 'secretkey' => 'sk', 'sessiontoken' => 'st-real', 'path' => 'b' ] ] ], [ 'settings.s3-x.accesskey', 'settings.s3-x.secretkey', 'settings.s3-x.sessiontoken' ], [ 'settings.s3-x.path' => 'b' ] ],
             'Updraft DreamHost'      => [ 'updraft_dreamhost', [ 'accesskey' => 'dh-key', 'secretkey' => 'dh-secret', 'path' => 'b' ], [ 'accesskey', 'secretkey' ], [ 'path' => 'b' ] ],
-            'Updraft legacy SFTP'    => [ 'updraft_sftp_settings', [ 'host' => 'sftp.example.com', 'user' => 'bob', 'pass' => 'sftp-pw', 'key' => 'PRIVATE KEY' ], [ 'pass', 'key' ], [ 'host' => 'sftp.example.com' ] ],
+            'Updraft legacy SFTP'    => [ 'updraft_sftp_settings', [ 'host' => 'sftp.example.com', 'user' => 'bob', 'pass' => 'sftp-pw', 'key' => 'PRIVATE KEY' ], [ 'user', 'pass', 'key' ], [ 'host' => 'sftp.example.com' ] ],
             'Updraft WebDAV'         => [ 'updraft_webdav', [ 'version' => 1, 'settings' => [ 'w-1' => [ 'url' => 'webdavs://bob:pw@dav.example.com/b', 'instance_label' => 'Mine' ] ] ], [ 'settings.w-1.url' ], [ 'settings.w-1.instance_label' => 'Mine' ] ],
             'Updraft legacy WebDAV'  => [ 'updraft_webdav_settings', [ 'url' => 'webdavs://bob:pw@dav.example.com/b', 'pass' => 'dav-pw' ], [ 'url', 'pass' ], [] ],
         ];

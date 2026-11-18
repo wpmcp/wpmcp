@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Meta;
 
 use WPMCP\Safety\Safe_Mutation;
+use WPMCP\Tools\Content\Code_Posts;
 use WPMCP\Tools\Content\Content_Guard;
 
 if (! defined('ABSPATH')) {
@@ -42,6 +43,7 @@ class Set_Post_Meta
             // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Content_Guard escapes the key it interpolates; the rest of the message is plugin literal.
             throw new \InvalidArgumentException($guard);
         }
+        Code_Posts::assert_meta_writable((string) $post->post_type, [$key], $post_id);
 
         $out = Safe_Mutation::run(
             [

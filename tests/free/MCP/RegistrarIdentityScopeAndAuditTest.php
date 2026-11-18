@@ -55,7 +55,7 @@ class RegistrarIdentityScopeAndAuditTest extends \WP_UnitTestCase
         $abilities = wp_get_abilities();
 
         $this->assertTrue($abilities['wpmcp/get-post']->check_permissions());
-        $this->assertFalse($abilities['wpmcp/query']->check_permissions());
+        $this->assertNotTrue($abilities['wpmcp/query']->check_permissions());
     }
 
     public function test_identity_scope_cannot_escalate_past_a_failing_capability_check(): void
@@ -71,7 +71,9 @@ class RegistrarIdentityScopeAndAuditTest extends \WP_UnitTestCase
 
         $abilities = wp_get_abilities();
 
-        $this->assertFalse($abilities['wpmcp/query']->check_permissions());
+        $denial = $abilities['wpmcp/query']->check_permissions();
+        $this->assertInstanceOf(\WP_Error::class, $denial);
+        $this->assertSame('operation_denied', $denial->get_error_code());
     }
 
     public function test_audit_log_records_an_allowed_and_a_denied_decision(): void

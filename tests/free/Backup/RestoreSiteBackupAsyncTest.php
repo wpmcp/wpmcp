@@ -380,6 +380,157 @@ class RestoreSiteBackupAsyncTest extends \WP_UnitTestCase
         $this->assertSame(basename($safety), $out['safety_archive']['file']);
     }
 
+    /**
+     * What a restore that stopped mid-import leaves (issue #860): its job
+     * record as the run last wrote it (running), and its progress file. The
+     * process that held the restore lock is gone, so no lock is held.
+     *
+     * @return array<string, mixed> The progress file's state.
+     */
+    private function stop_mid_import(Restore_Site_Backup $tool, int $id): array
+    {
+        $crash = null;
+        add_action('wpmcp_restore_statement_executed', static function () use (&$crash): void {
+            if (null === $crash) {
+                wp_cache_flush();
+                $crash = [
+                    'state' => (string) file_get_contents(Site_Backup_Dir::path() . '/restore-in-progress.json'),
+                    'jobs'  => get_option(Backup_Job_Store::OPTION, null),
+                ];
+            }
+        });
+
+        wp_set_current_user(0);
+        (new Run_Restore_Job($tool))->handle($id);
+        wp_set_current_user($this->admin);
+        remove_all_actions('wpmcp_restore_statement_executed');
+
+        $this->assertNotNull($crash);
+        file_put_contents(Site_Backup_Dir::path() . '/restore-in-progress.json', $crash['state']);
+        update_option(Backup_Job_Store::OPTION, $crash['jobs']);
+        $this->assertSame('running', get_option(Backup_Job_Store::OPTION)['jobs'][ $id ]['status'], 'The stopped run left its record at running.');
+
+        return (array) json_decode($crash['state'], true);
+    }
+
+    /**
+     * Issue #860: once a restore has stopped mid-import, the stored record
+     * says failed too, so list-backup-jobs agrees with get-backup-status and
+     * the recovery restore that status recommends is queued, not refused.
+     */
+    public function test_a_restore_that_stopped_mid_import_is_failed_and_its_recovery_restore_is_queued(): void
+    {
+        $post    = self::factory()->post->create(['post_title' => 'As backed up']);
+        $archive = $this->archive_of($this->posts_tables());
+        wp_update_post(['ID' => $post, 'post_title' => 'Live value']);
+
+        $tool  = $this->tool();
+        $id    = $tool->handle_request(['path' => $archive, 'dry_run' => false])['job_id'];
+        $state = $this->stop_mid_import($tool, $id);
+
+        $status = $this->status($id);
+        $this->assertSame('failed', $status['status']);
+        $this->assertStringContainsString('stopped mid-import', $status['error']);
+        $this->assertStringContainsString((string) $state['safety_file'], $status['error']);
+
+        $this->assertSame([], Backup_Job_Store::list('running'), 'list-backup-jobs no longer shows the stopped restore as running.');
+        $listed = array_values(array_filter(Backup_Job_Store::list(), static fn(array $job): bool => $id === (int) $job['id']));
+        $this->assertSame('failed', $listed[0]['status']);
+        $this->assertStringContainsString((string) $state['safety_file'], $listed[0]['error']);
+
+        $recovery = $this->tool()->handle_request([
+            'path'    => Site_Backup_Dir::path() . '/' . $state['safety_file'],
+            'dry_run' => false,
+        ]);
+        $this->assertSame('queued', $recovery['status']);
+        $this->assertNotSame($id, $recovery['job_id']);
+    }
+
+    /**
+     * Issue #860: a restore job left at running in a database put back from
+     * a safety archive taken while it ran does not block later restores.
+     * There is no progress file then, only the record.
+     */
+    public function test_a_restore_record_left_running_by_a_restored_archive_does_not_block_a_restore(): void
+    {
+        $archive = $this->archive_of($this->posts_tables());
+        $tool    = $this->tool();
+        $id      = $tool->handle_request(['path' => $archive, 'dry_run' => false])['job_id'];
+        $this->stop_mid_import($tool, $id);
+        unlink(Site_Backup_Dir::path() . '/restore-in-progress.json');
+
+        $out = $this->tool()->handle_request(['path' => $archive, 'dry_run' => false]);
+
+        $this->assertSame('queued', $out['status']);
+        $failed = $this->status($id);
+        $this->assertSame('failed', $failed['status']);
+        $this->assertStringContainsString('stopped without finishing', $failed['error']);
+    }
+
+    /** Issue #860: a restore whose run is alive still blocks a second one. */
+    public function test_a_restore_whose_run_is_alive_still_blocks_a_second_one(): void
+    {
+        $archive = $this->archive_of($this->posts_tables());
+        $job     = Backup_Job_Store::create(Restore_Site_Backup::JOB_TYPE, 'database', ['user_id' => $this->admin]);
+        Backup_Job_Store::transition($job['id'], 'queued', ['status' => 'running', 'run_lock' => true]);
+
+        $other = new \wpdb(DB_USER, DB_PASSWORD, DB_NAME, DB_HOST);
+        $this->assertSame('1', (string) $other->get_var($other->prepare('SELECT GET_LOCK(%s, 0)', Run_Restore_Job::lock_name((int) $job['id']))));
+
+        try {
+            $this->tool()->handle_request(['path' => $archive, 'dry_run' => false]);
+            $this->fail('A restore must be refused while another one is running.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('restore job ' . $job['id'] . ' is already running', $e->getMessage());
+            $this->assertSame('running', Backup_Job_Store::get($job['id'])['status']);
+        } finally {
+            $other->close();
+        }
+
+        // The run's process is gone with its connection: now it stopped.
+        $this->assertSame('failed', Backup_Job_Store::get($job['id'])['status']);
+    }
+
+    /**
+     * Issue #871: a restore that completes after an earlier one stopped
+     * says it replaced that restore; it does not warn that the site is half
+     * restored or point to the earlier, older safety archive. The queued
+     * response still warns, while the stopped restore is the latest.
+     */
+    public function test_a_restore_completed_after_a_stopped_one_says_it_replaced_it(): void
+    {
+        $post    = self::factory()->post->create(['post_title' => 'As backed up']);
+        $archive = $this->archive_of($this->posts_tables());
+        $old     = $this->archive_of($this->posts_tables());
+        wp_update_post(['ID' => $post, 'post_title' => 'Half restored']);
+        Site_Backup_Dir::protect(Site_Backup_Dir::path());
+        file_put_contents(Site_Backup_Dir::path() . '/restore-in-progress.json', (string) wp_json_encode([
+            'started_at'    => '2026-01-01T00:00:00+00:00',
+            'archive'       => 'wpmcp-database-old.zip',
+            'safety_job_id' => 7,
+            'safety_file'   => basename($old),
+            'statement'     => 275,
+            'table'         => 'wp_frm_gated_tokens',
+        ]));
+
+        $tool   = $this->tool();
+        $queued = $tool->handle_request(['path' => $archive, 'dry_run' => false]);
+        $this->assertStringContainsString('half restored', implode(' ', $queued['warnings']), 'The queued response still warns.');
+
+        wp_set_current_user(0);
+        (new Run_Restore_Job($tool))->handle($queued['job_id']);
+        wp_set_current_user($this->admin);
+
+        $done = $this->status($queued['job_id']);
+        $this->assertSame('completed', $done['status']);
+        $this->assertSame('As backed up', $this->title($post));
+        $warnings = implode(' ', $done['result']['warnings']);
+        $this->assertStringNotContainsString('half restored', $warnings);
+        $this->assertStringNotContainsString(basename($old), $warnings, 'It must not point to the older safety archive.');
+        $this->assertStringContainsString('replaced', $warnings);
+        $this->assertStringContainsString('2026-01-01T00:00:00+00:00', $warnings);
+    }
+
     public function test_wait_true_keeps_the_synchronous_restore(): void
     {
         $post    = self::factory()->post->create(['post_title' => 'As backed up']);

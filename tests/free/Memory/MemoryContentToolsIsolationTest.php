@@ -82,9 +82,8 @@ class MemoryContentToolsIsolationTest extends \WP_UnitTestCase
 
         $permission = $ability->check_permissions($input);
         if (is_wp_error($permission)) {
-            // execute() flags a permission WP_Error as incorrect usage
-            // before replacing it with ability_invalid_permissions.
-            $this->setExpectedIncorrectUsage('WP_Ability::execute');
+            // The callback hands execute() a plain false (issue #875), so
+            // core refuses with ability_invalid_permissions and no notice.
             $this->assertInstanceOf(\WP_Error::class, $ability->execute($input), $name . ' ran after its permission check refused it');
             return $permission;
         }

@@ -7,6 +7,7 @@ use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Session;
 
 require_once __DIR__ . '/../../support/forminator-stubs.php';
+require_once __DIR__ . '/../../support/forms-delete-preview.php';
 
 /**
  * The Forminator dispatcher pair, exercised against a faithful double of the
@@ -15,6 +16,8 @@ require_once __DIR__ . '/../../support/forminator-stubs.php';
  */
 class ForminatorIntegrationTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Support\Forms_Delete_Preview_Assertions;
+
     private Forminator_Integration $integration;
 
     public static function set_up_before_class(): void
@@ -178,6 +181,7 @@ class ForminatorIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('confirmation_required', $out['error']['code']);
         $this->assertSame(2, $out['error']['data']['values']);
         $this->assertTrue($out['error']['data']['files_stay_on_disk']);
+        $this->assert_delete_entry_preview($out, 'Forminator submission 101 of form 11', 101, 2);
         $this->assertStringNotContainsString('a@example.test', wp_json_encode($out));
         $this->assertSame(1, $this->rows('frmt_form_entry', 'entry_id', 101));
     }

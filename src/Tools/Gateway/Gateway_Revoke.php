@@ -39,7 +39,7 @@ class Gateway_Revoke
     public function handle(array $args)
     {
         if (true !== ($args['confirm'] ?? false)) {
-            throw new \WPMCP\MCP\Confirmation_Required(
+            throw \WPMCP\MCP\Confirmation_Required::in_arguments(
                 'gateway-revoke permanently kills the gateway credential and every token bound to it. Pass confirm:true to proceed.'
             );
         }

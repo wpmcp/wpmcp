@@ -321,10 +321,13 @@ class Ninja_Forms_Integration extends Forms_Integration
                     $post = self::sub_post((int) $args['entry_id']);
                     $meta = (array) get_post_meta((int) $post->ID);
                     $form = (int) get_post_meta((int) $post->ID, '_form_id', true);
-                    return [
-                        'message' => sprintf('It permanently deletes Ninja Forms submission %d of form %d (%d stored values). Uploaded files stay on disk. Undo: rollback-operation.', (int) $post->ID, $form, count($meta)),
-                        'data'    => [ 'entry_id' => (int) $post->ID, 'form_id' => $form, 'date' => (string) $post->post_date, 'values' => count($meta), 'files_stay_on_disk' => true ],
-                    ];
+                    return self::delete_entry_preview(
+                        sprintf('Ninja Forms submission %d of form %d', (int) $post->ID, $form),
+                        (int) $post->ID,
+                        count($meta),
+                        'rollback-operation',
+                        [ 'form_id' => $form, 'date' => (string) $post->post_date ]
+                    );
                 },
                 'handler'         => static function (array $args): array {
                     $entry_id = (int) $args['entry_id'];

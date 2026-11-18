@@ -287,7 +287,7 @@ final class MemberPress_Pack
                 'handler'      => static fn (array $args): array => self::list_rules($args),
             ],
             'memberpress-create-membership' => $write + [
-                'description'  => 'Create a MemberPress membership (status defaults to draft) with title, content and any settings; unset ones take MemberPress defaults. Undo: rollback-session trashes it',
+                'description'  => 'Create a MemberPress membership (status defaults to draft) with title, content and any settings; unset ones take what the wp-admin screen saves for a new one (price box title from the title, Sign Up button, thank-you message, the welcome email template). Undo: rollback-session trashes it',
                 'input_schema' => [ 'type' => 'object', 'properties' => $ms, 'required' => [ 'title' ] ],
                 'validate'     => static fn (array $args): ?array => self::create_refusal(self::MEMBERSHIP_TYPE, (string) ($args['status'] ?? 'draft')) ?? self::membership_refusal($args, []),
                 'handler'      => static fn (array $args, array $context): array => self::create_membership($args, $context),
@@ -302,15 +302,15 @@ final class MemberPress_Pack
                 'handler'           => static fn (array $args): array => self::update_membership($args),
             ] + $write,
             'memberpress-create-rule'       => $write + [
-                'description'  => 'Create a MemberPress access rule: type and content say what it protects, access lists who may see it (membership id, member login, role, login_state logged_in or guest, capability), plus drip, expiry and unauthorized message. Status defaults to draft (not enforced). Undo: rollback-session',
+                'description'  => 'Create a MemberPress access rule: type and content say what it protects, access lists who may see it (membership id, member login, role, login_state logged_in or guest, capability), plus drip, expiry and unauthorized message. Status defaults to draft: not enforced until published (the result says enforced). Undo: rollback-session',
                 'input_schema' => [ 'type' => 'object', 'properties' => $rule, 'required' => [ 'type', 'access' ] ],
                 'validate'     => static fn (array $args): ?array => self::create_refusal(self::RULE_TYPE, (string) ($args['status'] ?? 'draft')) ?? self::rule_refusal($args, []),
                 'handler'      => static fn (array $args, array $context): array => self::create_rule($args, $context),
             ],
             'memberpress-update-rule'       => $write + [
                 'objects'      => $own('id'),
-                'description'  => 'Change a MemberPress access rule; only the args given change, and access, when given, replaces every access condition. Undo: rollback-session',
-                'input_schema' => [ 'type' => 'object', 'properties' => [ 'id' => $id ] + $rule, 'required' => [ 'id' ] ],
+                'description'  => 'Change a MemberPress access rule; only the args given change. access replaces every access condition; add_access and remove_access add or remove single ones and keep the rest. Undo: rollback-session',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'id' => $id ] + $rule + [ 'add_access' => $rule['access'], 'remove_access' => $rule['access'] ], 'required' => [ 'id' ] ],
                 'validate'     => static fn (array $args): ?array => self::update_rule_refusal($args),
                 'handler'      => static fn (array $args, array $context): array => self::update_rule($args, $context),
             ],
@@ -745,12 +745,21 @@ final class MemberPress_Pack
         $post = get_post($id);
         if (! $post instanceof \WP_Post || $type !== $post->post_type || 'trash' === $post->post_status) {
             $noun = self::MEMBERSHIP_TYPE === $type ? 'membership' : 'rule';
+            if ($post instanceof \WP_Post && $type === $post->post_type) {
+                return self::refusal("{$noun}_not_found", self::trashed_message($noun, $post), [ 'id' => $id, 'status' => 'trash' ]);
+            }
             return self::refusal("{$noun}_not_found", sprintf('%d is not a MemberPress %s.', $id, $noun), [ 'id' => $id ]);
         }
         if (! current_user_can($write ? 'edit_post' : 'read_post', $id)) {
             return self::refusal('operation_denied', sprintf('You are not allowed to %s post %d.', $write ? 'edit' : 'read', $id), [ 'reason' => 'capability', 'id' => $id ]);
         }
         return null;
+    }
+
+    /** Why a MemberPress post in the Trash cannot be used, and how to bring it back (issue #822). */
+    private static function trashed_message(string $noun, \WP_Post $post): string
+    {
+        return sprintf('MemberPress %1$s %2$d ("%3$s") is in the Trash; restore it first (restore-post, or MemberPress > %4$s > Trash in wp-admin), then try again.', $noun, (int) $post->ID, (string) $post->post_title, 'membership' === $noun ? 'Memberships' : 'Rules');
     }
 
     /** Null when the user may create a post of $type with $status. */
@@ -848,6 +857,9 @@ final class MemberPress_Pack
             case 'membership':
                 $post = ctype_digit($condition) ? get_post((int) $condition) : null;
                 $ok   = $post instanceof \WP_Post && self::MEMBERSHIP_TYPE === $post->post_type && 'trash' !== $post->post_status;
+                if ($post instanceof \WP_Post && self::MEMBERSHIP_TYPE === $post->post_type && ! $ok) {
+                    return self::refusal('invalid_condition', self::trashed_message('membership', $post), [ 'type' => $type, 'condition' => $condition, 'status' => 'trash' ]);
+                }
                 break;
             case 'member':
                 $ok = false !== get_user_by('login', $condition);
@@ -914,7 +926,64 @@ final class MemberPress_Pack
         foreach ([ 'is_regexp', 'drip_after', 'drip_after_fixed', 'expires_after', 'expires_after_fixed' ] as $arg) {
             $current[ $arg ] = self::stored($id, self::RULE_FIELDS[ $arg ]);
         }
+        if (isset($args['add_access']) || isset($args['remove_access'])) {
+            if (isset($args['access'])) {
+                return self::refusal('conflicting_args', 'Give access (the whole list) or add_access and remove_access (single conditions), not both.');
+            }
+            $edited = self::edited_access($id, $args);
+            if (is_array($edited) && isset($edited['code'])) {
+                return $edited;
+            }
+            $args['access'] = (array) ($args['add_access'] ?? []);
+        }
         return self::rule_refusal($args, $current);
+    }
+
+    /** The key one access condition is matched by: its type and condition (the operator is always "is"). */
+    private static function condition_key(array $condition): string
+    {
+        return (string) $condition['type'] . "\0" . (string) $condition['condition'];
+    }
+
+    /**
+     * A rule's access conditions after add_access and remove_access (issue
+     * #822): the current ones in their order, less the removed, then the
+     * added ones the rule does not have yet. A refusal when a removed
+     * condition is not on the rule, or when none would be left.
+     *
+     * @return array refusal (with 'code') or the new list of conditions
+     */
+    private static function edited_access(int $rule, array $args): array
+    {
+        $remove = [];
+        foreach ((array) ($args['remove_access'] ?? []) as $condition) {
+            $remove[ self::condition_key($condition) ] = $condition;
+        }
+        $kept = [];
+        $seen = [];
+        foreach (self::access($rule) as $condition) {
+            $key = self::condition_key($condition);
+            if (isset($remove[ $key ])) {
+                $seen[ $key ] = true;
+                continue;
+            }
+            $kept[ $key ] = [ 'type' => $condition['type'], 'condition' => $condition['condition'] ];
+        }
+        foreach ($remove as $key => $condition) {
+            if (! isset($seen[ $key ])) {
+                return self::refusal('condition_not_found', sprintf('Rule %d has no access condition %s "%s" to remove; list-rules shows its conditions. Nothing was changed.', $rule, (string) $condition['type'], (string) $condition['condition']), [ 'type' => (string) $condition['type'], 'condition' => (string) $condition['condition'] ]);
+            }
+        }
+        foreach ((array) ($args['add_access'] ?? []) as $condition) {
+            $key = self::condition_key($condition);
+            if (! isset($kept[ $key ])) {
+                $kept[ $key ] = [ 'type' => (string) $condition['type'], 'condition' => (string) $condition['condition'] ];
+            }
+        }
+        if ([] === $kept) {
+            return self::refusal('access_required', sprintf('That would leave rule %d with no access condition. Add one in the same call, or take the rule to draft with status.', $rule));
+        }
+        return array_values($kept);
     }
 
     // ------------------------------------------------------------------
@@ -997,10 +1066,62 @@ final class MemberPress_Pack
         }
     }
 
+    /**
+     * What MemberPress's wp-admin screen saves for a new membership where
+     * its model default is empty (issue #822): the price box title the
+     * screen copies from the membership title (js/admin_products.js), the
+     * "Sign Up" its button text field shows, the thank-you message radio it
+     * checks, and one entry per product email form (the welcome email) with
+     * that email's own defaults, as MeprProductsCtrl::save_postdata() stores
+     * the posted forms. A value the caller gives wins.
+     */
+    private static function admin_defaults(array $args): array
+    {
+        return [
+            'pricing_title'       => (string) $args['title'],
+            'pricing_button_txt'  => 'Sign Up',
+            'thank_you_page_type' => 'message',
+            'emails'              => self::default_emails(),
+        ];
+    }
+
+    /** The product email forms the membership screen saves, with their defaults; empty when MemberPress is not loaded. */
+    private static function default_emails(): array
+    {
+        try {
+            if (! class_exists('MeprEmailFactory') || ! method_exists('MeprEmailFactory', 'all')) {
+                return [];
+            }
+            $out = [];
+            foreach ((array) \MeprEmailFactory::all('MeprBaseProductEmail') as $class => $email) {
+                if (! is_object($email) || empty($email->show_form)) {
+                    continue;
+                }
+                $defaults = (array) ($email->defaults ?? []);
+                $body     = wp_kses_post((string) ($defaults['body'] ?? ''));
+                $out[ (string) $class ] = [
+                    'enabled'      => ! empty($defaults['enabled']),
+                    'use_template' => ! empty($defaults['use_template']),
+                    'subject'      => sanitize_text_field((string) ($defaults['subject'] ?? '')),
+                    'body'         => class_exists('MeprUtils') && method_exists('MeprUtils', 'maybe_wpautop') ? (string) \MeprUtils::maybe_wpautop($body) : $body,
+                ];
+            }
+            return $out;
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
     private static function create_membership(array $args, array $context): array
     {
         [$id, $op] = self::insert(self::MEMBERSHIP_TYPE, $args, $context, (string) $args['title'], (string) ($args['content'] ?? ''));
         self::write_meta($id, self::MEMBERSHIP_FIELDS + self::MEMBERSHIP_STORED, $args, true);
+        foreach (self::admin_defaults($args) as $arg => $value) {
+            if (! array_key_exists($arg, $args)) {
+                [$key, , $kind] = self::MEMBERSHIP_FIELDS[ $arg ] ?? self::MEMBERSHIP_STORED[ $arg ];
+                update_post_meta($id, $key, wp_slash('list' === $kind ? $value : self::storable($value, $kind)));
+            }
+        }
         self::refresh_caches();
         return [ 'result' => [ 'membership' => self::membership($id) ], 'operation_ids' => [ $op ] ];
     }
@@ -1077,7 +1198,22 @@ final class MemberPress_Pack
         self::write_meta($id, self::RULE_FIELDS + $stored, $args, true);
         $ops[] = self::snapshotted(Plugin_Table_Rows_Snapshot::TYPE, Plugin_Table_Rows_Snapshot::key('mepr_rule_access', 'conditions', [ $id ]), $context, $args, static fn () => self::store_access($id, (array) $args['access']));
         self::refresh_caches();
-        return [ 'result' => [ 'rule' => self::rule($id) ], 'operation_ids' => $ops ];
+        return [ 'result' => self::rule_result($id), 'operation_ids' => $ops ];
+    }
+
+    /**
+     * A written rule and whether MemberPress enforces it: it reads only
+     * published rules (MeprCptModel::all()), so for any other status the
+     * result says the content is still open (issue #822).
+     */
+    private static function rule_result(int $id): array
+    {
+        $rule = self::rule($id);
+        $out  = [ 'rule' => $rule, 'enforced' => 'publish' === $rule['status'] ];
+        if (! $out['enforced']) {
+            $out['note'] = sprintf('Rule %d is %s: not enforced until published, so what it covers is still open to everyone. Publish it with update-rule status publish.', $id, $rule['status']);
+        }
+        return $out;
     }
 
     private static function update_rule(array $args, array $context): array
@@ -1098,11 +1234,17 @@ final class MemberPress_Pack
                 self::write_meta($id, self::RULE_FIELDS, $args, false);
             }),
         ];
+        $access = null;
         if (array_key_exists('access', $args)) {
-            $ops[] = self::snapshotted(Plugin_Table_Rows_Snapshot::TYPE, Plugin_Table_Rows_Snapshot::key('mepr_rule_access', 'conditions', [ $id ]), $context, $args, static fn () => self::store_access($id, (array) $args['access']));
+            $access = (array) $args['access'];
+        } elseif (isset($args['add_access']) || isset($args['remove_access'])) {
+            $access = self::edited_access($id, $args); // Checked by update_rule_refusal(): never a refusal here.
+        }
+        if (null !== $access) {
+            $ops[] = self::snapshotted(Plugin_Table_Rows_Snapshot::TYPE, Plugin_Table_Rows_Snapshot::key('mepr_rule_access', 'conditions', [ $id ]), $context, $args, static fn () => self::store_access($id, $access));
         }
         self::refresh_caches();
-        return [ 'result' => [ 'rule' => self::rule($id) ], 'operation_ids' => $ops ];
+        return [ 'result' => self::rule_result($id), 'operation_ids' => $ops ];
     }
     /**
      * Drop MemberPress's cached rule and membership lists so it rebuilds them

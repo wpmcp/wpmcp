@@ -541,6 +541,9 @@ class WooSubscriptionsTest extends \WP_UnitTestCase
             $this->assertSame(200, $out['status'], wp_json_encode($out));
             $this->assertFalse($out['recoverable']);
             $this->assertStringContainsString('gateway', $out['side_effects']);
+            // Issue #823: the result says what undo restores and what it cannot.
+            $this->assertStringContainsString('rollback-operation with this operation_id restores', $out['undo_scope']);
+            $this->assertStringContainsString('emails sent', $out['undo_scope']);
             $after = $this->state($id);
             $this->assertSame($now ? 'cancelled' : 'pending-cancel', $after['status']);
             $this->assertSame(0, $after['dates']['next_payment']);

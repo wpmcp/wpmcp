@@ -7,6 +7,7 @@ use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Save_Filters;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Backup\Url_Rewriter;
+use WPMCP\Tools\Content\Code_Posts;
 use WPMCP\Tools\Content\Content_Guard;
 
 if (! defined('ABSPATH')) {
@@ -231,6 +232,7 @@ class Find_Replace_Content
                 // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Content_Guard escapes the key it interpolates; the rest is plugin literal.
                 throw new \InvalidArgumentException($guard);
             }
+            Code_Posts::assert_meta_writable(null, $keys);
         }
         if (in_array('meta', $fields, true) && [] === $keys) {
             throw new \InvalidArgumentException('fields includes meta, so meta_keys must name the keys to search.');
@@ -404,6 +406,15 @@ class Find_Replace_Content
         $builder  = null;
 
         foreach ($columns as $field => $column) {
+            if ('content' === $field) {
+                // A theme layout's code is neither shown nor changed (#893).
+                $post = get_post($post_id);
+                $code = $post instanceof \WP_Post ? Code_Posts::content_note($post) : null;
+                if (null !== $code) {
+                    $skipped[] = $this->skip($post_id, $field, $code);
+                    continue;
+                }
+            }
             $original = (string) $row[ $column ];
             [$new, $count] = $this->replace_text($original, $snippets);
             if (0 === $count) {

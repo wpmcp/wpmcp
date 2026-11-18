@@ -56,7 +56,7 @@ class SettingsCapabilityTest extends \WP_UnitTestCase
 
         $editor = self::factory()->user->create(['role' => 'editor']);
         wp_set_current_user($editor);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/get-settings']->check_permissions(),
             'wpmcp/get-settings must deny an editor (no manage_options)'
         );
@@ -75,7 +75,7 @@ class SettingsCapabilityTest extends \WP_UnitTestCase
 
         $editor = self::factory()->user->create(['role' => 'editor']);
         wp_set_current_user($editor);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/update-settings']->check_permissions(),
             'wpmcp/update-settings must deny an editor (no manage_options)'
         );

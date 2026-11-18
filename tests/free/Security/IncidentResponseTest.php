@@ -83,7 +83,7 @@ class IncidentResponseTest extends \WP_UnitTestCase
 
         $ability = $abilities[ self::ABILITY ];
         wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
-        $this->assertFalse($ability->check_permissions());
+        $this->assertNotTrue($ability->check_permissions());
         wp_set_current_user($this->admin);
         wpmcp_test_grant_network_admin(get_current_user_id());
         $this->assertTrue($ability->check_permissions());

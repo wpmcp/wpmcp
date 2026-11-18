@@ -280,4 +280,41 @@ class MemberPressLiveTest extends \WP_UnitTestCase
         $this->assertSame([ $user ], array_column($members, 'user_id'));
         $this->assertSame([ $gold ], $members[0]['active_memberships']);
     }
+
+    /** Issue #822: a membership created here has what the wp-admin screen saves for a new one, and MemberPress reads it. */
+    public function test_a_membership_created_here_gets_the_wp_admin_defaults(): void
+    {
+        $id      = $this->call('write', 'memberpress-create-membership', [ 'title' => 'Test Silver' ])['result']['membership']['id'];
+        $product = new \MeprProduct($id);
+        $this->assertSame('Test Silver', $product->pricing_title);
+        $this->assertSame('Sign Up', $product->pricing_button_txt);
+        $this->assertSame('message', $product->thank_you_page_type);
+
+        $forms = array_keys(array_filter(\MeprEmailFactory::all('MeprBaseProductEmail'), static fn ($e): bool => (bool) $e->show_form));
+        $this->assertContains('MeprUserProductWelcomeEmail', $forms);
+        $this->assertSame($forms, array_keys($product->emails));
+        $welcome = new \MeprUserProductWelcomeEmail([ 'product_id' => $id ]);
+        $this->assertFalse($welcome->enabled());
+        $this->assertTrue($welcome->use_template());
+        $this->assertSame($welcome->default_subject(), $welcome->subject());
+        $product->validate();
+    }
+
+    /** Issue #822: add_access and remove_access change one condition MemberPress reads, and undo puts the list back. */
+    public function test_single_access_condition_edits_load_through_memberpress(): void
+    {
+        $gold = $this->call('write', 'memberpress-create-membership', [ 'title' => 'Gold', 'status' => 'publish' ])['result']['membership']['id'];
+        $rule = $this->call('write', 'memberpress-create-rule', [ 'type' => 'all', 'access' => [ [ 'type' => 'membership', 'condition' => (string) $gold ] ] ]);
+        $this->assertFalse($rule['result']['enforced']);
+        $id = $rule['result']['rule']['id'];
+
+        $add = $this->call('write', 'memberpress-update-rule', [ 'id' => $id, 'add_access' => [ [ 'type' => 'role', 'condition' => 'subscriber' ] ], 'status' => 'publish' ]);
+        $this->assertTrue($add['result']['enforced']);
+        $this->assertSame([ 'membership' => [ (string) $gold ], 'role' => [ 'subscriber' ] ], (new \MeprRule($id))->mgm_mepr_access('get'));
+        $remove = $this->call('write', 'memberpress-update-rule', [ 'id' => $id, 'remove_access' => [ [ 'type' => 'membership', 'condition' => (string) $gold ] ] ]);
+        $this->assertSame([ 'role' => [ 'subscriber' ] ], (new \MeprRule($id))->mgm_mepr_access('get'));
+
+        Rollback_Service::restore_session($remove['session_id']);
+        $this->assertSame([ 'membership' => [ (string) $gold ], 'role' => [ 'subscriber' ] ], (new \MeprRule($id))->mgm_mepr_access('get'));
+    }
 }

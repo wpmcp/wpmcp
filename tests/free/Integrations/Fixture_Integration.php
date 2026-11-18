@@ -85,6 +85,27 @@ class Fixture_Integration extends Integration_Dispatcher
                     return [ 'done' => true ];
                 },
             ],
+            'open-write'     => [
+                'mode'         => 'write',
+                'description'  => 'A write whose schema says it takes any key',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'name' => [ 'type' => 'string' ] ], 'additionalProperties' => true ],
+                'handler'      => function (array $args) {
+                    self::$calls[] = [ 'open-write', $args ];
+                    return [ 'keys' => array_keys($args) ];
+                },
+            ],
+            'own-args-check' => [
+                'mode'         => 'write',
+                'description'  => 'A write whose own validate refuses unknown keys with its own message',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'name' => [ 'type' => 'string' ] ] ],
+                'validate'     => static fn (array $args): ?array => isset($args['execute_php'])
+                    ? [ 'code' => 'invalid_args', 'message' => 'execute_php is switched on in wp-admin only.' ]
+                    : null,
+                'handler'      => function (array $args) {
+                    self::$calls[] = [ 'own-args-check', $args ];
+                    return [ 'done' => true ];
+                },
+            ],
             'guarded-op'     => [
                 'mode'         => 'write',
                 'description'  => 'A write only admins may run',
@@ -150,6 +171,27 @@ class Fixture_Integration extends Integration_Dispatcher
                 'handler'      => function (array $args) {
                     self::$calls[] = [ 'refusing-op', $args ];
                     throw new Operation_Error('scope_unresolved', 'Refusing to answer unscoped.', [ 'form_id' => 7 ]);
+                },
+            ],
+            'erase-content'  => [
+                'mode'            => 'destructive',
+                'description'     => 'Empty a post\'s content, snapshotted first',
+                'input_schema'    => [
+                    'type'       => 'object',
+                    'properties' => [ 'post_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
+                    'required'   => [ 'post_id' ],
+                ],
+                'confirm_preview' => static fn (array $args): array => [
+                    'message' => sprintf('Empty post %d.', (int) $args['post_id']),
+                    'data'    => [ 'post_id' => (int) $args['post_id'] ],
+                ],
+                'snapshot'        => fn (array $args) => [
+                    'object_type' => 'post',
+                    'object_id'   => (int) $args['post_id'],
+                ],
+                'handler'         => function (array $args) {
+                    self::$calls[] = [ 'erase-content', $args ];
+                    return [ 'post_id' => (int) $args['post_id'] ];
                 },
             ],
             'nuke'           => [

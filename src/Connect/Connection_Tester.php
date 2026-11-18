@@ -73,6 +73,17 @@ class Connection_Tester
 
         $status = (int) wp_remote_retrieve_response_code($response);
         $checks = $this->transport_checks($response);
+        // Application Passwords switched off by another plugin make every
+        // Basic-auth client fail with a bare 401 (issue #883).
+        $passwords = \WPMCP\Auth\App_Passwords_Status::state(current_user_can('manage_options'));
+        $checks[]  = [
+            'id'     => 'application_passwords',
+            'label'  => __('Application Passwords are available', 'wpmcp'),
+            'ok'     => $passwords['available'],
+            'detail' => $passwords['available']
+                ? __('Application Passwords are on, so a client can connect with one.', 'wpmcp')
+                : $passwords['message'],
+        ];
 
         if (404 === $status) {
             return [
@@ -97,7 +108,7 @@ class Connection_Tester
                 'ok'      => true,
                 'status'  => $status,
                 'checks'  => $checks,
-                'message' => sprintf(
+                'message' => ! $passwords['available'] ? $passwords['message'] : sprintf(
                     /* translators: %d: HTTP status code. */
                     __('The MCP endpoint is up (HTTP %d without credentials). Connect with an Application Password and this becomes a session.', 'wpmcp'),
                     $status

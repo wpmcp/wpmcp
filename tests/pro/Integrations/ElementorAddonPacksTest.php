@@ -25,6 +25,13 @@ class ElementorAddonPacksTest extends \WP_UnitTestCase
 {
     private const SUITES = [ 'essential-addons', 'premium-addons', 'ultimate-addons', 'jet-elements' ];
 
+    /** The fixture typography group's field rows in a summary. */
+    private const TYPOGRAPHY_ROWS = [
+        'typography'  => [ 'type' => 'popover_toggle', 'label' => 'Typography' ],
+        'font_family' => [ 'type' => 'font', 'label' => 'Family' ],
+        'font_weight' => [ 'type' => 'select', 'label' => 'Weight', 'options' => [ '400', '700', 'bold' ] ],
+    ];
+
     /** @var string[] widget names registered by a test, unregistered in tearDown */
     private array $widgets = [];
 
@@ -600,5 +607,134 @@ class ElementorAddonPacksTest extends \WP_UnitTestCase
             }
             $this->assertArrayHasKey('error', $this->read($op, [ 'widget' => $widget, 'detail' => 'everything' ]), 'An unknown detail is refused');
         }
+    }
+
+    /**
+     * Run $test with the control stacks Elementor builds on a REST request,
+     * as a real MCP request sees them (labels, options and group classes
+     * kept), and put the front-end mode of a PHPUnit run back afterwards.
+     */
+    private function in_rest_mode(callable $test): void
+    {
+        $frontend = new \ReflectionProperty(\Elementor\Core\Frontend\Performance::class, 'is_frontend');
+        $stacks   = new \ReflectionProperty(\Elementor\Controls_Manager::class, 'stacks');
+        $manager  = \Elementor\Plugin::instance()->controls_manager;
+        $was      = $frontend->getValue();
+        $frontend->setValue(null, false);
+        $stacks->setValue($manager, []);
+        try {
+            $test();
+        } finally {
+            $frontend->setValue(null, $was);
+            $stacks->setValue($manager, []);
+        }
+    }
+
+    /**
+     * One widget's summary rows put back together from a shared summary:
+     * its own controls, each group's fields (the shared field rows, minus
+     * omitted ones, with changed ones in their place) under the group's
+     * prefix, and the common controls.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function expand(array $result, array $row): array
+    {
+        $rows = $row['controls'];
+        $sets = [ $row['groups'] ?? [], $result['common']['groups'] ?? [] ];
+        foreach ($sets as $groups) {
+            foreach ($groups as $prefix => $group) {
+                $fields = array_diff_key($result['group_fields'][ $group['type'] ], array_flip($group['omitted'] ?? []));
+                foreach (array_replace($fields, $group['changed'] ?? []) as $field => $field_row) {
+                    $rows[ $prefix . $field ] = $field_row;
+                }
+            }
+        }
+        $rows += $result['common']['controls'] ?? [];
+        ksort($rows);
+        return $rows;
+    }
+
+    /**
+     * Issues #878 and #862: Elementor's common Advanced tab controls come
+     * once per answer, not once per widget, and each group control
+     * (background, border, typography) comes as one entry by its setting
+     * prefix with its field rows given once per answer, so a summary of five
+     * named widgets stays small. Nothing is lost: each widget's rows put
+     * back together are exactly its full summary, its own controls are as
+     * before, control_count still counts every control and detail:"full"
+     * still has every definition.
+     */
+    public function test_a_summary_gives_common_and_group_controls_once_per_answer(): void
+    {
+        $this->register_widgets(
+            \WPMCP\Tests\Support\ElementorAddons\Essential_Rich::class,
+            \WPMCP\Tests\Support\ElementorAddons\Premium_Rich::class,
+            \WPMCP\Tests\Support\ElementorAddons\Ultimate_Rich::class,
+            \Elementor\Jet_Elements_Fixture_Rich_A::class,
+            \Elementor\Jet_Elements_Fixture_Rich_B::class,
+            \Elementor\Jet_Elements_Fixture_Rich_C::class,
+            \Elementor\Jet_Elements_Fixture_Rich_D::class,
+            \Elementor\Jet_Elements_Fixture_Rich_E::class
+        );
+        $this->activate(...self::SUITES);
+
+        $this->in_rest_mode(function (): void {
+            $manager = \Elementor\Plugin::instance()->widgets_manager;
+            $common  = array_keys((array) $manager->get_widget_types('common')->get_controls());
+            $this->assertGreaterThan(100, count($common), 'Elementor\'s common widget carries its Advanced tab controls');
+            $own = [
+                'fixture_title'         => [ 'type' => 'text', 'label' => 'Title', 'default' => 'Hello' ],
+                'fixture_link'          => [ 'type' => 'text', 'label' => 'Link' ],
+                'fixture_tag'           => [ 'type' => 'select', 'label' => 'Title HTML Tag', 'default' => 'h5', 'options' => [ 'h1', 'h2', 'h5', 'div' ] ],
+                'fixture_height'        => [ 'type' => 'slider', 'label' => 'Height', 'default' => [ 'unit' => 'px', 'size' => 300 ] ],
+                'fixture_height_tablet' => [ 'type' => 'slider', 'label' => 'Height' ],
+                'fixture_items'         => [ 'type' => 'repeater', 'label' => 'Items' ],
+            ];
+            $fixtures = [
+                'essential-addons' => [ 'eael-fixture-rich' ],
+                'premium-addons'   => [ 'premium-addon-fixture-rich' ],
+                'ultimate-addons'  => [ 'fixture-rich-retina' ],
+                'jet-elements'     => [ 'jet-fixture-rich-a', 'jet-fixture-rich-b', 'jet-fixture-rich-c', 'jet-fixture-rich-d', 'jet-fixture-rich-e' ],
+            ];
+
+            foreach ($fixtures as $suite => $names) {
+                $op     = "list-{$suite}-widgets";
+                $result = $this->read($op, [ 'widgets' => $names ])['result'];
+                $this->assertSame('summary', $result['detail']);
+                $this->assertSame($names, array_column($result['widgets'], 'name'));
+                $this->assertNotEmpty($result['common']['controls'], "{$suite}: the common controls come once, beside the widgets");
+                $this->assertArrayHasKey('_margin', $result['common']['controls']);
+                $this->assertArrayHasKey('note', $result, "{$suite}: the answer says how to read it");
+                $this->assertArrayHasKey('background', $result['group_fields'], "{$suite}: group field rows are given once");
+                $this->assertSame(self::TYPOGRAPHY_ROWS, $result['group_fields']['typography']);
+                $this->assertSame([ 'type' => 'background' ], $result['common']['groups']['_background_'], 'The common controls use the same group rows');
+
+                foreach ($result['widgets'] as $row) {
+                    $widget = $manager->get_widget_types($row['name']);
+                    $this->assertSame(count((array) $widget->get_controls()), $row['control_count'], "{$suite}: control_count still counts every control");
+                    $this->assertSame($own, $row['controls'], "{$suite}: the widget's own controls are unchanged");
+                    $this->assertSame([], array_intersect($common, array_keys($row['controls'])), "{$suite}: no common control inside a widget");
+                    $this->assertSame([ 'normal_bg_', 'hover_bg_', 'label_typography_' ], array_keys($row['groups']), "{$suite}: one entry per group control");
+                    $this->assertSame([ 'type' => 'background' ], $row['groups']['normal_bg_'], 'A group like the shared one is one short entry');
+                    $this->assertSame([ 'default' => '#000000' ], array_diff_assoc($row['groups']['hover_bg_']['changed']['color_b'], $result['group_fields']['background']['color_b']), 'A changed field is told per group');
+                    $this->assertSame([ 'color_b' ], array_keys($row['groups']['hover_bg_']['changed']));
+                    $this->assertSame([ 'image' ], $row['groups']['hover_bg_']['omitted'], 'and so is a left-out one');
+                    $this->assertSame('typography', $row['groups']['label_typography_']['type']);
+                    $summary = \WPMCP\Tools\Elementor\Widget_View::control_summary($widget);
+                    ksort($summary);
+                    $this->assertSame($summary, $this->expand($result, $row), "{$suite}: put back together, the rows are exactly the widget's full summary");
+                }
+
+                $full = $this->read($op, [ 'widget' => $names[0], 'detail' => 'full' ])['result'];
+                $this->assertArrayNotHasKey('common', $full, "{$suite}: detail:full is unchanged");
+                $this->assertSame(array_keys((array) $manager->get_widget_types($names[0])->get_controls()), array_keys($full['widgets'][0]['controls']));
+            }
+
+            $size = static fn (array $out): int => strlen((string) wp_json_encode($out));
+            $one  = $this->read('list-jet-elements-widgets', [ 'widget' => 'jet-fixture-rich-a' ])['result'];
+            $five = $this->read('list-jet-elements-widgets', [ 'widgets' => $fixtures['jet-elements'] ])['result'];
+            $this->assertLessThan(2 * $size($one), $size($five), 'Five widgets cost far less than five times one: what they share comes once');
+        });
     }
 }

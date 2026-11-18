@@ -21,6 +21,7 @@ if (! defined('ABSPATH')) {
  * everything for an administrator, otherwise its own agent visibility
  * (all tickets, assigned and unassigned, or assigned only) and mailbox
  * restrictions. The ticket's hash and secret_content are never returned.
+ * Files come from {prefix}fs_attachments (attachments()).
  *
  * Writes go through the plugin's own services as the current user's agent
  * record (fs_persons, person_type agent), the way its ticket screen does:
@@ -281,18 +282,61 @@ class Helpdesk_Fluent_Support extends Helpdesk_Adapter
             ($page - 1) * $per_page
         ), ARRAY_A);
         // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $files  = self::attachments($id, array_map('intval', array_column($rows, 'id')));
         $thread = [];
         foreach ($rows as $item) {
             $thread[] = [
-                'id'      => (int) $item['id'],
-                'type'    => (string) $item['conversation_type'],
-                'by'      => empty($item['p_id']) ? null : [ 'id' => (int) $item['p_id'], 'name' => trim((string) $item['p_first_name'] . ' ' . (string) $item['p_last_name']), 'type' => (string) $item['person_type'] ],
-                'content' => (string) $item['content'],
-                'source'  => (string) $item['source'],
-                'date'    => (string) $item['created_at'],
+                'id'          => (int) $item['id'],
+                'type'        => (string) $item['conversation_type'],
+                'by'          => empty($item['p_id']) ? null : [ 'id' => (int) $item['p_id'], 'name' => trim((string) $item['p_first_name'] . ' ' . (string) $item['p_last_name']), 'type' => (string) $item['person_type'] ],
+                'content'     => (string) $item['content'],
+                'source'      => (string) $item['source'],
+                'date'        => (string) $item['created_at'],
+                'attachments' => $files[ (int) $item['id'] ] ?? [],
             ];
         }
-        return $ticket + [ 'content' => $content, 'thread' => $thread, 'thread_total' => $total ];
+        return $ticket + [ 'content' => $content, 'attachments' => $files[0] ?? [], 'thread' => $thread, 'thread_total' => $total ];
+    }
+
+    /**
+     * The files on a ticket (key 0) and on the given thread entries (keyed
+     * by conversation id), as Fluent Support's ticket screen lists them:
+     * status active only (inline images are already in the content, and
+     * in-active or deleting rows are uploads not yet sent or on their way
+     * out). The url is the unsigned fst_file link Fluent Support itself
+     * stores in content: Fluent Support serves it only to someone it lets
+     * see the ticket and sends a logged-out visitor to the login page. The
+     * signed link (a bearer link for anyone holding it), the storage path
+     * and the direct upload URL are never returned.
+     *
+     * @param int[] $conversations
+     * @return array<int, array<int, array{id: int, name: string, type: string, size: int|null, url: string|null, date: string}>>
+     */
+    private static function attachments(int $ticket, array $conversations): array
+    {
+        global $wpdb;
+        $in   = [] === $conversations ? '' : ' OR conversation_id IN (' . implode(',', array_fill(0, count($conversations), '%d')) . ')';
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $in holds only %d placeholders.
+        $rows = (array) $wpdb->get_results($wpdb->prepare(
+            "SELECT id, conversation_id, title, file_type, file_size, file_hash, created_at FROM %i WHERE ticket_id = %d AND status = 'active' AND (conversation_id IS NULL OR conversation_id = 0{$in}) ORDER BY id ASC",
+            self::table('attachments'),
+            $ticket,
+            ...$conversations
+        ), ARRAY_A);
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+        $out = [];
+        foreach ($rows as $row) {
+            $hash = (string) $row['file_hash'];
+            $out[ (int) $row['conversation_id'] ][] = [
+                'id'   => (int) $row['id'],
+                'name' => (string) $row['title'],
+                'type' => (string) $row['file_type'],
+                'size' => is_numeric($row['file_size']) ? (int) $row['file_size'] : null,
+                'url'  => '' === $hash ? null : add_query_arg([ 'fst_file' => rawurlencode($hash) ], site_url('/index.php')),
+                'date' => (string) $row['created_at'],
+            ];
+        }
+        return $out;
     }
 
     protected function customer_email(int $id): string

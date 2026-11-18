@@ -21,7 +21,11 @@ class List_Backup_Jobs
         $status = isset($args['status']) ? (string) $args['status'] : '';
 
         $out = [
-            'jobs'      => Backup_Job_Store::list($status),
+            // A chunked build's step cursor (issue #783) is internal.
+            'jobs'      => array_map(static function (array $job): array {
+                unset($job['build']);
+                return $job;
+            }, Backup_Job_Store::list($status)),
             'schedules' => Backup_Schedule::report(),
         ];
         // Multisite: schedules disabled anywhere on the network because

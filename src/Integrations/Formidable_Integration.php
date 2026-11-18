@@ -221,10 +221,15 @@ class Formidable_Integration extends Forms_Integration
                     $entry    = \FrmEntry::getOne($entry_id);
                     $children = self::child_entry_ids($entry_id);
                     $values   = self::count_rows('frm_item_metas', 'item_id', $entry_id);
-                    return [
-                        'message' => sprintf('It permanently deletes Formidable entry %d of form %d (%d stored values, %d child entries). Uploaded files stay on disk. Undo: rollback-session.', $entry_id, (int) ($entry->form_id ?? 0), $values, count($children)),
-                        'data'    => [ 'entry_id' => $entry_id, 'form_id' => (int) ($entry->form_id ?? 0), 'date' => (string) ($entry->created_at ?? ''), 'values' => $values, 'child_entries' => count($children), 'files_stay_on_disk' => true ],
-                    ];
+                    return self::delete_entry_preview(
+                        sprintf('Formidable entry %d of form %d', $entry_id, (int) ($entry->form_id ?? 0)),
+                        $entry_id,
+                        $values,
+                        'rollback-session',
+                        [ 'form_id' => (int) ($entry->form_id ?? 0), 'date' => (string) ($entry->created_at ?? ''), 'child_entries' => count($children) ],
+                        true,
+                        sprintf(', %d child entries', count($children))
+                    );
                 },
                 'handler'           => static function (array $args, array $context): array {
                     $entry_id = (int) $args['entry_id'];

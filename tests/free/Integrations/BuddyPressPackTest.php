@@ -291,6 +291,52 @@ class BuddyPressPackTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString('203.0.113.9', $json);
     }
 
+    /** Issue #941: every member an item names is masked, not only its author, and member links lose the login. */
+    public function test_a_masked_activity_list_masks_every_member_named_in_a_friendship_item(): void
+    {
+        $alice = self::factory()->user->create([ 'user_login' => 'alicew', 'user_nicename' => 'alicew', 'display_name' => 'Alice Walker' ]);
+        $bob   = self::factory()->user->create([ 'user_login' => 'bobstone', 'user_nicename' => 'bobstone', 'display_name' => 'Bob Stone' ]);
+        $id    = wpmcp_test_bp_activity($alice, '', [
+            'component'         => 'friends',
+            'type'              => 'friendship_created',
+            'action'            => '<a href="https://example.org/members/alicew/">Alice Walker</a> and <a href="https://example.org/members/bobstone/">Bob Stone</a> are now friends',
+            'primary_link'      => 'https://example.org/members/alicew/',
+            'item_id'           => 7,
+            'secondary_item_id' => $bob,
+            'hide_sitewide'     => 1,
+        ]);
+        $note  = wpmcp_test_bp_activity($this->admin, 'Thanks <a class="bp-suggestions-mention" href="https://example.org/members/bobstone/" rel="nofollow">@bobstone</a>', [
+            'action'       => '<a href="https://example.org/members/admin-slug/">Ada Admin</a> posted an update',
+            'primary_link' => 'https://example.org/members/admin-slug/',
+        ]);
+
+        $out = $this->read('buddypress-list-activity');
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertTrue($out['result']['masked']);
+        $rows = array_column($out['result']['activity'], null, 'id');
+        $item = $rows[ $id ];
+        $json = (string) wp_json_encode($out);
+
+        foreach ([ 'Alice Walker', 'Bob Stone', 'Alice', 'Stone', 'alicew', 'bobstone', 'Ada Admin', 'admin-slug' ] as $leak) {
+            $this->assertStringNotContainsString($leak, $json, "\"$leak\" must not appear in a masked list");
+        }
+        $this->assertStringContainsString('A***', $item['action']);
+        $this->assertStringContainsString('B***', $item['action']);
+        $this->assertStringContainsString('are now friends', $item['action']);
+        $this->assertStringContainsString('/members/a***/', $item['primary_link']);
+        $this->assertStringContainsString('@b***', $rows[ $note ]['content']);
+        $this->assertStringContainsString('Thanks', $rows[ $note ]['content']);
+
+        $this->assertSame($alice, $item['user']['id']);
+        $this->assertSame('friends', $item['component']);
+        $this->assertSame('friendship_created', $item['type']);
+        $this->assertSame(7, $item['item_id']);
+        $this->assertSame($bob, $item['secondary_item_id']);
+        $this->assertSame('2026-01-02 03:04:05', $item['date_recorded']);
+        $this->assertTrue($item['hidden']);
+        $this->assertFalse($item['spam']);
+    }
+
     public function test_activity_filters_and_hides_moderated_items_from_non_moderators(): void
     {
         $user = self::factory()->user->create();

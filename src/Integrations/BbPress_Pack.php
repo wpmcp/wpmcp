@@ -56,7 +56,7 @@ final class BbPress_Pack
     public static function requirement(bool $write = false)
     {
         if (! self::active() || ($write && ! function_exists('bbp_insert_topic'))) {
-            return [ 'code' => 'bbpress_inactive', 'message' => 'bbPress is not active on this site.' ];
+            return Plugin_Refusal::make('bbpress_inactive', 'bbPress');
         }
         return true;
     }
@@ -91,12 +91,13 @@ final class BbPress_Pack
             ],
             'bbpress-list-topics'    => [
                 'mode'         => 'read',
-                'description'  => 'List the topics of a bbPress forum, newest first (id, title, status publish/closed/spam/pending, sticky, author, reply and voice counts, last activity); filter by status',
+                'description'  => 'List the topics of a bbPress forum, newest first (id, title, status publish/closed/spam/pending, sticky, author, reply and voice counts, last activity, tags); filter by status or tag slug',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
                         'forum_id' => [ 'type' => 'integer', 'minimum' => 1 ],
                         'status'   => [ 'type' => 'string', 'enum' => self::TOPIC_STATUSES ],
+                        'tag'      => [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 200 ],
                     ] + $paging,
                     'required'   => [ 'forum_id' ],
                 ],
@@ -107,7 +108,7 @@ final class BbPress_Pack
             ],
             'bbpress-get-topic'      => [
                 'mode'         => 'read',
-                'description'  => 'Read one bbPress topic (title, content, status, forum, counts) with its replies in posting order, paged',
+                'description'  => 'Read one bbPress topic (title, content, status, forum, counts, tags) with its replies in posting order, paged',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'topic_id' => [ 'type' => 'integer', 'minimum' => 1 ] ] + $paging,
@@ -216,7 +217,7 @@ final class BbPress_Pack
         if ([] === $status) {
             return [ 'topics' => [], 'total' => 0 ];
         }
-        $q      = Readable_Posts::query([
+        $query  = [
             'post_type'      => BbPress_Posts_Snapshot::post_type('topic'),
             'post_parent'    => $forum_id,
             'post_status'    => $status,
@@ -224,7 +225,18 @@ final class BbPress_Pack
             'paged'          => (int) ($args['page'] ?? 1),
             'orderby'        => 'date',
             'order'          => 'DESC',
-        ]);
+        ];
+        if (isset($args['tag'])) {
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query -- one forum's topics, by the tag the caller named.
+            $query['tax_query'] = [
+                [
+                    'taxonomy' => BbPress_Posts_Snapshot::tag_taxonomy(),
+                    'field'    => 'slug',
+                    'terms'    => (string) $args['tag'],
+                ],
+            ];
+        }
+        $q      = Readable_Posts::query($query);
         $sticky = self::sticky_ids($forum_id);
         $topics = [];
         foreach ($q->posts as $post) {
@@ -275,7 +287,28 @@ final class BbPress_Pack
             'reply_count' => (int) get_post_meta($post->ID, '_bbp_reply_count', true),
             'voice_count' => (int) get_post_meta($post->ID, '_bbp_voice_count', true),
             'last_active' => (string) get_post_meta($post->ID, '_bbp_last_active_time', true),
+            'tags'        => self::topic_tags($post),
         ];
+    }
+
+    /**
+     * A topic's tags from bbPress's topic tag taxonomy, whatever the site
+     * named it.
+     *
+     * @return array<int, array{id: int, name: string, slug: string}>
+     */
+    private static function topic_tags(\WP_Post $post): array
+    {
+        $terms = get_the_terms($post, BbPress_Posts_Snapshot::tag_taxonomy());
+        if (! is_array($terms)) {
+            return [];
+        }
+        usort($terms, static fn (\WP_Term $a, \WP_Term $b): int => strcmp($a->slug, $b->slug));
+        $tags = [];
+        foreach ($terms as $term) {
+            $tags[] = [ 'id' => (int) $term->term_id, 'name' => (string) $term->name, 'slug' => (string) $term->slug ];
+        }
+        return $tags;
     }
 
     /** A forum's sticky topic ids, its own list and the site-wide super stickies. */

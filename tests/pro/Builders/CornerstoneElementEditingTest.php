@@ -169,6 +169,53 @@ class CornerstoneElementEditingTest extends \WP_UnitTestCase
         $this->assertSame($before, $this->state($post_id));
     }
 
+    /** Cornerstone's Services\Revisions::save_revision(), as 7.8.12 hooks it on save_post. */
+    public static function copy_layout_to_revision(int $revision_id): void
+    {
+        $parent_id = wp_is_post_revision($revision_id);
+        if (! $parent_id) {
+            return;
+        }
+        foreach ([Cornerstone_Content::DATA_META_KEY, Cornerstone_Content::SETTINGS_META_KEY] as $key) {
+            $meta = get_post_meta($parent_id, $key, true);
+            if ('' !== $meta) {
+                update_metadata('post', $revision_id, $key, wp_slash($meta));
+            }
+        }
+    }
+
+    public function test_the_revision_an_undo_saves_holds_the_restored_layout(): void
+    {
+        // Issue #872: the undo saved a revision with the layout it undid.
+        $this->load();
+        add_action('save_post', [self::class, 'copy_layout_to_revision'], 100);
+        try {
+            $post_id = $this->page();
+            $before  = $this->state($post_id);
+
+            $edit  = $this->update($post_id, ['operation' => 'update', 'path' => '0.0.0.0', 'attrs' => ['text_content' => 'WP MCP headline test']]);
+            $read  = (new Get_Builder_Content())->handle(['post_id' => $post_id]);
+            $this->assertSame($read['hash'], $read['revisions'][0]['hash'], 'the write saves its own layout on its revision');
+            Rollback_Service::restore_operation($edit['operation_id']);
+
+            $read = (new Get_Builder_Content())->handle(['post_id' => $post_id]);
+            $this->assertSame(hash('sha256', self::DATA), $read['hash']);
+            $this->assertSame($read['hash'], $read['revisions'][0]['hash'], 'the undo revision holds the restored layout');
+
+            $move = $this->update($post_id, ['operation' => 'move', 'path' => '0.0.0.1', 'to' => '0.0.0', 'index' => 0, 'session_id' => 'cornerstone-872']);
+            $this->assertNotSame(hash('sha256', self::DATA), Cornerstone_Content::hash($post_id));
+            $this->assertSame(1, Rollback_Service::restore_session('cornerstone-872'));
+
+            $read = (new Get_Builder_Content())->handle(['post_id' => $post_id]);
+            $this->assertSame(hash('sha256', self::DATA), $read['hash']);
+            $this->assertSame($read['hash'], $read['revisions'][0]['hash'], 'rollback-session too');
+            $this->assertSame(self::SETTINGS, get_post_meta($read['revisions'][0]['id'], Cornerstone_Content::SETTINGS_META_KEY, true));
+            $this->assertSame($before, $this->state($post_id));
+        } finally {
+            remove_action('save_post', [self::class, 'copy_layout_to_revision'], 100);
+        }
+    }
+
     public function test_update_refuses_text_type_and_children(): void
     {
         $this->load();

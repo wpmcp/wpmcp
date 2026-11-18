@@ -592,7 +592,7 @@ class SiteTemplatesTest extends \WP_UnitTestCase
             $this->assertArrayHasKey($name, $abilities);
 
             wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
-            $this->assertFalse($abilities[ $name ]->check_permissions(), "{$name} must deny an editor");
+            $this->assertNotTrue($abilities[ $name ]->check_permissions(), "{$name} must deny an editor");
 
             wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
             wpmcp_test_grant_network_admin(get_current_user_id());

@@ -62,7 +62,7 @@ class AcfCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/get-fields']->check_permissions(),
             'wpmcp/get-fields must deny a subscriber'
         );
@@ -85,7 +85,7 @@ class AcfCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/update-fields']->check_permissions(),
             'wpmcp/update-fields must deny a subscriber'
         );

@@ -77,11 +77,20 @@ class Update_Post
                 throw new \InvalidArgumentException($guard);
             }
         }
+        if (isset($args['meta']) && is_array($args['meta'])) {
+            Code_Posts::assert_meta_writable((string) $post->post_type, array_map('strval', array_keys($args['meta'])), $post_id);
+        }
+        if (array_key_exists('content', $args)) {
+            // Refused before the snapshot, so nothing is left to undo (#893).
+            Code_Posts::assert_content_writable($post_id, (string) $args['content']);
+        }
         if (isset($args['status']) && ! in_array($args['status'], self::VALID_STATUSES, true)) {
             throw new \InvalidArgumentException('Invalid status.');
         }
         if (! empty($args['status'])) {
             Post_Status_Guard::assert((string) $post->post_type, sanitize_key((string) $args['status']), false);
+            // A code layout goes live through its layout op only (#890, #893).
+            Code_Posts::assert_status_allowed($post_id, sanitize_key((string) $args['status']));
         }
 
         $old_status = (string) $post->post_status;

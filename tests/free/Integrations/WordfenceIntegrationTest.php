@@ -361,10 +361,25 @@ class WordfenceIntegrationTest extends \WP_UnitTestCase
             'unblock-wordfence-ip'        => [ 'ip' => '203.0.113.52' ],
             'ignore-wordfence-scan-issue' => [ 'issue_id' => $issue ],
         ];
+        $does  = [
+            'block-wordfence-ip'          => 'With confirm:true: Block 203.0.113.51 in Wordfence permanently, until it is unblocked',
+            'unblock-wordfence-ip'        => 'With confirm:true: Remove the 1 Wordfence block on 203.0.113.52',
+            'ignore-wordfence-scan-issue' => sprintf('With confirm:true: Mark Wordfence scan issue %d as ignored until the issue changes (ignoreC)', $issue),
+        ];
         foreach ($cases as $op => $args) {
             $r = $this->write($op, $args);
             $this->assertSame('confirmation_required', $r['error']['code'] ?? null, $op);
-            $this->assertStringContainsString('confirm:true', $r['error']['message'], $op);
+            $this->assertStringContainsString($does[ $op ], $r['error']['message'], 'the refusal says exactly what confirm:true will do: ' . $op);
+            // Issue #886 retest: a client running with permission prompts
+            // skipped answers an elicitation by itself, so these ops are
+            // never turned into one; only confirm:true in the call counts.
+            $this->assertStringContainsString("confirm:true in the call's own arguments", $r['error']['message'], $op);
+            $this->assertTrue($r['error']['data']['confirm_in_arguments'] ?? null, $op);
+            $this->assertFalse(\WPMCP\MCP\Elicitation::is_confirmation_refusal($r), $op . ' is not elicited');
+        }
+        $ops = array_column($this->read('list-operations')['result']['operations'], null, 'name');
+        foreach (array_keys($cases) as $op) {
+            $this->assertTrue($ops[ $op ]['confirm_in_arguments'] ?? null, $op);
         }
         $this->assertSame([], $this->fake->calls);
         $this->assertSame($blocks, $this->all_blocks());

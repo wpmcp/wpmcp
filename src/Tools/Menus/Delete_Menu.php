@@ -43,7 +43,7 @@ class Delete_Menu
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \WPMCP\MCP\Confirmation_Required('Deleting a menu is not reversible. Pass confirm:true to proceed.');
+            throw \WPMCP\MCP\Confirmation_Required::in_arguments('Deleting a menu is not reversible. Pass confirm:true to proceed.');
         }
 
         $name  = $menu->name;

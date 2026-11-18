@@ -66,7 +66,7 @@ class MemoryEnforcementTest extends \WP_UnitTestCase
 
         $this->publish_rule(['tool:delete-post']);
 
-        $this->assertFalse($abilities['wpmcp/delete-post']->check_permissions(['post_id' => 1]));
+        $this->assertNotTrue($abilities['wpmcp/delete-post']->check_permissions(['post_id' => 1]));
     }
 
     public function test_a_pending_rule_denies_nothing(): void
@@ -94,7 +94,7 @@ class MemoryEnforcementTest extends \WP_UnitTestCase
 
         $ability = wp_get_abilities()['wpmcp/update-post'];
 
-        $this->assertFalse($ability->check_permissions(['post_id' => $protected]));
+        $this->assertNotTrue($ability->check_permissions(['post_id' => $protected]));
         $this->assertTrue($ability->check_permissions(['post_id' => $other]));
     }
 
@@ -103,7 +103,7 @@ class MemoryEnforcementTest extends \WP_UnitTestCase
         $page = self::factory()->post->create(['post_type' => 'page']);
         $this->publish_rule(['post_type:page']);
 
-        $this->assertFalse(wp_get_abilities()['wpmcp/update-post']->check_permissions(['post_id' => $page]));
+        $this->assertNotTrue(wp_get_abilities()['wpmcp/update-post']->check_permissions(['post_id' => $page]));
     }
 
     /** Reads stay open: a guardrail restricts changes, not visibility. */

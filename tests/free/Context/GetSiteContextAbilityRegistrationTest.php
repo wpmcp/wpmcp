@@ -28,6 +28,6 @@ class GetSiteContextAbilityRegistrationTest extends \WP_UnitTestCase
         $this->assertTrue($ability->check_permissions(), 'get-site-context must allow a contributor (edit_posts)');
 
         wp_set_current_user(0);
-        $this->assertFalse($ability->check_permissions(), 'get-site-context must deny a logged-out visitor');
+        $this->assertNotTrue($ability->check_permissions(), 'get-site-context must deny a logged-out visitor');
     }
 }

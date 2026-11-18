@@ -129,6 +129,8 @@ class Duplicate_Post
         // anything is written, so a refusal leaves no partial copy.
         foreach (array_merge([$source], $sources) as $original) {
             Post_Status_Guard::assert((string) $original->post_type, $status, true);
+            // A live copy of a code layout would run its code (#890, #893).
+            Code_Posts::assert_copy_allowed($original, $status);
         }
 
         $new_id = $this->copy($source, $title, $status, (int) $source->post_parent);

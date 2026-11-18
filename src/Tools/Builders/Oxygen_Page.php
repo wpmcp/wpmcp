@@ -217,6 +217,22 @@ final class Oxygen_Page
             return new \WP_Error('builder_not_loaded', 'Saving a Component needs Oxygen 6 loaded on this site, since the Component post type is its own.');
         }
 
+        // Oxygen forces this type to publish and a Component renders
+        // wherever it is placed, so saving one is publishing it: it needs
+        // the type's publish_posts as well as edit_posts, as wp-admin asks
+        // (issue #947). Refused before anything is written or snapshotted.
+        $type_object = get_post_type_object(self::COMPONENT_POST_TYPE);
+        if ($type_object && ! current_user_can($type_object->cap->edit_posts)) {
+            return new \WP_Error('forbidden', 'Saving a Component needs the capability to create Oxygen Components.');
+        }
+        if ($type_object && ! current_user_can($type_object->cap->publish_posts)) {
+            return new \WP_Error(
+                'forbidden',
+                sprintf('Saving an Oxygen Component needs the %s capability: Oxygen publishes a Component as soon as it is saved. Ask an Editor or Administrator to save it.', $type_object->cap->publish_posts),
+                ['status' => 403, 'capability' => $type_object->cap->publish_posts]
+            );
+        }
+
         $spec  = $args['element'] ?? null;
         $title = is_array($spec) && is_string($spec['title'] ?? null) ? trim($spec['title']) : '';
         if ('' === $title) {
@@ -237,11 +253,6 @@ final class Oxygen_Page
             }
         } catch (\InvalidArgumentException $e) {
             return new \WP_Error('invalid_oxygen_request', $e->getMessage());
-        }
-
-        $type_object = get_post_type_object(self::COMPONENT_POST_TYPE);
-        if ($type_object && ! current_user_can($type_object->cap->edit_posts)) {
-            return new \WP_Error('forbidden', 'Saving a Component needs the capability to create Oxygen Components.');
         }
 
         $id = wp_insert_post(wp_slash([

@@ -34,7 +34,10 @@ if (! defined('ABSPATH')) {
  *  - nothing here ever saves a snippet as active, so Code Snippets never
  *    runs its code on our behalf.
  * Only PHP snippets (global, admin, front-end and single-use scopes) are
- * written; HTML, CSS and JS snippets are listed and read only.
+ * created, activated or given new code. HTML, CSS and JS snippets take
+ * update-snippet changes to their name, description, tags and priority
+ * only (issue #881), under the same inactive and unlocked checks; a code
+ * change on one is refused.
  *
  * Every write is snapshotted as a 'code_snippet' row image first
  * (Code_Snippet_Snapshot), so rollback-operation restores the row exactly,
@@ -68,7 +71,7 @@ final class Code_Snippets_Pack
     public static function requirement()
     {
         if (! self::active()) {
-            return [ 'code' => 'code_snippets_inactive', 'message' => 'The Code Snippets plugin is not active on this site.' ];
+            return Plugin_Refusal::make('code_snippets_inactive', 'Code Snippets');
         }
         foreach (self::API as $fn) {
             if (! function_exists('Code_Snippets\\' . $fn)) {
@@ -140,7 +143,7 @@ final class Code_Snippets_Pack
             ],
             'code-snippets-update-snippet'     => $base + [
                 'mode'         => 'write',
-                'description'  => 'Change an inactive PHP snippet\'s name, description, code, tags or priority; new code must pass the static check. Active snippets are refused (deactivate first). Snapshotted',
+                'description'  => 'Change an inactive snippet\'s name, description, tags or priority (any type) or a PHP snippet\'s code; new code must pass the static check. Active snippets are refused (deactivate first). Snapshotted',
                 'input_schema' => [
                     'type'          => 'object',
                     'properties'    => [
@@ -294,7 +297,11 @@ final class Code_Snippets_Pack
             throw new Operation_Refused('write_failed', 'Code Snippets did not save the snippet.');
         }
         $stored = self::find($id);
-        return [ 'snippet' => self::view($stored), 'validation' => Php_Snippet_Validator::validate((string) $stored->code) ];
+        $out    = [ 'snippet' => self::view($stored) ];
+        if ('php' === (string) $stored->type) {
+            $out['validation'] = Php_Snippet_Validator::validate((string) $stored->code);
+        }
+        return $out;
     }
 
     private static function deactivate(int $id, string $operation): array
@@ -383,6 +390,26 @@ final class Code_Snippets_Pack
         return null;
     }
 
+    /**
+     * Refusal for an update-snippet write (issue #881): a PHP snippet must be
+     * writable; any other type takes only its details (name, description,
+     * tags, priority), so new code on it is refused, as is a locked one.
+     */
+    private static function details_refusal(int $id, bool $with_code): ?array
+    {
+        $snippet = self::lookup($id);
+        if (null === $snippet || 'php' === (string) $snippet->type) {
+            return self::writable_refusal($id);
+        }
+        if ($with_code) {
+            return [ 'code' => 'unsupported_snippet_type', 'message' => sprintf('Snippet %d is a %s snippet; code is the PHP-only field, so drop code to change its name, description, tags or priority.', $id, (string) $snippet->type), 'data' => [ 'id' => $id, 'field' => 'code' ] ];
+        }
+        if (! empty($snippet->locked)) {
+            return [ 'code' => 'snippet_locked', 'message' => sprintf('Snippet %d is locked in Code Snippets.', $id), 'data' => [ 'id' => $id ] ];
+        }
+        return null;
+    }
+
     /** Refusal when PHP code is too large or fails the static check, or null. */
     public static function code_refusal(string $code, string $what): ?array
     {
@@ -405,7 +432,7 @@ final class Code_Snippets_Pack
         $id = (int) $args['id'];
         return self::access_refusal()
             ?? self::missing_refusal($id)
-            ?? self::writable_refusal($id)
+            ?? self::details_refusal($id, isset($args['code']))
             ?? self::state_refusal($id, false)
             ?? (isset($args['code']) ? self::code_refusal((string) $args['code'], 'update the snippet') : null);
     }

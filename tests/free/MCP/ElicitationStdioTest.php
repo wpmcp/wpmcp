@@ -56,6 +56,7 @@ class ElicitationStdioTest extends \WP_UnitTestCase
         remove_all_filters('wpmcp_rate_limit');
         remove_all_filters('wpmcp_enable_delete_comment');
         remove_all_filters('wpmcp_enable_delete_post');
+        remove_all_filters('wpmcp_enable_delete_menu');
         Rate_Limiter::set_clock_override(null);
         Identity_Context::set_current_for_tests(null);
         Governance::reset_for_tests();
@@ -292,6 +293,41 @@ class ElicitationStdioTest extends \WP_UnitTestCase
         $this->assertSame('complete', $result['resultType']);
         $this->assertFalse($result['isError']);
         $this->assertNull(get_comment($id));
+    }
+
+    /**
+     * Issue #886: Claude Code run with permission prompts skipped accepted
+     * the question itself. A gate on an action that cannot be undone is
+     * therefore reported to the agent, never asked, and only confirm:true
+     * in the call's own arguments runs it.
+     */
+    public function test_an_irreversible_gate_is_never_elicited(): void
+    {
+        add_filter('wpmcp_enable_delete_menu', '__return_true');
+        $menu = (int) wp_create_nav_menu('Footer 886');
+        $call = [ 'name' => 'wpmcp-delete-menu', 'arguments' => [ 'id' => $menu ] ];
+
+        $result = $this->modern('tools/call', $call, self::form_client())['result'];
+        $this->assertSame('complete', $result['resultType'] ?? null, (string) wp_json_encode($result));
+        $this->assertArrayNotHasKey('inputRequests', $result);
+        $this->assertTrue($result['isError']);
+        $this->assertStringContainsString("confirm:true must be in the call's own arguments", $result['content'][0]['text']);
+        $this->assertNotFalse(wp_get_nav_menu_object($menu), 'Nothing is deleted.');
+
+        $this->initialize([ 'elicitation' => new \stdClass() ]);
+        $asked = [];
+        $this->transport->set_client_requester(function (string $method, array $params) use (&$asked) {
+            $asked[] = $method;
+            return [ 'action' => 'accept', 'content' => [ 'confirm' => true ] ];
+        });
+        $legacy = $this->legacy_call($call);
+        $this->assertSame([], $asked, 'A 2025 session is not asked either.');
+        $this->assertTrue($legacy['isError']);
+        $this->assertNotFalse(wp_get_nav_menu_object($menu));
+
+        $done = $this->legacy_call([ 'name' => 'wpmcp-delete-menu', 'arguments' => [ 'id' => $menu, 'confirm' => true ] ]);
+        $this->assertFalse($done['isError'], (string) ($done['content'][0]['text'] ?? ''));
+        $this->assertFalse(wp_get_nav_menu_object($menu));
     }
 
     /** A refusal that is not a confirm gate is reported, never turned into a question. */

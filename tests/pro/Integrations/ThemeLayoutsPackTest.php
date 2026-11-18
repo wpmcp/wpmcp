@@ -129,7 +129,16 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
         $this->activate('astra', false);
         $out = $this->read('list-{f}-layouts');
         $this->assertSame('module_disabled', $out['error']['code']);
-        $this->assertStringContainsString('Custom Layouts', $out['error']['message']);
+        $this->assertStringContainsString('Switch on Site Builder under Astra > Dashboard > Astra Pro Modules.', $out['error']['message'], 'Astra Pro names the module as its dashboard does (#891)');
+        $this->assertStringNotContainsString('Custom Layouts', $out['error']['message']);
+    }
+
+    public function test_kadence_disabled_module_names_the_hooked_elements_toggle(): void
+    {
+        $this->activate('kadence', false);
+        $out = $this->read('list-{f}-layouts');
+        $this->assertSame('module_disabled', $out['error']['code']);
+        $this->assertStringContainsString('Switch on Hooked Elements under Appearance > Kadence > Pro Addons.', $out['error']['message'], 'The toggle and page as Kadence Pro names them (#891)');
     }
 
     public function test_writes_are_off_until_the_site_opts_in(): void
@@ -273,6 +282,20 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
         $this->assertArrayHasKey('rules', $hooks);
     }
 
+    public function test_astra_hooks_return_the_rule_options_outside_wp_admin(): void
+    {
+        // Astra Pro's location list calls get_current_screen(), which core
+        // loads only in wp-admin; list-astra-hooks loads it as core does
+        // (issue #894). The test bootstrap always has it loaded, so this
+        // pins the answer; the adapter's loader is what a REST request needs.
+        $this->activate('astra');
+        $rules = $this->ok($this->read('list-{f}-hooks'))['result']['rules'];
+        $this->assertArrayHasKey('basic-global', $rules['location_options']['basic']['value']);
+        $this->assertArrayHasKey('logged-in', $rules['user_options']['basic']['value']);
+        $this->assertTrue(function_exists('get_current_screen'));
+        $this->assertTrue(class_exists('WP_Screen', false));
+    }
+
     public function test_layout_ops_refuse_a_post_of_another_type(): void
     {
         $this->activate('astra');
@@ -323,6 +346,39 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
         $this->assertSame('general|404', json_decode((string) get_post_meta($id, '_kad_element_hide_conditionals', true), true)[0]['rule'], 'Keys not passed are kept');
         $this->assertTrue(Rollback_Service::restore_operation((string) $set['operation_id']));
         $this->assertSame('general|site', json_decode((string) get_post_meta($id, '_kad_element_show_conditionals', true), true)[0]['rule']);
+    }
+
+    public function test_kadence_expiry_is_read_set_and_rolled_back_as_kadence_stores_it(): void
+    {
+        $this->activate('kadence');
+        $id = (int) $this->ok($this->write('create-{f}-layout', [ 'title' => 'Sale', 'type' => 'default', 'hook' => 'kadence_before_header' ]))['result']['layout']['id'];
+
+        $view = $this->ok($this->read('get-{f}-layout', [ 'layout_id' => $id ]))['result']['layout'];
+        $this->assertSame([ 'enabled' => false, 'date' => null, 'expired' => false ], $view['rules']['expires'], 'No expiry by default');
+
+        $set = $this->ok($this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'expires' => [ 'date' => '2099-11-30 23:59' ] ] ]));
+        $this->assertSame('1', (string) get_post_meta($id, '_kad_element_enable_expires', true));
+        $this->assertSame('2099-11-30T23:59:00', get_post_meta($id, '_kad_element_expires', true), 'Stored as the element editor date picker stores it');
+        $listed = $this->ok($this->read('list-{f}-layouts'))['result']['layouts'][0];
+        $this->assertSame([ 'enabled' => true, 'date' => '2099-11-30T23:59:00', 'expired' => false ], $listed['rules']['expires']);
+
+        // Set in wp-admin to a past date: the read says it has expired.
+        update_post_meta($id, '_kad_element_expires', '2001-01-01T00:00:00');
+        $this->assertTrue($this->ok($this->read('get-{f}-layout', [ 'layout_id' => $id ]))['result']['layout']['rules']['expires']['expired']);
+
+        $off = $this->ok($this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'expires' => false ] ]));
+        $this->assertSame('', get_post_meta($id, '_kad_element_enable_expires', true));
+        $this->assertSame('2001-01-01T00:00:00', get_post_meta($id, '_kad_element_expires', true), 'Switching off keeps the date, as the toggle does');
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $off['operation_id']));
+        $this->assertSame('1', (string) get_post_meta($id, '_kad_element_enable_expires', true));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $set['operation_id']));
+        $this->assertSame('', get_post_meta($id, '_kad_element_enable_expires', true));
+        $this->assertSame('', get_post_meta($id, '_kad_element_expires', true), 'Undo restores the element without an expiry');
+
+        $this->assertSame('invalid_display_rules', $this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'expires' => [ 'date' => 'next friday-ish' ] ] ])['error']['code']);
+        $this->assertSame('invalid_display_rules', $this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'expires' => [ 'enabled' => true ] ] ])['error']['code']);
+        $this->assertStringContainsString('expires', $this->ok($this->read('list-{f}-hooks'))['result']['rules']['format']);
     }
 
     public function test_kadence_hooks_follow_the_element_type(): void
@@ -394,5 +450,196 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
         update_post_meta($php, '_generate_hook_execute_php', 'true');
         $this->assertSame('code_layout', $this->write('update-{f}-layout', [ 'layout_id' => $php, 'content' => 'x' ])['error']['code']);
         $this->assertSame('invalid_display_rules', $this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'users' => [ 'nobody_role' ] ] ])['error']['code']);
+    }
+
+    // Issue #888: a draft layout reports a real modified time.
+
+    public function test_draft_layout_reports_a_real_modified_time(): void
+    {
+        $this->activate('generatepress');
+        $out = $this->ok($this->write('create-{f}-layout', [ 'title' => 'Draft hook', 'type' => 'hook', 'hook' => 'generate_before_footer', 'content' => '<p>F</p>' ]));
+        $id  = (int) $out['result']['layout']['id'];
+        $this->assertSame('draft', get_post_status($id));
+        $this->assertSame('0000-00-00 00:00:00', get_post_field('post_modified_gmt', $id), 'WordPress keeps a new draft\'s GMT modified time at zero');
+
+        $expected = get_gmt_from_date((string) get_post_field('post_modified', $id));
+        $this->assertSame($expected, $out['result']['layout']['modified']);
+        $this->assertSame($expected, $this->ok($this->read('get-{f}-layout', [ 'layout_id' => $id ]))['result']['layout']['modified']);
+        $listed = array_column($this->ok($this->read('list-{f}-layouts'))['result']['layouts'], 'modified', 'id');
+        $this->assertSame($expected, $listed[ $id ]);
+
+        $published = self::factory()->post->create([ 'post_type' => 'gp_elements', 'post_status' => 'publish' ]);
+        update_post_meta($published, '_generate_element_type', 'hook');
+        $this->assertSame(
+            get_post_field('post_modified_gmt', $published),
+            $this->ok($this->read('get-{f}-layout', [ 'layout_id' => $published ]))['result']['layout']['modified'],
+            'A published layout keeps its stored GMT time'
+        );
+    }
+
+    // Issue #889: unknown arguments on the layout writes are refused.
+
+    /** @return array<string,array{0:string}> */
+    public static function families(): array
+    {
+        return [ 'astra' => [ 'astra' ], 'kadence' => [ 'kadence' ], 'generatepress' => [ 'generatepress' ] ];
+    }
+
+    /** @dataProvider families */
+    public function test_unknown_arguments_on_layout_writes_are_refused_naming_them(string $family): void
+    {
+        $this->activate($family);
+        $type   = [ 'astra' => 'hooks', 'kadence' => 'default', 'generatepress' => 'hook' ][ $family ];
+        $hook   = [ 'astra' => 'astra_header_before', 'kadence' => 'kadence_before_header', 'generatepress' => 'generate_before_footer' ][ $family ];
+        $before = $this->snapshot_count();
+        $count  = static fn (): int => count(get_posts([ 'post_type' => self::POST_TYPES[ $family ], 'post_status' => 'any', 'numberposts' => -1, 'fields' => 'ids' ]));
+        $posts  = $count();
+
+        $out = $this->write('create-{f}-layout', [ 'title' => 'X', 'type' => $type, 'hook' => $hook, 'colour' => 'red' ]);
+        $this->assertSame('invalid_args', $out['error']['code'], (string) wp_json_encode($out));
+        $this->assertStringContainsString('colour', $out['error']['message']);
+        $this->assertSame([ 'colour' ], $out['error']['data']['unknown']);
+        $this->assertSame($posts, $count(), 'Nothing is created');
+
+        $id  = (int) $this->ok($this->write('create-{f}-layout', [ 'title' => 'Y', 'type' => $type, 'hook' => $hook ]))['result']['layout']['id'];
+        $mid = $this->snapshot_count();
+        $out = $this->write('update-{f}-layout', [ 'layout_id' => $id, 'title' => 'Z', 'colour' => 'red' ]);
+        $this->assertSame('invalid_args', $out['error']['code']);
+        $this->assertStringContainsString('colour', $out['error']['message']);
+        $this->assertSame('Y', get_the_title($id), 'Nothing is written');
+
+        $out = $this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'users' => [] ], 'colour' => 'red' ]);
+        $this->assertSame('invalid_args', $out['error']['code']);
+        $this->assertSame($mid, $this->snapshot_count(), 'No snapshot for a refused write');
+        $this->assertGreaterThan($before, $mid);
+    }
+
+    public function test_execute_php_is_refused_pointing_at_wp_admin(): void
+    {
+        $this->activate('generatepress');
+        $out = $this->write('create-{f}-layout', [ 'title' => 'PHP hook', 'type' => 'hook', 'hook' => 'generate_before_footer', 'content' => "<?php echo 'x'; ?>", 'execute_php' => true ]);
+        $this->assertSame('invalid_args', $out['error']['code']);
+        $this->assertStringContainsString('execute_php', $out['error']['message']);
+        $this->assertStringContainsString('wp-admin', $out['error']['message']);
+        $this->assertSame([], get_posts([ 'post_type' => 'gp_elements', 'post_status' => 'any', 'fields' => 'ids' ]), 'Nothing is created');
+
+        $id  = (int) $this->ok($this->write('create-{f}-layout', [ 'title' => 'Hook', 'type' => 'hook', 'hook' => 'generate_before_footer' ]))['result']['layout']['id'];
+        $out = $this->write('update-{f}-layout', [ 'layout_id' => $id, 'execute_php' => true ]);
+        $this->assertSame('invalid_args', $out['error']['code']);
+        $this->assertStringContainsString('execute_php', $out['error']['message']);
+        $this->assertStringContainsString('wp-admin', $out['error']['message']);
+        $this->assertSame('', get_post_meta($id, '_generate_hook_execute_php', true));
+    }
+
+    // Issue #890: a layout whose code runs is not switched on with code execution off.
+
+    /** A code layout of each family: GP with Execute PHP, Astra's code editor, Kadence's HTML element. */
+    private function code_layout(string $family): int
+    {
+        $id = self::factory()->post->create([ 'post_type' => self::POST_TYPES[ $family ], 'post_status' => 'draft', 'post_title' => 'Code' ]);
+        if ('generatepress' === $family) {
+            update_post_meta($id, '_generate_element_type', 'hook');
+            update_post_meta($id, '_generate_hook', 'generate_before_footer');
+            update_post_meta($id, '_generate_hook_execute_php', 'true');
+        } elseif ('astra' === $family) {
+            update_post_meta($id, 'ast-advanced-hook-layout', 'hooks');
+            update_post_meta($id, 'editor_type', 'code_editor');
+        } else {
+            update_post_meta($id, '_kad_element_type', 'script');
+            update_post_meta($id, '_kad_element_hook', 'kadence_before_footer');
+        }
+        return $id;
+    }
+
+    /** @return array<string,mixed> rules that put the layout on the whole site, in the family's shape. */
+    private static function site_rules(string $family): array
+    {
+        return [
+            'generatepress' => [ 'display' => [ [ 'rule' => 'general:site', 'object' => '' ] ] ],
+            'astra'         => [ 'location' => [ 'rule' => [ 'basic-global' ] ] ],
+            'kadence'       => [ 'show' => [ [ 'rule' => 'general|site', 'select' => 'all' ] ] ],
+        ][ $family ];
+    }
+
+    /** @return array<string,mixed> rules that take every location away. */
+    private static function no_rules(string $family): array
+    {
+        return [
+            'generatepress' => [ 'display' => [] ],
+            'astra'         => [ 'location' => [ 'rule' => [] ] ],
+            'kadence'       => [ 'show' => [] ],
+        ][ $family ];
+    }
+
+    /** @dataProvider families */
+    public function test_code_layout_is_not_published_or_placed_with_code_execution_off(string $family): void
+    {
+        $this->activate($family);
+        $id     = $this->code_layout($family);
+        $meta   = get_post_meta($id);
+        $before = $this->snapshot_count();
+
+        foreach ([ 'publish', 'private', 'pending' ] as $status) {
+            $out = $this->write('update-{f}-layout', [ 'layout_id' => $id, 'status' => $status ]);
+            $this->assertSame('code_layout', $out['error']['code'], $status . ': ' . wp_json_encode($out));
+            $this->assertStringContainsString('wp-admin', $out['error']['message']);
+            $this->assertStringContainsString('generatepress' === $family || 'astra' === $family ? 'PHP execution' : 'injection', $out['error']['message']);
+        }
+        $out = $this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => self::site_rules($family) ]);
+        $this->assertSame('code_layout', $out['error']['code'], (string) wp_json_encode($out));
+        $this->assertStringContainsString('wp-admin', $out['error']['message']);
+
+        $this->assertSame('draft', get_post_status($id), 'Nothing is written');
+        $this->assertEquals($meta, get_post_meta($id));
+        $this->assertSame($before, $this->snapshot_count(), 'No snapshot for a refused write');
+    }
+
+    /** @dataProvider families */
+    public function test_code_layout_can_still_be_unpublished_and_unplaced(string $family): void
+    {
+        $this->activate($family);
+        $id = $this->code_layout($family);
+        wp_update_post([ 'ID' => $id, 'post_status' => 'publish' ]);
+        $a = \WPMCP\Integrations\Theme_Layouts_Pack::adapter($family);
+        $a->write_rules($id, $a->type_of($id), $a->normalize_rules(self::site_rules($family)));
+        $stored = $a->read_rules($id);
+
+        $off = $this->ok($this->write('update-{f}-layout', [ 'layout_id' => $id, 'status' => 'draft' ]));
+        $this->assertSame('draft', get_post_status($id));
+        $this->ok($this->write('update-{f}-layout', [ 'layout_id' => $id, 'title' => 'Renamed' ]));
+
+        $rules = $this->ok($this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => self::no_rules($family) ]));
+        $this->assertNotEquals($stored, $a->read_rules($id));
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $rules['operation_id']));
+        $this->assertEquals($stored, $a->read_rules($id));
+        $this->assertTrue(Rollback_Service::restore_operation((string) $off['operation_id']));
+        $this->assertSame('publish', get_post_status($id));
+    }
+
+    /** @dataProvider families */
+    public function test_code_layout_is_switched_on_when_the_site_allows_code_execution(string $family): void
+    {
+        $this->activate($family);
+        $id     = $this->code_layout($family);
+        $filter = 'kadence' === $family ? 'wpmcp_allow_js_injection' : 'wpmcp_allow_php_exec';
+        add_filter($filter, '__return_true');
+        \WPMCP\Tools\Code\Php_Snippet_Guard::set_environment_override('local');
+        try {
+            $this->ok($this->write('update-{f}-layout', [ 'layout_id' => $id, 'status' => 'publish' ]));
+            $this->ok($this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => self::site_rules($family) ]));
+            $this->assertSame('publish', get_post_status($id));
+        } finally {
+            remove_filter($filter, '__return_true');
+            \WPMCP\Tools\Code\Php_Snippet_Guard::set_environment_override(null);
+        }
+    }
+
+    public function test_plain_layout_is_published_and_placed_with_code_execution_off(): void
+    {
+        $this->activate('generatepress');
+        $id = (int) $this->ok($this->write('create-{f}-layout', [ 'title' => 'Plain', 'type' => 'hook', 'hook' => 'generate_before_footer', 'content' => '<p>x</p>' ]))['result']['layout']['id'];
+        $this->ok($this->write('update-{f}-layout', [ 'layout_id' => $id, 'status' => 'publish' ]));
+        $this->ok($this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => self::site_rules('generatepress') ]));
     }
 }

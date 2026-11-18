@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tests\Free\Integrations;
 
+use WPMCP\MCP\Elicitation;
+
 /**
  * Dispatch-level validation: unknown/disabled operations and malformed args
  * must produce structured errors WITHOUT the op handler ever running (no
@@ -123,6 +125,34 @@ class DispatcherValidationTest extends \WP_UnitTestCase
 
         $this->assertSame('confirmation_required', $out['error']['code']);
         $this->assertSame([], Fixture_Integration::$calls);
+    }
+
+    /**
+     * Issue #886: a destructive op with no undo point takes confirm:true
+     * only from the call's arguments, so its refusal is never turned into
+     * an elicitation a client could answer by itself. A snapshotted one
+     * keeps asking the person.
+     */
+    public function test_an_irreversible_op_needs_confirm_in_its_arguments(): void
+    {
+        $out = $this->integration->handle_write([ 'operation' => 'nuke' ]);
+
+        $this->assertSame('confirmation_required', $out['error']['code']);
+        $this->assertTrue($out['error']['data']['confirm_in_arguments'] ?? null);
+        $this->assertStringContainsString("confirm:true in the call's own arguments", $out['error']['message']);
+        $this->assertFalse(Elicitation::is_confirmation_refusal($out));
+
+        $post = self::factory()->post->create();
+        $out  = $this->integration->handle_write([ 'operation' => 'erase-content', 'args' => [ 'post_id' => $post ] ]);
+        $this->assertSame('confirmation_required', $out['error']['code']);
+        $this->assertArrayNotHasKey('confirm_in_arguments', $out['error']['data']);
+        $this->assertTrue(Elicitation::is_confirmation_refusal($out));
+        $this->assertSame([], Fixture_Integration::$calls);
+
+        $ops = array_column($this->integration->catalog()['operations'], null, 'name');
+        $this->assertTrue($ops['nuke']['confirm_in_arguments'] ?? null);
+        $this->assertArrayNotHasKey('confirm_in_arguments', $ops['erase-content']);
+        $this->assertArrayNotHasKey('confirm_in_arguments', $ops['set-content'], 'only destructive ops carry the flag');
     }
 
     public function test_destructive_op_with_confirm_true_runs(): void
@@ -267,5 +297,74 @@ class DispatcherValidationTest extends \WP_UnitTestCase
 
         $this->assertArrayNotHasKey('error', $out);
         $this->assertFalse($out['result']['available']);
+    }
+
+    // Issue #956: a write never drops an argument it does not know.
+
+    public function test_a_write_refuses_an_unknown_arg_naming_it_before_any_snapshot(): void
+    {
+        \WPMCP\Safety\Snapshot_Store::install();
+        $post = self::factory()->post->create([ 'post_content' => 'before' ]);
+        $rows = \WPMCP\Safety\Snapshot_Store::row_count();
+
+        $out = $this->integration->handle_write([
+            'operation' => 'set-content',
+            'args'      => [ 'post_id' => $post, 'content' => 'after', 'body' => 'x', 'status' => 'publish' ],
+        ]);
+
+        $this->assertSame('invalid_args', $out['error']['code'] ?? null, (string) wp_json_encode($out));
+        $this->assertSame([ 'body', 'status' ], $out['error']['data']['unknown']);
+        $this->assertSame([ 'post_id', 'content' ], $out['error']['data']['allowed']);
+        $this->assertSame('set-content', $out['error']['data']['operation']);
+        $this->assertStringContainsString('body, status', $out['error']['message']);
+        $this->assertStringContainsString('post_id, content', $out['error']['message']);
+        $this->assertSame([], Fixture_Integration::$calls, 'The handler never runs');
+        $this->assertSame('before', get_post_field('post_content', $post));
+        $this->assertSame($rows, \WPMCP\Safety\Snapshot_Store::row_count(), 'No operation is recorded');
+    }
+
+    public function test_a_write_that_takes_no_args_refuses_any_arg(): void
+    {
+        $out = $this->integration->handle_write([ 'operation' => 'no-target-write', 'args' => [ 'force' => true ] ]);
+
+        $this->assertSame('invalid_args', $out['error']['code'] ?? null);
+        $this->assertSame([ 'force' ], $out['error']['data']['unknown']);
+        $this->assertSame([], $out['error']['data']['allowed']);
+        $this->assertStringContainsString('takes no arguments', $out['error']['message']);
+        $this->assertSame([], Fixture_Integration::$calls);
+    }
+
+    public function test_a_confirmed_destructive_write_with_an_unknown_arg_is_refused(): void
+    {
+        $out = $this->integration->handle_write([ 'operation' => 'nuke', 'args' => [ 'source' => 'seedprod' ], 'confirm' => true ]);
+
+        $this->assertSame('invalid_args', $out['error']['code'] ?? null);
+        $this->assertSame([ 'source' ], $out['error']['data']['unknown']);
+        $this->assertSame([], Fixture_Integration::$calls);
+    }
+
+    public function test_a_schema_that_allows_any_key_still_takes_them(): void
+    {
+        $out = $this->integration->handle_write([ 'operation' => 'open-write', 'args' => [ 'name' => 'a', 'extra' => 1 ] ]);
+
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertSame([ 'name', 'extra' ], $out['result']['keys']);
+    }
+
+    public function test_an_ops_own_unknown_arg_refusal_keeps_its_message(): void
+    {
+        $out = $this->integration->handle_write([ 'operation' => 'own-args-check', 'args' => [ 'execute_php' => true ] ]);
+
+        $this->assertSame('invalid_args', $out['error']['code'] ?? null);
+        $this->assertStringContainsString('wp-admin', $out['error']['message']);
+        $this->assertSame([], Fixture_Integration::$calls);
+    }
+
+    public function test_a_read_with_an_unknown_arg_still_answers(): void
+    {
+        $out = $this->integration->handle_read([ 'operation' => 'ping', 'args' => [ 'value' => 'x', 'limit' => 5 ] ]);
+
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertSame([ 'pong' => 'x' ], $out['result']);
     }
 }

@@ -247,6 +247,16 @@ class Theme_Integration extends Integration_Dispatcher
         return 'edit_theme_options';
     }
 
+    /**
+     * The pair's own floor is the synced pattern ops' wp_block capability
+     * (issue #952), so an Author or Editor reaches them; every other op still
+     * takes edit_theme_options on top of its own capability in dispatch().
+     */
+    public function pair_capability(): string
+    {
+        return Core_Patterns_Pack::capability('edit_posts');
+    }
+
     protected function summary(): string
     {
         return 'the active theme (context, mods), site identity, permalinks, Redirection, Rank Math redirects and 404 log, backup, security, analytics, cache, mail status, site gates';

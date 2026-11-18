@@ -3,7 +3,9 @@
 namespace WPMCP\Tests\Pro\Integrations;
 
 use WPMCP\Integrations\Plugin_Data_Integration;
+use WPMCP\MCP\Hidden_Tool_Refusal;
 use WPMCP\MCP\Registrar;
+use WPMCP\MCP\Stdio_Transport;
 use WPMCP\Plugin;
 use WPMCP\Pro\Gate;
 use WPMCP\Tools\Dispatch\Call_Tool;
@@ -83,10 +85,13 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
 
         $result = self::call('wpmcp/plugin-data-read', ['operation' => 'memberpress-list-memberships', 'args' => []]);
         $this->assertSame(
-            'MemberPress is not active on this site, so op "memberpress-list-memberships" of wpmcp/plugin-data-read cannot run. Install and activate MemberPress, then try again.',
+            'MemberPress is not active on this site, so op "memberpress-list-memberships" of wpmcp/plugin-data-read cannot run. Install and activate MemberPress (' . admin_url('plugins.php') . '), then try again.',
             $result->get_error_message()
         );
-        $this->assertSame([ 'plugin' => 'MemberPress', 'operation' => 'memberpress-list-memberships' ], $result->get_error_data());
+        $this->assertSame(
+            [ 'plugin' => 'MemberPress', 'operation' => 'memberpress-list-memberships', 'plugins_url' => admin_url('plugins.php') ],
+            $result->get_error_data()
+        );
     }
 
     public function test_each_op_names_its_own_plugin(): void
@@ -101,7 +106,7 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
 
         $i18n = self::call('wpmcp/plugin-data-write', ['operation' => 'create-translation']);
         $this->assertSame(
-            'Op "create-translation" of wpmcp/plugin-data-write works with Polylang, WPML, and none of them is active on this site, so it cannot run. Install and activate one of them, then try again.',
+            'Op "create-translation" of wpmcp/plugin-data-write works with Polylang, WPML, and none of them is active on this site, so it cannot run. Install and activate one of them (' . admin_url('plugins.php') . '), then try again.',
             $i18n->get_error_message()
         );
     }
@@ -121,6 +126,82 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
         $schema = (new Get_Tool_Schema())->handle(['name' => 'wpmcp/plugin-data-read']);
         $this->assertSame('plugin_missing', $schema->get_error_code());
         $this->assertStringContainsString('MemberPress', $schema->get_error_message());
+    }
+
+    /** Issue #876: a direct tools/call for the unregistered pair names the plugin over stdio. */
+    public function test_a_direct_stdio_call_names_the_plugin_not_unknown_tool(): void
+    {
+        self::register(new Plugin_Data_Integration());
+
+        // Stdio calls this from call_tool() when no registered ability has the
+        // tool name (the shared test ability registry still holds the real pair).
+        $error = Plugin::instance()->registrar()->plugin_inactive_for_tool('wpmcp-plugin-data-write', [ 'operation' => 'wsform-update-entry-status' ]);
+        $this->assertInstanceOf(\WP_Error::class, $error);
+        $result = Hidden_Tool_Refusal::result($error);
+        $this->assertTrue($result['isError']);
+        $this->assertStringContainsString('WS Form is not active on this site', $result['content'][0]['text']);
+        $this->assertStringContainsString(admin_url('plugins.php'), $result['content'][0]['text']);
+        $this->assertSame('plugin_missing', $result['structuredContent']['error']['code']);
+        $this->assertSame('WS Form', $result['structuredContent']['error']['data']['plugin']);
+        $this->assertNull(Plugin::instance()->registrar()->plugin_inactive_for_tool('wpmcp-no-such-tool'));
+
+        // A name that is no tool at all is still unknown.
+        $unknown = (new Stdio_Transport())->handle_request([ 'jsonrpc' => '2.0', 'id' => 6, 'method' => 'tools/call', 'params' => [ 'name' => 'wpmcp-no-such-tool', 'arguments' => [] ] ]);
+        $this->assertSame('Unknown tool: wpmcp-no-such-tool', $unknown['error']['message']);
+    }
+
+    /** Issue #876: the HTTP adapter's "Tool not found" is replaced the same way. */
+    public function test_the_http_tool_not_found_answer_is_replaced(): void
+    {
+        self::register(new Plugin_Data_Integration());
+        $filter = new Hidden_Tool_Refusal();
+
+        $call = [ 'jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => [ 'name' => 'wpmcp-plugin-data-read', 'arguments' => [ 'operation' => 'betterdocs-list-docs' ] ] ];
+        $miss = [ 'jsonrpc' => '2.0', 'id' => 2, 'error' => [ 'code' => -32003, 'message' => 'Tool not found: wpmcp-plugin-data-read' ] ];
+
+        $request = new \WP_REST_Request('POST', '/mcp/wpmcp-server');
+        $request->set_header('content-type', 'application/json');
+        $request->set_body((string) wp_json_encode($call));
+        $out = $filter->filter_response(new \WP_REST_Response($miss, 200), null, $request)->get_data();
+
+        $this->assertArrayNotHasKey('error', $out);
+        $this->assertSame(2, $out['id']);
+        $this->assertTrue($out['result']['isError']);
+        $this->assertStringContainsString('BetterDocs is not active on this site', $out['result']['content'][0]['text']);
+        $this->assertSame(admin_url('plugins.php'), $out['result']['structuredContent']['error']['data']['plugins_url']);
+
+        // A tool that is genuinely unknown keeps the adapter's answer.
+        $other = $call;
+        $other['params']['name'] = 'wpmcp-nope';
+        $request->set_body((string) wp_json_encode($other));
+        $this->assertSame($miss, $filter->filter_response(new \WP_REST_Response($miss, 200), null, $request)->get_data());
+    }
+
+    /** Issue #876: a batch with a notification in the middle is matched by id, not position. */
+    public function test_a_batch_with_a_notification_is_matched_by_id(): void
+    {
+        self::register(new Plugin_Data_Integration());
+        $filter = new Hidden_Tool_Refusal();
+
+        $batch = [
+            [ 'jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call', 'params' => [ 'name' => 'wpmcp-nope', 'arguments' => [] ] ],
+            [ 'jsonrpc' => '2.0', 'method' => 'notifications/initialized' ],
+            [ 'jsonrpc' => '2.0', 'id' => 3, 'method' => 'tools/call', 'params' => [ 'name' => 'wpmcp-plugin-data-read', 'arguments' => [ 'operation' => 'betterdocs-list-docs' ] ] ],
+        ];
+        $answers = [
+            [ 'jsonrpc' => '2.0', 'id' => 1, 'error' => [ 'code' => -32003, 'message' => 'Tool not found: wpmcp-nope' ] ],
+            [ 'jsonrpc' => '2.0', 'id' => 3, 'error' => [ 'code' => -32003, 'message' => 'Tool not found: wpmcp-plugin-data-read' ] ],
+        ];
+        $request = new \WP_REST_Request('POST', '/mcp/wpmcp-server');
+        $request->set_header('content-type', 'application/json');
+        $request->set_body((string) wp_json_encode($batch));
+
+        $out = $filter->filter_response(new \WP_REST_Response($answers, 200), null, $request)->get_data();
+
+        $this->assertSame($answers[0], $out[0]);
+        $this->assertSame(3, $out[1]['id']);
+        $this->assertTrue($out[1]['result']['isError']);
+        $this->assertStringContainsString('BetterDocs', $out[1]['result']['content'][0]['text']);
     }
 
     /** Every op the pair merges has a plugin, and that plugin is named in the pair's own refusal list. */

@@ -146,6 +146,17 @@ class ThemeLayoutsLiveTest extends \WP_UnitTestCase
         $this->assertTrue(Rollback_Service::restore_operation((string) $set['operation_id']));
         $this->assertTrue($controller->check_element_conditionals(get_post($id), $controller->get_post_meta_array(get_post($id))));
 
+        // Expires Settings (issue #892): a future expiry keeps it showing, a
+        // past one hides it, both through Kadence's own check, and undo
+        // brings it back.
+        $this->call('write', 'set-kadence-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'expires' => [ 'date' => gmdate('Y-m-d H:i', time() + YEAR_IN_SECONDS) ] ] ]);
+        $this->assertTrue($controller->check_element_conditionals(get_post($id), $controller->get_post_meta_array(get_post($id))));
+        $past = $this->call('write', 'set-kadence-layout-display-rules', [ 'layout_id' => $id, 'rules' => [ 'expires' => [ 'date' => '2001-01-01 00:00' ] ] ]);
+        $this->assertFalse($controller->check_element_conditionals(get_post($id), $controller->get_post_meta_array(get_post($id))));
+        $this->assertTrue($this->call('read', 'get-kadence-layout', [ 'layout_id' => $id ])['result']['layout']['rules']['expires']['expired']);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $past['operation_id']));
+        $this->assertTrue($controller->check_element_conditionals(get_post($id), $controller->get_post_meta_array(get_post($id))));
+
         $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_ids'][0]));
         $this->assertSame('trash', get_post_status($id));
     }

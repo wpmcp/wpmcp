@@ -255,6 +255,22 @@ class MetForm_Integration extends Forms_Integration
                     'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
                     'required'   => [ 'entry_id' ],
                 ],
+                // Issue #946: the person approving sees which entry goes.
+                'confirm_preview' => static function (array $args): array {
+                    $id   = (int) $args['entry_id'];
+                    $post = get_post($id);
+                    if (! $post || self::ENTRY_CPT !== $post->post_type) {
+                        return [ 'message' => 'No MetForm entry has that id, so nothing would be deleted.', 'data' => [ 'entry_id' => $id ] ];
+                    }
+                    $form_id = (int) get_post_meta($id, self::META_FORM_ID, true);
+                    return self::delete_entry_preview(
+                        sprintf('MetForm entry %d of form %d', $id, $form_id),
+                        $id,
+                        count(self::values($id)),
+                        'rollback-operation',
+                        [ 'form_id' => $form_id, 'date' => (string) $post->post_date ]
+                    );
+                },
                 'handler'      => function (array $args): array {
                     $id   = (int) $args['entry_id'];
                     $post = get_post($id);

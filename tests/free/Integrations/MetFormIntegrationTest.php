@@ -6,6 +6,8 @@ use WPMCP\Integrations\MetForm_Integration;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Operation;
 
+require_once __DIR__ . '/../../support/forms-delete-preview.php';
+
 /**
  * The MetForm dispatcher pair, exercised against real metform-form and
  * metform-entry CPTs carrying MetForm's actual postmeta (_elementor_data,
@@ -15,6 +17,8 @@ use WPMCP\Tools\Rollback_Operation;
  */
 class MetFormIntegrationTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Support\Forms_Delete_Preview_Assertions;
+
     private MetForm_Integration $integration;
     private int $form_id;
     private int $entry_id;
@@ -228,6 +232,21 @@ class MetFormIntegrationTest extends \WP_UnitTestCase
 
         $this->assertSame('confirmation_required', $out['error']['code']);
         $this->assertNotNull(get_post($this->entry_id));
+    }
+
+    /** Issue #946: MetForm's delete-entry previews what it removes, without the values. */
+    public function test_delete_entry_preview_names_the_entry_and_says_it_is_not_an_erasure(): void
+    {
+        $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->entry_id ] ]);
+
+        $this->assert_delete_entry_preview($out, sprintf('MetForm entry %d of form %d', $this->entry_id, $this->form_id), $this->entry_id, 2);
+        $this->assertSame($this->form_id, $out['error']['data']['form_id']);
+        $this->assertTrue($out['error']['data']['files_stay_on_disk']);
+        $this->assertStringNotContainsString('ada@example.test', wp_json_encode($out));
+
+        $other = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->form_id ] ]);
+        $this->assertSame('confirmation_required', $other['error']['code']);
+        $this->assertStringContainsString('No MetForm entry has that id', $other['error']['message']);
     }
 
     public function test_delete_entry_requires_manage_options(): void

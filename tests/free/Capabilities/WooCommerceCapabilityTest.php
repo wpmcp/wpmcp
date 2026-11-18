@@ -82,7 +82,7 @@ class WooCommerceCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/list-products']->check_permissions(),
             'wpmcp/list-products must deny a subscriber'
         );
@@ -102,7 +102,7 @@ class WooCommerceCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/create-product']->check_permissions(),
             'wpmcp/create-product must deny a subscriber'
         );
@@ -122,7 +122,7 @@ class WooCommerceCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/list-orders']->check_permissions(),
             'wpmcp/list-orders must deny a subscriber'
         );

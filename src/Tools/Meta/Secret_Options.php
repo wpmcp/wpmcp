@@ -175,8 +175,10 @@ final class Secret_Options
             // WP Mail SMTP. Option "wp_mail_smtp" (Options::META_KEY) is a map of mailer
             // groups; its credential keys are the ones in Options::$map. "pass" and the
             // license "key" do not look secret to the heuristic. OAuth tokens sit under
-            // the gmail/outlook/zoho groups as access_token and refresh_token.
-            'wp_mail_smtp'          => [ 'pass', 'client_secret', 'api_key', 'secret_key', 'server_api_token', 'access_token', 'refresh_token', 'auth_code', 'license.key' ],
+            // the gmail/outlook/zoho groups as access_token and refresh_token. The SMTP
+            // login ("user") is the other half of the credential and is masked too, as the
+            // plugin's status read masks it (issue #939).
+            'wp_mail_smtp'          => [ 'user', 'pass', 'client_secret', 'api_key', 'secret_key', 'server_api_token', 'access_token', 'refresh_token', 'auth_code', 'license.key' ],
             // The key that encrypts the stored credentials (Helpers\Crypto).
             'wp_mail_smtp_mail_key' => true,
 
@@ -208,12 +210,15 @@ final class Secret_Options
             // UpdraftPlus: one option per remote storage service, instance settings nested inside.
             // "dreamhost", "sftp_settings" and "webdav_settings" are the pre-2017 names its
             // migration code still reads (class-updraftplus.php, methods/webdav.php).
-            '/^updraft_(s3|s3generic|dreamobjects|dreamhost|dropbox|googledrive|onedrive|ftp|sftp|sftp_settings|webdav|webdav_settings|cloudfiles|openstack|azure|googlecloud|backblaze|pcloud|updraftvault)$/i' => [ 'accesskey', 'secretkey', 'sessiontoken', 'apikey', 'pass', 'password', 'key', 'secret', 'token', 'access_token', 'refresh_token', 'auth_token', 'appkey' ],
+            // The login ("user" in FTP, SFTP, Cloud Files and OpenStack; "username" or
+            // "login" where an add-on names it so) is the other half of the credential
+            // (issue #939).
+            '/^updraft_(s3|s3generic|dreamobjects|dreamhost|dropbox|googledrive|onedrive|ftp|sftp|sftp_settings|webdav|webdav_settings|cloudfiles|openstack|azure|googlecloud|backblaze|pcloud|updraftvault)$/i' => [ 'user', 'username', 'login', 'accesskey', 'secretkey', 'sessiontoken', 'apikey', 'pass', 'password', 'key', 'secret', 'token', 'access_token', 'refresh_token', 'auth_token', 'appkey' ],
             // A WebDAV URL carries the user and password (webdavs://user:pass@host/path).
             '/^updraft_webdav(_settings)?$/i'   => [ 'url' ],
             // Pre-2017 flat credential options, still read and migrated by UpdraftPlus
             // (class-updraftplus.php, methods/ftp.php), so an old site can still hold them.
-            '/^updraft_((s3|s3generic|dreamobjects)_(login|pass)|ftp_pass|googledrive_secret|googledrive_token|dropboxtk_access_token|cloudfiles_apikey)$/i' => true,
+            '/^updraft_((s3|s3generic|dreamobjects)_(login|pass)|ftp_(login|pass)|googledrive_secret|googledrive_token|dropboxtk_access_token|cloudfiles_apikey)$/i' => true,
             'updraft_encryptionphrase'          => true,
             'updraft_dropboxtk_request_token'   => true,
             'updraft_migrator_localkeys'        => true,

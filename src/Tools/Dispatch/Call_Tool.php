@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Dispatch;
 
+use WPMCP\MCP\Registrar;
 use WPMCP\MCP\Tool_Exposure;
 use WPMCP\Plugin;
 
@@ -91,7 +92,8 @@ class Call_Tool
         // The full gate: input validation, the target's real
         // permission_callback (audited), rate limiting, and the tool's own
         // Safety behavior all run inside execute(). Its result - success
-        // payload or WP_Error - is returned to the caller unchanged.
-        return $ability->execute($arguments);
+        // payload or WP_Error - is returned to the caller; a permission
+        // denial carries the refusal naming what is missing (issue #875).
+        return Registrar::explain_denial($name, $ability->execute($arguments));
     }
 }

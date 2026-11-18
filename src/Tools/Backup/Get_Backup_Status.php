@@ -16,7 +16,9 @@ if (! defined('ABSPATH')) {
  * instead and the job is reported as running, with the statement and table
  * reached and the time maintenance mode went on. A progress file whose
  * restore no longer holds the lock means the run died mid-import: the job
- * is reported failed, with the safety archive to restore.
+ * is reported failed, with the safety archive to restore. Backup_Job_Store
+ * marks the stored record failed the same way (issue #860), so
+ * list-backup-jobs agrees and the recovery restore is not refused.
  */
 class Get_Backup_Status
 {
@@ -33,6 +35,10 @@ class Get_Backup_Status
         if (null === $job) {
             return new \WP_Error('wpmcp_backup_job_not_found', "No backup job found with id \"{$job_id}\".");
         }
+
+        // A chunked build's step cursor (issue #783) is internal; its
+        // progress record says how far the build got.
+        unset($job['build']);
 
         return $job;
     }
@@ -57,9 +63,7 @@ class Get_Backup_Status
             return null;
         }
 
-        $state  = $progress['state'];
-        $safety = (int) ($state['safety_job_id'] ?? 0);
-        $base   = is_array($job) && Restore_Site_Backup::JOB_TYPE === ($job['type'] ?? null)
+        $base = is_array($job) && Restore_Site_Backup::JOB_TYPE === ($job['type'] ?? null)
             ? $job
             : [
                 'id'         => $job_id,
@@ -69,40 +73,12 @@ class Get_Backup_Status
                 'updated_at' => Backup_Job_Store::now(),
             ];
 
-        $live = [
-            'progress'       => [
-                'phase'     => (string) ($state['phase'] ?? 'import'),
-                'statement' => (int) ($state['statement'] ?? 0),
-                'table'     => (string) ($state['table'] ?? ''),
-            ],
-            'safety_archive' => ['job_id' => $safety, 'file' => isset($state['safety_file']) ? basename((string) $state['safety_file']) : null],
-            'maintenance'    => [
-                'enabled_during_restore' => true,
-                'started_at'             => $state['maintenance_started_at'] ?? null,
-                'ended_at'               => null,
-                'seconds'                => null,
-            ],
-        ];
+        $stopped = Restore_Site_Backup::stopped_fields($progress['state']);
 
         if ($progress['running']) {
-            return array_merge($base, $live, ['status' => 'running', 'error' => null]);
+            return array_merge($base, $stopped, ['status' => 'running', 'error' => null]);
         }
 
-        // Name the file (issue #814): the half import rewound the job store,
-        // so the job id may already belong to a different archive.
-        $path = Restore_Site_Backup::safety_archive_path($state);
-        $undo = null !== $path
-            ? sprintf('Restore the file %s (its pre-restore safety archive; restore-site-backup with path %s)', esc_html(basename($path)), esc_html($path))
-            : sprintf('Restore backup job %d (its pre-restore safety archive)', $safety);
-
-        return array_merge($base, $live, [
-            'status' => 'failed',
-            'error'  => sprintf(
-                'The restore stopped mid-import without finishing (last at statement %d on table %s). %s to put the site back; maintenance mode may still be on (disable-maintenance turns it off).',
-                (int) ($state['statement'] ?? 0),
-                esc_html((string) ($state['table'] ?? 'unknown')),
-                $undo
-            ),
-        ]);
+        return array_merge($base, $stopped);
     }
 }

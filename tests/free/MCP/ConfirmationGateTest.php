@@ -81,4 +81,76 @@ class ConfirmationGateTest extends \WP_UnitTestCase
             $this->assertStringContainsString('hello.php', $message, 'The person sees what the call targets.');
         }
     }
+
+    /**
+     * Issue #886: a client set to skip permission prompts can accept an
+     * elicitation by itself, so a gate on an action that cannot be undone
+     * is never elicited. Only confirm:true in the arguments satisfies it,
+     * and the refusal says so.
+     */
+    public function test_a_gate_on_an_irreversible_action_is_never_elicited(): void
+    {
+        $refusal = Confirmation_Required::in_arguments('Deleting a plugin is permanent. Pass confirm:true to proceed.');
+
+        $this->assertInstanceOf(\InvalidArgumentException::class, $refusal);
+        $this->assertFalse($refusal->elicitable());
+        $this->assertFalse(Elicitation::is_confirmation_refusal($refusal));
+        $this->assertStringContainsString('Deleting a plugin is permanent.', $refusal->getMessage());
+        $this->assertStringContainsString("confirm:true must be in the call's own arguments", $refusal->getMessage());
+        $this->assertTrue((new Confirmation_Required('x'))->elicitable(), 'An ordinary gate is still elicited.');
+
+        $this->assertFalse(Elicitation::is_confirmation_refusal([ 'error' => [
+            'code'    => 'confirmation_required',
+            'message' => 'Operation "block-wordfence-ip" requires confirm:true in the call\'s own arguments.',
+            'data'    => [ Elicitation::IN_ARGUMENTS_KEY => true ],
+        ] ]));
+        $this->assertTrue(Elicitation::is_confirmation_refusal([ 'error' => [
+            'code' => 'confirmation_required',
+            'data' => [ Elicitation::IN_ARGUMENTS_KEY => false ],
+        ] ]));
+    }
+
+    /**
+     * The tools whose effect has no undo path (they answer recoverable:false
+     * or files_recoverable:false, or the effect leaves the site) take
+     * confirm:true only from their arguments (issue #886).
+     */
+    public function test_irreversible_tools_take_confirm_only_from_their_arguments(): void
+    {
+        $root = dirname(__DIR__, 3) . '/src/Tools/';
+        foreach ([
+            'Security/Incident_Response',
+            'Menus/Delete_Menu',
+            'Diagnostics/Mail_Check',
+            'Packages/Delete_Plugin',
+            'Packages/Delete_Theme',
+            'Packages/Update_Plugin',
+            'Packages/Update_Theme',
+            'Export/Import_Content',
+            'Rest/Call_Rest',
+            'Gateway/Gateway_Revoke',
+        ] as $tool) {
+            $source = (string) file_get_contents($root . $tool . '.php');
+            $this->assertStringContainsString('Confirmation_Required::in_arguments(', $source, $tool);
+            $this->assertDoesNotMatchRegularExpression('/new\s+\\\\?(WPMCP\\\\MCP\\\\)?Confirmation_Required\(/', $source, $tool);
+        }
+    }
+
+    /** The menu tool end to end: its refusal is the in-arguments kind and nothing is deleted. */
+    public function test_delete_menu_refuses_without_confirm_in_its_arguments(): void
+    {
+        add_filter('wpmcp_enable_delete_menu', '__return_true');
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        $menu = (int) wp_create_nav_menu('Footer 886');
+
+        try {
+            ( new \WPMCP\Tools\Menus\Delete_Menu() )->handle([ 'id' => $menu ]);
+            $this->fail('An unconfirmed delete must be refused.');
+        } catch (Confirmation_Required $e) {
+            $this->assertFalse(Elicitation::is_confirmation_refusal($e));
+        } finally {
+            remove_all_filters('wpmcp_enable_delete_menu');
+        }
+        $this->assertNotFalse(wp_get_nav_menu_object($menu));
+    }
 }

@@ -598,12 +598,19 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
         }
         $this->assertNull(Backup_Job_Store::get((int) $first['safety_archive']['job_id']), 'The rewound job store has forgotten the first safety archive.');
 
+        $preview = (new Restore_Site_Backup())->handle(['path' => $archive]);
+        $this->assertStringContainsString(basename($first_file), implode(' ', $preview['warnings']), 'A dry run points to the first safety archive.');
+
         $second = $this->restore($archive, [], $tables);
 
+        // Issue #871: the second restore completed, so its result says it
+        // replaced the stopped one instead of pointing back to the older
+        // safety archive, which would undo it.
         $this->assertSame('restored', $second['status']);
         $warning = implode(' ', $second['warnings']);
-        $this->assertStringContainsString('stopped without finishing', $warning);
-        $this->assertStringContainsString(basename($first_file), $warning);
+        $this->assertStringContainsString('replaced an earlier restore that stopped without finishing', $warning);
+        $this->assertStringNotContainsString('half restored', $warning);
+        $this->assertStringNotContainsString(basename($first_file), $warning);
         $this->assertStringNotContainsString(basename((string) $second['safety_archive']['file']), $warning);
         $this->assertNotSame($first['safety_archive']['job_id'], $second['safety_archive']['job_id'], 'A job id must not be handed out twice.');
 
@@ -614,7 +621,6 @@ class RestoreSiteBackupExecuteTest extends \WP_UnitTestCase
         ));
         $this->assertCount(1, $listed, 'The first safety archive is listed again.');
         $this->assertSame('completed', $listed[0]['status']);
-        $this->assertStringContainsString('backup job ' . $listed[0]['id'], $warning);
         $this->assertSame(realpath($first_file), Archive_Locator::resolve(['job_id' => $listed[0]['id']]));
     }
 

@@ -12,18 +12,6 @@ if (! defined('ABSPATH')) {
  * per post (find-replace-content) reports this one the same way; the
  * Registrar returns the carried WP_Error when a tool lets it through.
  */
-class Post_Locked extends Mutation_Failed
+class Post_Locked extends Post_Write_Refused
 {
-    private \WP_Error $error;
-
-    public function __construct(\WP_Error $error)
-    {
-        parent::__construct(esc_html($error->get_error_message()));
-        $this->error = $error;
-    }
-
-    public function error(): \WP_Error
-    {
-        return $this->error;
-    }
 }

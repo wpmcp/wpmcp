@@ -68,7 +68,7 @@ class Incident_Response
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new Confirmation_Required(sprintf('%s cannot be undone in full and requires confirm:true.', esc_html($action)));
+            throw Confirmation_Required::in_arguments(sprintf('%s cannot be undone in full and requires confirm:true.', esc_html($action)));
         }
 
         try {

@@ -51,7 +51,7 @@ class SeoCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/get-seo-status']->check_permissions(),
             'wpmcp/get-seo-status must deny a subscriber'
         );
@@ -82,7 +82,7 @@ class SeoCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse($wp_abilities['wpmcp/update-seo-meta']->check_permissions());
+        $this->assertNotTrue($wp_abilities['wpmcp/update-seo-meta']->check_permissions());
 
         $author = self::factory()->user->create(['role' => 'author']);
         wp_set_current_user($author);
@@ -222,7 +222,7 @@ class SeoCapabilityTest extends \WP_UnitTestCase
         $exposed = wp_get_abilities()[$name] ?? null;
 
         wp_set_current_user(self::factory()->user->create(['role' => 'author']));
-        $this->assertFalse(null !== $exposed ? $exposed->check_permissions() : current_user_can('manage_categories'));
+        $this->assertNotTrue(null !== $exposed ? $exposed->check_permissions() : current_user_can('manage_categories'));
 
         wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
         $this->assertTrue(null !== $exposed ? $exposed->check_permissions() : current_user_can('manage_categories'));
@@ -247,7 +247,7 @@ class SeoCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             null !== $exposed ? $exposed->check_permissions() : current_user_can($capability),
             "{$name} must deny a subscriber"
         );

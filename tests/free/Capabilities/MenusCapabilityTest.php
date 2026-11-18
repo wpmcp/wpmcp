@@ -58,7 +58,7 @@ class MenusCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/list-menus']->check_permissions(),
             'wpmcp/list-menus must deny a subscriber'
         );
@@ -78,7 +78,7 @@ class MenusCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/create-menu']->check_permissions(),
             'wpmcp/create-menu must deny a subscriber'
         );

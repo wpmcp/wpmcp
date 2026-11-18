@@ -160,6 +160,35 @@ class KnowledgeBaseSupportLiveTest extends \WP_UnitTestCase
         $this->assertNull($this->fs_row($ticket)['resolved_at']);
     }
 
+    /** Issue #874: a file on the ticket and one on a reply, made by Fluent Support's own model, behind its own guard. */
+    public function test_fluent_support_get_ticket_lists_attachments_behind_its_own_file_guard(): void
+    {
+        global $wpdb;
+        $ticket = $this->fs_ticket();
+        $now    = current_time('mysql');
+        $wpdb->insert("{$wpdb->prefix}fs_conversations", [ 'ticket_id' => $ticket, 'person_id' => 0, 'conversation_type' => 'response', 'content' => 'Log attached', 'created_at' => $now, 'updated_at' => $now ]);
+        $reply  = (int) $wpdb->insert_id;
+        $model  = '\\FluentSupport\\App\\Models\\Attachment';
+        $opened = $model::create([ 'ticket_id' => $ticket, 'file_type' => 'image/jpeg', 'title' => 'images-2.jpg', 'file_size' => 2048, 'status' => 'active', 'driver' => 'local', 'file_path' => '/tmp/images-2.jpg' ]);
+        $model::create([ 'ticket_id' => $ticket, 'conversation_id' => $reply, 'file_type' => 'text/plain', 'title' => 'debug.log', 'file_size' => 10, 'status' => 'active', 'driver' => 'local' ]);
+
+        $got = $this->ok($this->read('fluent-support-get-ticket', [ 'ticket_id' => $ticket ]))['ticket'];
+        $this->assertSame([ 'images-2.jpg' ], array_column($got['attachments'], 'name'));
+        $this->assertSame(2048, $got['attachments'][0]['size']);
+        $this->assertSame([ 'debug.log' ], array_column($got['thread'][0]['attachments'], 'name'));
+
+        $helper = new \ReflectionMethod('\\FluentSupport\\App\\Services\\Helper', 'getAttachmentReferenceUrl');
+        $this->assertSame($helper->invoke(null, $opened), $got['attachments'][0]['url'], 'the reference link Fluent Support itself puts in content');
+
+        wp_set_current_user(0);
+        $pages = new \ReflectionClass('\\FluentSupport\\App\\Hooks\\Handlers\\ExternalPages');
+        $page  = $pages->newInstanceWithoutConstructor();
+        foreach ([ 'validateAttachmentSignature', 'canViewWithoutSignature' ] as $check) {
+            $method = $pages->getMethod($check);
+            $this->assertFalse($method->invoke($page, $opened), "a logged-out visitor fails {$check}, so Fluent Support sends them to the login page");
+        }
+    }
+
     // ---------------------------------------------------------------- Awesome Support
 
     private function as_ticket(): array
@@ -201,5 +230,24 @@ class KnowledgeBaseSupportLiveTest extends \WP_UnitTestCase
         $this->assertTrue(Rollback_Service::restore_operation((string) $hold['operation_id']));
         clean_post_cache($ticket);
         $this->assertSame('queued', get_post_status($ticket));
+    }
+
+    /** Issue #874: Awesome Support's attachment posts, behind its masked link. */
+    public function test_awesome_support_get_ticket_lists_attachments_behind_its_masked_link(): void
+    {
+        [$ticket] = $this->as_ticket();
+        $reply    = wp_insert_post([ 'post_type' => 'ticket_reply', 'post_parent' => $ticket, 'post_status' => 'unread', 'post_content' => 'Screenshot attached', 'post_author' => $this->admin ]);
+        $upload   = wp_upload_bits('as-874.png', null, str_repeat('x', 300));
+        $file     = (int) wp_insert_attachment([ 'post_mime_type' => 'image/png', 'post_title' => 'as-874', 'post_status' => 'inherit', 'guid' => $upload['url'] ], $upload['file'], $reply);
+
+        $got = $this->ok($this->read('awesome-support-get-ticket', [ 'ticket_id' => $ticket ]))['ticket'];
+        $this->assertSame([], $got['attachments']);
+        $this->assertSame([ $file ], array_column($got['thread'][0]['attachments'], 'id'));
+        $this->assertSame(300, $got['thread'][0]['attachments'][0]['size']);
+        $this->assertSame(add_query_arg([ 'wpas-attachment' => $file ], home_url()), $got['thread'][0]['attachments'][0]['url']);
+
+        wp_set_current_user(0);
+        $this->assertFalse(wpas_can_view_ticket($ticket), 'Awesome Support refuses the masked link to a logged-out visitor');
+        wp_delete_attachment($file, true);
     }
 }

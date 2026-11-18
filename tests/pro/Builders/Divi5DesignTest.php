@@ -25,6 +25,7 @@ class Divi5DesignTest extends \WP_UnitTestCase
         Gate::set_pro_for_tests(null);
         remove_all_filters('wpmcp_divi_module_metadata');
         remove_all_filters('wpmcp_divi_version');
+        remove_all_filters('wpmcp_divi_module_plugin_active');
         parent::tearDown();
     }
 
@@ -92,6 +93,71 @@ class Divi5DesignTest extends \WP_UnitTestCase
 
         $missing = $this->read(['builder' => 'divi', 'scope' => 'catalog', 'element' => 'nope']);
         $this->assertSame('element_not_found', $missing->get_error_code());
+    }
+
+    /** Issue #836: a layout with no content is reported as empty, not as Divi 4. */
+    public function test_templates_mark_an_empty_layout_as_empty(): void
+    {
+        $empty = self::factory()->post->create(['post_type' => 'et_header_layout', 'post_title' => 'Theme Builder Layout', 'post_content' => '']);
+        $blank = self::factory()->post->create(['post_type' => 'et_footer_layout', 'post_title' => 'Blank', 'post_content' => " \n\t "]);
+
+        $byId = array_column($this->read(['builder' => 'divi', 'scope' => 'templates'])['layouts'], null, 'id');
+
+        foreach ([$empty, $blank] as $id) {
+            $this->assertSame('empty', $byId[ $id ]['format']);
+            $this->assertArrayNotHasKey('tree', $byId[ $id ]);
+        }
+    }
+
+    /**
+     * Issue #836: catalog modules that only work with another plugin name it
+     * and say whether it is active; modules with no such need stay unflagged.
+     */
+    public function test_catalog_flags_modules_that_need_another_plugin(): void
+    {
+        $extra = [
+            ['name' => 'divi/shop', 'title' => 'Shop', 'category' => 'module'],
+            ['name' => 'divi/woocommerce-product-price', 'title' => 'Product Price', 'category' => 'module'],
+            ['name' => 'divi/gravity-forms', 'title' => 'Gravity Forms', 'category' => 'module'],
+            ['name' => 'divi/contact-form-7', 'title' => 'Contact Form 7', 'category' => 'module'],
+            ['name' => 'divi/imagely-gallery', 'title' => 'Imagely Gallery', 'category' => 'module'],
+        ];
+        add_filter('wpmcp_divi_module_metadata', fn () => array_merge($this->metadata(), $extra));
+
+        $byName = array_column($this->read(['builder' => 'divi', 'scope' => 'catalog'])['elements'], null, 'name');
+
+        $expected = [
+            'divi/shop'                      => ['woocommerce', class_exists('WooCommerce')],
+            'divi/woocommerce-product-price' => ['woocommerce', class_exists('WooCommerce')],
+            'divi/gravity-forms'             => ['gravityforms', class_exists('GFForms')],
+            'divi/contact-form-7'            => ['contact-form-7', class_exists('WPCF7_ContactForm')],
+            'divi/imagely-gallery'           => ['nextgen-gallery', class_exists('C_NextGEN_Bootstrap')],
+        ];
+        foreach ($expected as $name => [$plugin, $available]) {
+            $this->assertSame($plugin, $byName[ $name ]['requires'], $name);
+            $this->assertSame($available, $byName[ $name ]['available'], $name);
+        }
+        $this->assertArrayNotHasKey('requires', $byName['divi/text']);
+        $this->assertArrayNotHasKey('available', $byName['divi/text']);
+
+        $one = $this->read(['builder' => 'divi', 'scope' => 'catalog', 'element' => 'shop']);
+        $this->assertSame('woocommerce', $one['element']['requires']);
+    }
+
+    /** Issue #836: the flag follows whether the required plugin is loaded. */
+    public function test_catalog_availability_follows_the_required_plugin(): void
+    {
+        add_filter('wpmcp_divi_module_metadata', fn () => [['name' => 'divi/shop', 'title' => 'Shop']]);
+
+        foreach ([true, false] as $active) {
+            remove_all_filters('wpmcp_divi_module_plugin_active');
+            add_filter('wpmcp_divi_module_plugin_active', fn ($loaded, $plugin) => 'woocommerce' === $plugin ? $active : $loaded, 10, 2);
+
+            $shop = $this->read(['builder' => 'divi', 'scope' => 'catalog'])['elements'][0];
+
+            $this->assertSame('woocommerce', $shop['requires']);
+            $this->assertSame($active, $shop['available']);
+        }
     }
 
     public function test_catalog_needs_divi5_loaded_and_design_system_is_not_read(): void

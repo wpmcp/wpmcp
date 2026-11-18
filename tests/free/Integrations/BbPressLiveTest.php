@@ -115,6 +115,15 @@ class BbPressLiveTest extends \WP_UnitTestCase
         $topic = $this->read('bbpress-get-topic', [ 'topic_id' => $this->topic ]);
         $this->assertSame($this->replies, array_column($topic['replies'], 'id'));
         $this->assertSame('First post', $topic['topic']['content']);
+
+        // Tags from bbPress's own topic tag taxonomy, on both reads and as a filter.
+        $tags = wp_get_object_terms($this->topic, bbp_get_topic_tag_tax_id(), [ 'orderby' => 'slug' ]);
+        $want = array_map(static fn (\WP_Term $t): array => [ 'id' => (int) $t->term_id, 'name' => (string) $t->name, 'slug' => (string) $t->slug ], $tags);
+        $this->assertSame([ 'intro', 'welcome' ], array_column($want, 'slug'));
+        $this->assertSame($want, $topic['topic']['tags']);
+        $this->assertSame($want, $topics[0]['tags']);
+        $this->assertSame([ $this->topic ], array_column($this->read('bbpress-list-topics', [ 'forum_id' => $this->forum, 'tag' => 'intro' ])['topics'], 'id'));
+        $this->assertSame([], $this->read('bbpress-list-topics', [ 'forum_id' => $this->forum, 'tag' => 'no-such-tag' ])['topics']);
     }
 
     public function test_create_topic_goes_through_bbpress_and_rolls_back_exactly(): void

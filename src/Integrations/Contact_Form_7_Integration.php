@@ -109,10 +109,9 @@ class Contact_Form_7_Integration extends Forms_Integration
         if (self::has_flamingo()) {
             return true;
         }
-        return [
-            'code'    => 'flamingo_unavailable',
-            'message' => 'Contact Form 7 does not store submissions itself; entry operations need the Flamingo plugin, which is not active on this site.',
-        ];
+        $refusal            = Plugin_Refusal::make('flamingo_unavailable', 'Flamingo');
+        $refusal['message'] = 'Contact Form 7 does not store submissions itself; entry operations need the Flamingo plugin. ' . $refusal['message'];
+        return $refusal;
     }
 
     /** Flamingo's inbound-message post type, guarded by has_flamingo(). */
@@ -437,6 +436,26 @@ class Contact_Form_7_Integration extends Forms_Integration
                     'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
                     'required'   => [ 'entry_id' ],
                 ],
+                // Issue #946: the person approving sees which entry goes. The
+                // count is of the submitted fields Flamingo stored; CF7 keeps
+                // no uploads with the entry, so none stay behind.
+                'confirm_preview'    => static function (array $args): array {
+                    $entry_id = (int) $args['entry_id'];
+                    $post     = get_post($entry_id);
+                    if (! $post instanceof \WP_Post || self::entry_post_type() !== $post->post_type) {
+                        return [ 'message' => 'No Flamingo entry has that id, so nothing would be deleted.', 'data' => [ 'entry_id' => $entry_id ] ];
+                    }
+                    $msg    = new \Flamingo_Inbound_Message($post);
+                    $fields = is_array($msg->fields ?? null) ? $msg->fields : [];
+                    return self::delete_entry_preview(
+                        sprintf('Contact Form 7 (Flamingo) entry %d', $entry_id),
+                        $entry_id,
+                        count($fields),
+                        'rollback-operation',
+                        [ 'date' => (string) $post->post_date ],
+                        false
+                    );
+                },
                 'handler'            => function (array $args): array {
                     $entry_id = (int) $args['entry_id'];
                     $post     = get_post($entry_id);

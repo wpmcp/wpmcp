@@ -365,6 +365,8 @@ class FunnelKitWritesTest extends \WP_UnitTestCase
         $id      = $this->funnel();
         $manager = self::factory()->user->create([ 'role' => 'subscriber' ]);
         get_userdata($manager)->add_cap('manage_woocommerce');
+        // The theme pair's own floor (issue #952), so the refusal tested is FunnelKit's.
+        get_userdata($manager)->add_cap('edit_theme_options');
         wp_set_current_user($manager);
         $before = count(Snapshot_Store::list_by_session('default'));
 

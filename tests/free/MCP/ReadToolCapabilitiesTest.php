@@ -34,7 +34,7 @@ class ReadToolCapabilitiesTest extends \WP_UnitTestCase
         wp_set_current_user($subscriber);
         foreach (self::EXPECTED as $name => $cap) {
             $this->assertArrayHasKey($name, $abilities, "Expected {$name} to be registered");
-            $this->assertFalse(
+            $this->assertNotTrue(
                 $abilities[ $name ]->check_permissions(),
                 "{$name} must deny a subscriber (should require {$cap})"
             );
@@ -73,7 +73,7 @@ class ReadToolCapabilitiesTest extends \WP_UnitTestCase
 
         foreach (self::EXPECTED as $name => $cap) {
             $this->assertTrue(current_user_can('edit_posts'), 'Editor should hold edit_posts');
-            $this->assertFalse(
+            $this->assertNotTrue(
                 $abilities[ $name ]->check_permissions(),
                 "{$name} must refuse an editor who only holds edit_posts (needs {$cap})"
             );

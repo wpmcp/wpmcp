@@ -54,6 +54,21 @@ final class Activity_Log_Pack
 
     public const MAX_PAGE_SIZE = 100;
 
+    /** WP Activity Log metadata names kept in occurrence columns (Occurrences_Entity::$migrated_meta, without SessionID). */
+    private const WSAL_ROW_META = [
+        'ClientIP'         => 'client_ip',
+        'Severity'         => 'severity',
+        'Object'           => 'object',
+        'EventType'        => 'event_type',
+        'UserAgent'        => 'user_agent',
+        'CurrentUserRoles' => 'user_roles',
+        'Username'         => 'username',
+        'CurrentUserID'    => 'user_id',
+        'PostStatus'       => 'post_status',
+        'PostType'         => 'post_type',
+        'PostID'           => 'post_id',
+    ];
+
     /** source => [ label, main files under the plugins directory ] */
     private const SOURCES = [
         'wp-activity-log' => [ 'WP Activity Log', [ 'wp-security-audit-log/wp-security-audit-log.php' ] ],
@@ -373,7 +388,7 @@ final class Activity_Log_Pack
 
         $events = [];
         foreach ($rows as $row) {
-            $event = self::event($source, $row, $meta[ (int) $row['id'] ] ?? []);
+            $event = self::event($source, $row, $meta[ (int) $row['id'] ] ?? [], true);
             unset($event['user_agent'], $event['user_roles'], $event['details']);
             $name              = (string) $event['username'];
             $event['username'] = Masking::value($name);
@@ -405,13 +420,15 @@ final class Activity_Log_Pack
     }
 
     /**
-     * One event as the ops return it (unmasked; the list masks it).
+     * One event as the ops return it (unmasked; the list masks it). With
+     * $masked, the usernames Simple History fills into its message are
+     * masked (issue #948); the rest of the masking is the list's.
      *
      * @param array<string, mixed>  $row
      * @param array<string, string> $meta
      * @return array<string, mixed>
      */
-    private static function event(string $source, array $row, array $meta): array
+    private static function event(string $source, array $row, array $meta, bool $masked = false): array
     {
         if ('wp-activity-log' === $source) {
             return [
@@ -434,7 +451,7 @@ final class Activity_Log_Pack
         $message = (string) ($row['message'] ?? '');
         $replace = [];
         foreach ($meta as $key => $value) {
-            $replace[ '{' . $key . '}' ] = $value;
+            $replace[ '{' . $key . '}' ] = $masked && self::is_user_name_key((string) $key) ? (string) Masking::value($value) : $value;
         }
         return [
             'id'         => (int) $row['id'],
@@ -453,6 +470,16 @@ final class Activity_Log_Pack
         ];
     }
 
+    /**
+     * Whether a Simple History context key holds a username or a display
+     * name ({login}, {failed_username}, {edited_user_login},
+     * {user_display_name}, {user_login_to} and the like), which a list masks.
+     */
+    private static function is_user_name_key(string $key): bool
+    {
+        return 1 === preg_match('/(?:^|_)(?:login|username|display_name)$|^user_login_(?:to|from)$/', $key);
+    }
+
     /** A WP Activity Log metadata value (stored with maybe_serialize), arrays only, never objects. @return mixed */
     private static function decode(string $value)
     {
@@ -468,6 +495,11 @@ final class Activity_Log_Pack
      * WP Activity Log's own wording for an event when its classes are
      * loaded, otherwise the event code.
      *
+     * The plugin's Log viewer builds the message from the metadata plus the
+     * columns of the occurrence row (Post ID, type and status, user, IP),
+     * so they are added the way Occurrences_Entity::get_meta_array() adds
+     * them, except the session id (issue #949).
+     *
      * @param array<string, mixed>  $row
      * @param array<string, string> $meta
      */
@@ -475,16 +507,62 @@ final class Activity_Log_Pack
     {
         $class = '\\WSAL\\Controllers\\Alert';
         if (class_exists($class) && method_exists($class, 'get_message')) {
+            $data = array_map([ self::class, 'decode' ], $meta);
+            foreach (self::WSAL_ROW_META as $name => $column) {
+                if (isset($row[ $column ])) {
+                    $data[ $name ] = $row[ $column ];
+                }
+            }
             try {
-                $text = $class::get_message($meta, null, (int) $row['alert_id'], (int) $row['id'], 'default');
+                $text = $class::get_message($data, null, (int) $row['alert_id'], (int) $row['id'], 'default');
                 if (is_string($text) && '' !== trim($text)) {
-                    return trim(wp_specialchars_decode(wp_strip_all_tags($text), ENT_QUOTES));
+                    return self::wsal_plain_text($text);
                 }
             } catch (\Throwable $e) {
                 unset($e);
             }
         }
         return sprintf('WP Activity Log event %d', (int) $row['alert_id']);
+    }
+
+    /**
+     * A WP Activity Log message in its default (HTML) form as plain text:
+     * one part per line, each link as "label: URL", the plugin's own
+     * vendor links (pricing, other plugins) and tips left out (issue #949).
+     */
+    private static function wsal_plain_text(string $html): string
+    {
+        $html = (string) preg_replace_callback(
+            '/<a\b([^>]*)>(.*?)<\/a>/is',
+            static function (array $m): string {
+                $label = trim(html_entity_decode(wp_strip_all_tags($m[2]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                $url   = 1 === preg_match('/\bhref\s*=\s*(["\'])(.*?)\1/is', $m[1], $h) ? trim(html_entity_decode($h[2], ENT_QUOTES | ENT_HTML5, 'UTF-8')) : '';
+                if (1 !== preg_match('#^https?://#i', $url) || self::is_wsal_vendor_url($url)) {
+                    return '';
+                }
+                return '' === $label || $label === $url ? $url : $label . ': ' . $url;
+            },
+            $html
+        );
+        $html  = (string) preg_replace('/<br\s*\/?>/i', "\n", $html);
+        $text  = html_entity_decode(wp_strip_all_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $lines = [];
+        foreach (preg_split('/\R/', $text) ?: [] as $line) {
+            $line = trim($line);
+            if ('' !== $line && 1 !== preg_match('/^Security tip:/i', $line)) {
+                $lines[] = $line;
+            }
+        }
+        return implode("\n", $lines);
+    }
+
+    /** A link to the plugin vendor's pricing, support or other plugins. */
+    private static function is_wsal_vendor_url(string $url): bool
+    {
+        $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
+        $path = strtolower((string) wp_parse_url($url, PHP_URL_PATH));
+        return 'melapress.com' === $host || '.melapress.com' === substr($host, -14)
+            || (in_array($host, [ 'wordpress.org', 'www.wordpress.org' ], true) && 0 === strpos($path, '/plugins/melapress'));
     }
 
     // ------------------------------------------------------------------

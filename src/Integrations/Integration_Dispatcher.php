@@ -6,6 +6,7 @@ use WPMCP\Governance\Governance;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
 use WPMCP\MCP\Ability;
+use WPMCP\MCP\Elicitation;
 use WPMCP\MCP\Opt_In_Required;
 use WPMCP\MCP\Registrar;
 use WPMCP\Safety\Safe_Mutation;
@@ -51,6 +52,13 @@ if (! defined('ABSPATH')) {
  *                           answers confirmation_required with the preview
  *                           (a send reports its recipient count), so the
  *                           person confirms exactly that
+ *      'confirm_in_arguments' destructive ops only: true when only confirm:true
+ *                           in the call's own arguments satisfies the gate,
+ *                           never a client's elicitation answer (issue #886).
+ *                           Defaults to true for an op whose effect cannot be
+ *                           undone (undoable:false or no snapshot); the
+ *                           refusal and the catalog row then carry
+ *                           confirm_in_arguments:true
  *      'undoable'           false for a write that snapshots its target but
  *                           whose effect cannot be undone (mail sent): the
  *                           response says recoverable:false
@@ -127,8 +135,9 @@ if (! defined('ABSPATH')) {
  * effects and writes no snapshot):
  *   availability -> op exists in this channel -> enabled flag/filter ->
  *   op-level governance -> per-op capability -> per-op 'requires' dependency ->
- *   destructive confirm:true -> schema validation -> per-op validate() -> handler
- *   (an op with a confirm_preview asks for confirm:true after validate()).
+ *   destructive confirm:true -> schema validation -> per-op validate() ->
+ *   unknown args (writes only, issue #956) -> handler (an op with a
+ *   confirm_preview asks for confirm:true after the unknown args check).
  *
  * Layering with the platform gates: the pair's own capability, Governance,
  * identity scope, and pro-tier gates all apply unchanged through
@@ -193,6 +202,20 @@ abstract class Integration_Dispatcher
     public function capability(): string
     {
         return 'edit_posts';
+    }
+
+    /**
+     * The capability the read/write abilities themselves take (their
+     * permission_callback and tools/list). It is capability() unless a pair
+     * hosts ops with a lower gate of their own (issue #952: the synced
+     * pattern ops on the theme pair). Then every op that does not declare
+     * 'own_capability' => true still takes capability() in dispatch(), on
+     * top of its own 'capability', so lowering this floor reaches only the
+     * ops that opt out.
+     */
+    public function pair_capability(): string
+    {
+        return $this->capability();
     }
 
     /** Governance domain for the pair and for every synthetic per-op ability. */
@@ -260,10 +283,11 @@ abstract class Integration_Dispatcher
             ),
             $this->dispatcher_schema(false),
             [ $this, 'handle_read' ],
-            $this->capability(),
+            $this->pair_capability(),
             $this->domain(),
             'read',
-            objects: \Closure::fromCallable([ $this, 'named_objects' ])
+            objects: \Closure::fromCallable([ $this, 'named_objects' ]),
+            op_capability: \Closure::fromCallable([ $this, 'operation_capability' ])
         );
 
         $write = new Ability(
@@ -275,15 +299,31 @@ abstract class Integration_Dispatcher
             ),
             $this->dispatcher_schema(true),
             [ $this, 'handle_write' ],
-            $this->capability(),
+            $this->pair_capability(),
             $this->domain(),
             'update',
             null,
             $has_destructive ? true : null,
-            objects: \Closure::fromCallable([ $this, 'named_objects' ])
+            objects: \Closure::fromCallable([ $this, 'named_objects' ]),
+            op_capability: \Closure::fromCallable([ $this, 'operation_capability' ])
         );
 
         return [ $read, $write ];
+    }
+
+    /**
+     * The capability the op an input names needs, or null when it names no
+     * known op. Lets a permission refusal name the op's own capability
+     * rather than only the pair's (issue #875).
+     *
+     * @param array<string, mixed> $input
+     */
+    public function operation_capability(array $input): ?string
+    {
+        $op = is_string($input['operation'] ?? null) ? $input['operation'] : '';
+        $def = '' === $op ? null : ($this->operations()[ $op ] ?? null);
+
+        return null === $def ? null : (string) ($def['capability'] ?? $this->capability());
     }
 
     /** Entry point for the {integration}-read ability. */
@@ -319,6 +359,9 @@ abstract class Integration_Dispatcher
                 'dependency_met'   => true === self::op_requirement($def),
                 'input_schema'     => $def['input_schema'] ?? [ 'type' => 'object' ],
             ];
+            if (self::confirm_in_arguments($def)) {
+                $ops[ count($ops) - 1 ][ Elicitation::IN_ARGUMENTS_KEY ] = true;
+            }
         }
 
         return [
@@ -326,6 +369,29 @@ abstract class Integration_Dispatcher
             'available'   => $this->is_available(),
             'operations'  => $ops,
         ];
+    }
+
+    /**
+     * Whether a destructive op takes confirm:true only from the call's own
+     * arguments, never from a client's elicitation answer (issue #886). A
+     * client set to skip permission prompts can accept that question by
+     * itself. True when the op says so ('confirm_in_arguments'), and by
+     * default for every destructive op whose effect cannot be undone: one
+     * declared 'undoable' => false or one with no snapshot (recoverable:false).
+     *
+     * @param array<string,mixed> $def
+     */
+    private static function confirm_in_arguments(array $def): bool
+    {
+        if ('destructive' !== ($def['mode'] ?? '')) {
+            return false;
+        }
+        if (isset($def['confirm_in_arguments'])) {
+            return (bool) $def['confirm_in_arguments'];
+        }
+
+        return false === ($def['undoable'] ?? true)
+            || (! isset($def['snapshot']) && empty($def['self_snapshotting']));
     }
 
     /**
@@ -472,6 +538,18 @@ abstract class Integration_Dispatcher
             ), [ 'reason' => 'governance' ]);
         }
 
+        // A pair whose abilities take a lower floor than capability()
+        // (pair_capability()) still holds every op to capability() unless
+        // the op's own capability replaces it ('own_capability').
+        $base = $this->capability();
+        if ($base !== $this->pair_capability() && empty($def['own_capability']) && ! current_user_can($base)) {
+            return $this->error('operation_denied', sprintf(
+                'Operation "%s" requires the "%s" capability.',
+                $op,
+                $base
+            ), [ 'reason' => 'capability' ]);
+        }
+
         $capability = $def['capability'] ?? null;
         if (null !== $capability && ! current_user_can($capability)) {
             return $this->error('operation_denied', sprintf(
@@ -490,8 +568,15 @@ abstract class Integration_Dispatcher
             );
         }
 
-        $unconfirmed = 'destructive' === $def['mode'] && true !== ($args['confirm'] ?? false);
+        $unconfirmed  = 'destructive' === $def['mode'] && true !== ($args['confirm'] ?? false);
+        $in_arguments = self::confirm_in_arguments($def);
         if ($unconfirmed && ! isset($def['confirm_preview'])) {
+            if ($in_arguments) {
+                return $this->error('confirmation_required', sprintf(
+                    'Operation "%s" is destructive and cannot be undone, so it requires confirm:true in the call\'s own arguments; a confirmation answered through the client does not count.',
+                    $op
+                ), [ Elicitation::IN_ARGUMENTS_KEY => true ]);
+            }
             return $this->error('confirmation_required', sprintf(
                 'Operation "%s" is destructive and requires confirm:true.',
                 $op
@@ -527,11 +612,33 @@ abstract class Integration_Dispatcher
             }
         }
 
+        // A write never drops an argument it does not know (issue #956): a
+        // misnamed key would otherwise be ignored and the op would still
+        // write, with a default where the caller meant something else. It
+        // runs after the op's own validate(), so an op that already refuses
+        // unknown keys with a more specific message keeps it, and before the
+        // preview and any snapshot.
+        if ('read' !== $channel) {
+            $unknown = $this->unknown_args_refusal($op, $schema, $op_args);
+            if (null !== $unknown) {
+                return $unknown;
+            }
+        }
+
         try {
             if ($unconfirmed) {
                 // A previewed op is asked about only once its args pass, with
                 // what it would do in the question.
                 $preview = (array) ($def['confirm_preview'])($op_args);
+                if ($in_arguments) {
+                    // Issue #886: the refusal is the whole question, so it
+                    // says exactly what confirm:true will do.
+                    return $this->error('confirmation_required', sprintf(
+                        'Operation "%s" requires confirm:true in the call\'s own arguments; a confirmation answered through the client does not count. With confirm:true: %s',
+                        $op,
+                        (string) ($preview['message'] ?? '')
+                    ), (array) ($preview['data'] ?? []) + [ Elicitation::IN_ARGUMENTS_KEY => true ]);
+                }
                 return $this->error('confirmation_required', sprintf(
                     'Operation "%s" requires confirm:true. %s',
                     $op,
@@ -559,6 +666,47 @@ abstract class Integration_Dispatcher
             // successful result carrying an 'error' key.
             return $this->error($e->error_code(), $e->getMessage(), $e->error_data());
         }
+    }
+
+    /**
+     * The invalid_args refusal for top-level args the op's schema does not
+     * list (issue #956), or null. A schema that states additionalProperties
+     * or patternProperties itself, or lists no properties at all, decides
+     * for itself and is left alone. Keys listed in a top-level oneOf, anyOf
+     * or allOf branch count as listed.
+     *
+     * @param array<string, mixed> $schema
+     * @param array<mixed>         $op_args
+     * @return array<string, mixed>|null
+     */
+    private function unknown_args_refusal(string $op, array $schema, array $op_args): ?array
+    {
+        if (array_key_exists('additionalProperties', $schema) || isset($schema['patternProperties']) || ! isset($schema['properties'])) {
+            return null;
+        }
+        $allowed = array_map('strval', array_keys((array) $schema['properties']));
+        foreach ([ 'oneOf', 'anyOf', 'allOf' ] as $combinator) {
+            foreach ((array) ($schema[ $combinator ] ?? []) as $branch) {
+                $allowed = array_merge($allowed, array_map('strval', array_keys((array) (((array) $branch)['properties'] ?? []))));
+            }
+        }
+        $allowed = array_values(array_unique($allowed));
+        $unknown = array_values(array_diff(array_map('strval', array_keys($op_args)), $allowed));
+        if ([] === $unknown) {
+            return null;
+        }
+
+        return $this->error('invalid_args', sprintf(
+            'Operation "%s" does not take %s. %s Nothing was changed.',
+            $op,
+            implode(', ', $unknown),
+            [] === $allowed ? 'It takes no arguments.' : sprintf('It takes %s.', implode(', ', $allowed))
+        ), [
+            'operation'    => $op,
+            'unknown'      => $unknown,
+            'allowed'      => $allowed,
+            'input_schema' => $schema,
+        ]);
     }
 
     /**

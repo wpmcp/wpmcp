@@ -51,6 +51,23 @@ class Rollback_Service
      */
     private static bool $post_create_untouched = false;
 
+    /**
+     * The posts the most recent restore moved to the trash because it undid
+     * their creation (issue #822): id, post_type and title of each, so the
+     * rollback tools can say where a created item went.
+     *
+     * @var array<int, array{id: int, post_type: string, title: string}>
+     */
+    private static array $trashed = [];
+
+    /** Return and clear the posts the most recent restore moved to the trash. */
+    public static function take_trashed(): array
+    {
+        $trashed       = self::$trashed;
+        self::$trashed = [];
+        return $trashed;
+    }
+
     /** Return and clear the warnings accumulated by the most recent restore. */
     public static function take_warnings(): array
     {
@@ -74,6 +91,7 @@ class Rollback_Service
     public static function restore_operation(string $operation_id): bool
     {
         self::$warnings = [];
+        self::$trashed  = [];
         self::ensure_ledger_schema();
         $row = Snapshot_Store::get_by_operation($operation_id);
         if (! $row) {
@@ -728,6 +746,7 @@ class Rollback_Service
     public static function restore_session(string $session_id): int
     {
         self::$warnings = [];
+        self::$trashed  = [];
         self::ensure_ledger_schema();
         self::assert_session_owner($session_id);
         $pruned = Snapshot_Store::is_loose_session($session_id) ? 0 : Snapshot_Store::pruned_rows_for_session($session_id);
@@ -1612,6 +1631,46 @@ class Rollback_Service
     }
 
     /**
+     * Give the revisions a post restore saved the restored meta (issue #872).
+     *
+     * wp_update_post() saves a revision before the snapshotted meta is back,
+     * and a builder that copies its layout rows onto each revision on
+     * save_post (Cornerstone's _cornerstone_data, Elementor's _elementor_data,
+     * core's revisioned meta) copies the layout being undone. Only rows the
+     * revision already carries are touched: a snapshotted key gets the
+     * restored values, a key the restore purged from the post goes. Only
+     * revisions this restore created are written, so earlier history keeps
+     * what it recorded.
+     *
+     * @param int[]                $revision_ids
+     * @param array<string, array> $snapshotted_meta
+     * @param string[]             $purged_keys
+     */
+    private static function sync_restore_revisions(int $post_id, array $revision_ids, array $snapshotted_meta, array $purged_keys): void
+    {
+        foreach (array_unique($revision_ids) as $revision_id) {
+            if ($revision_id <= 0 || wp_is_post_revision($revision_id) !== $post_id) {
+                continue;
+            }
+            $keys = array_map('strval', array_keys((array) get_metadata('post', $revision_id)));
+            $keys = array_values(array_filter($keys, static fn (string $key): bool => isset($snapshotted_meta[ $key ]) || in_array($key, $purged_keys, true)));
+            if ([] === $keys) {
+                continue;
+            }
+            Save_Filters::without(self::post_meta_save_filters($revision_id, $keys), static function () use ($revision_id, $keys, $snapshotted_meta): void {
+                foreach ($keys as $key) {
+                    // The *_metadata() calls, since the post meta wrappers
+                    // write to a revision's parent instead.
+                    delete_metadata('post', $revision_id, $key);
+                    foreach ((array) ($snapshotted_meta[ $key ] ?? []) as $v) {
+                        add_metadata('post', $revision_id, $key, self::slash_meta_value(maybe_unserialize($v)));
+                    }
+                }
+            });
+        }
+    }
+
+    /**
      * Restore a comment to its pre-mutation state.
      *
      * moderate-comment and edit-comment only ever change an existing comment
@@ -2335,22 +2394,34 @@ class Rollback_Service
 
         $object_id = (int) $snapshot['object_id'];
 
-        if ($snapshot['data']['post']) {
-            $current = get_post($object_id, ARRAY_A);
-            if ($current && self::is_same_post($current, $snapshot['data']['post'])) {
-                self::untrash_for_restore($object_id, $current, (array) $snapshot['data']['post']);
-                $postarr = array_merge(['ID' => $object_id], self::restore_columns($snapshot['data']['post'], false));
-                // wp_update_post() unslashes its input; the snapshot holds
-                // the raw stored columns, so they are slashed first or every
-                // backslash (block JSON escapes such as \u003c) is lost.
-                // Its save filters would rewrite the stored HTML (kses for
-                // a user without unfiltered_html), so they stand down.
-                $postarr = wp_slash($postarr);
-                Save_Filters::without(self::POST_SAVE_FILTERS, static fn () => wp_update_post($postarr));
-            } else {
-                self::resurrect($object_id, $snapshot['data']['post'], $snapshot['data']['comments'] ?? []);
+        // Revisions saved while the row goes back (issue #872): a builder
+        // copies its layout meta onto each one on save_post, before the
+        // snapshotted meta below is back, so they are corrected after it.
+        $restore_revisions = [];
+        $collect_revision  = static function ($revision_id) use (&$restore_revisions): void {
+            $restore_revisions[] = (int) $revision_id;
+        };
+        add_action('_wp_put_post_revision', $collect_revision);
+        try {
+            if ($snapshot['data']['post']) {
+                $current = get_post($object_id, ARRAY_A);
+                if ($current && self::is_same_post($current, $snapshot['data']['post'])) {
+                    self::untrash_for_restore($object_id, $current, (array) $snapshot['data']['post']);
+                    $postarr = array_merge(['ID' => $object_id], self::restore_columns($snapshot['data']['post'], false));
+                    // wp_update_post() unslashes its input; the snapshot holds
+                    // the raw stored columns, so they are slashed first or every
+                    // backslash (block JSON escapes such as \u003c) is lost.
+                    // Its save filters would rewrite the stored HTML (kses for
+                    // a user without unfiltered_html), so they stand down.
+                    $postarr = wp_slash($postarr);
+                    Save_Filters::without(self::POST_SAVE_FILTERS, static fn () => wp_update_post($postarr));
+                } else {
+                    self::resurrect($object_id, $snapshot['data']['post'], $snapshot['data']['comments'] ?? []);
+                }
+                self::restore_verbatim_columns($object_id, (array) $snapshot['data']['post']);
             }
-            self::restore_verbatim_columns($object_id, (array) $snapshot['data']['post']);
+        } finally {
+            remove_action('_wp_put_post_revision', $collect_revision);
         }
 
         $snapshotted_meta = (array) $snapshot['data']['meta'];
@@ -2358,7 +2429,8 @@ class Rollback_Service
         $is_elementor     = self::is_elementor_document($snapshotted_meta) || self::is_elementor_document($current_meta);
 
         // Purge any meta key that didn't exist at snapshot time (newly added by the mutation).
-        foreach (array_keys(array_diff_key($current_meta, $snapshotted_meta)) as $key) {
+        $purged_keys = array_map('strval', array_keys(array_diff_key($current_meta, $snapshotted_meta)));
+        foreach ($purged_keys as $key) {
             delete_post_meta($object_id, $key);
         }
 
@@ -2374,6 +2446,8 @@ class Rollback_Service
                 }
             }
         });
+
+        self::sync_restore_revisions($object_id, $restore_revisions, $snapshotted_meta, $purged_keys);
 
         // Restore taxonomy term assignments captured at snapshot time. Older
         // snapshots predating term capture simply have no 'terms' key, so
@@ -3000,7 +3074,9 @@ class Rollback_Service
             if (! Save_Filters::without(self::POST_SAVE_FILTERS, static fn () => wp_trash_post($post_id))) {
                 self::$post_create_untouched = true;
                 self::warn("Post {$post_id} created by this operation could not be moved to the trash; it was left in place.");
+                continue;
             }
+            self::$trashed[] = [ 'id' => $post_id, 'post_type' => (string) $current->post_type, 'title' => (string) $current->post_title ];
         }
     }
 

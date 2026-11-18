@@ -256,7 +256,7 @@ class PrettyLinksPackTest extends \WP_UnitTestCase
         });
         $existing = wpmcp_test_prli_link([ 'slug' => 'first' ]);
 
-        $out = $this->ok($this->write('prettylinks-create-link', [ 'url' => ' https://example.com/new ', 'slug' => 'My Link', 'name' => 'New', 'nofollow' => true, 'redirect_type' => '301' ]));
+        $out = $this->ok($this->write('prettylinks-create-link', [ 'url' => ' https://example.com/new ', 'slug' => 'My-Link', 'name' => 'New', 'nofollow' => true, 'redirect_type' => '301' ]));
         $this->assertTrue($out['recoverable']);
         $link = $out['result']['link'];
         $this->assertGreaterThan($existing, $link['id']);
@@ -289,6 +289,48 @@ class PrettyLinksPackTest extends \WP_UnitTestCase
         $this->assertSame('slug_in_use', $this->write('prettylinks-create-link', [ 'url' => 'https://example.com', 'slug' => 'taken' ])['error']['code'] ?? null);
         $this->assertSame('invalid_slug', $this->write('prettylinks-create-link', [ 'url' => 'https://example.com', 'slug' => '/abs' ])['error']['code'] ?? null);
         $this->assertSame('invalid_slug', $this->write('prettylinks-create-link', [ 'url' => 'https://example.com', 'slug' => '!!!' ])['error']['code'] ?? null);
+    }
+
+    /**
+     * Issue #950: a slug outside letters, digits, "-", "_", "/" and "." is
+     * refused, never rewritten, and nothing is written.
+     */
+    public function test_create_link_refuses_a_slug_it_would_otherwise_rewrite(): void
+    {
+        global $wpdb;
+        $count = static fn (): int => (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i', $wpdb->prefix . 'prli_links'));
+        $before = $count();
+        foreach ([ 'bad slug!', 'bad-slug!', "tab\there", 'a~b', 'a+b', 'a--b', 'trail-', 'a//b', 'ends/', '-lead' ] as $bad) {
+            $out = $this->write('prettylinks-create-link', [ 'url' => 'https://example.com/offer', 'slug' => $bad ]);
+            $this->assertSame('invalid_slug', $out['error']['code'] ?? null, $bad);
+            $this->assertStringContainsString('letters, digits', (string) ($out['error']['message'] ?? ''), $bad);
+        }
+        $out = $this->write('prettylinks-create-link', [ 'url' => 'https://example.com/offer', 'slug' => 'bad slug!' ]);
+        $this->assertSame('bad-slug', $out['error']['data']['suggested_slug'] ?? null);
+        $this->assertSame($before, $count(), 'no link row is written on refusal');
+
+        foreach ([ 'go/deal_2.0', "Caf\u{00e9}-menu", ' padded ' ] as $slug) {
+            $link = $this->ok($this->write('prettylinks-create-link', [ 'url' => 'https://example.com/ok', 'slug' => $slug ]))['result']['link'];
+            $this->assertSame(trim($slug), $link['slug']);
+        }
+    }
+
+    public function test_update_link_refuses_a_bad_slug_and_leaves_the_row_alone(): void
+    {
+        $id     = wpmcp_test_prli_link([ 'slug' => 'keep-me' ]);
+        $before = $this->row($id);
+        $this->assertSame('invalid_slug', $this->write('prettylinks-update-link', [ 'link_id' => $id, 'slug' => 'bad slug!' ])['error']['code'] ?? null);
+        $this->assertSame($before, $this->row($id));
+    }
+
+    public function test_update_link_still_accepts_a_legacy_slug_it_already_holds(): void
+    {
+        foreach ([ 'old~slug', 'old slug' ] as $legacy) {
+            $id = wpmcp_test_prli_link([ 'slug' => $legacy ]);
+            $this->ok($this->write('prettylinks-update-link', [ 'link_id' => $id, 'slug' => $legacy, 'name' => 'Renamed' ]));
+            $this->assertSame($legacy, $this->row($id)['slug']);
+            $this->assertSame('Renamed', $this->row($id)['name']);
+        }
     }
 
     public function test_update_link_changes_only_the_args_given_and_rolls_back_exactly(): void

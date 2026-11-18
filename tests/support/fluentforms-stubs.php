@@ -11,11 +11,71 @@
  * fluentform_submissions), so the status write's db_rows snapshot and rollback
  * are exercised against real rows. FF_Test_DB::install() is DDL: call it from
  * set_up_before_class, never inside a test transaction. Rows come back as
- * stdClass objects, as the real builder returns them.
+ * stdClass objects, as the real builder returns them, and get() wraps them in
+ * a collection OBJECT (FF_Test_Collection), as the real builder's get() does
+ * (FluentForm\Framework\Support\Collection, items in a protected property):
+ * an (array) cast over it yields its properties, not its rows (issue #945).
  *
  * Not reproduced: the rest of the builder (joins, whereIn, grouped wheres) and
  * Fluent Forms' Eloquent-style models. Real wpFluent() always wins.
  */
+
+/**
+ * The surface of Fluent Forms 6.x's FluentForm\Framework\Support\Collection
+ * that a caller can lean on: iteration, count(), offset access and all(). The
+ * rows sit in a protected property, as in the real class, so casting the
+ * collection to an array does NOT give the rows.
+ */
+class FF_Test_Collection implements ArrayAccess, Countable, IteratorAggregate
+{
+    /** @var object[] */
+    protected array $items;
+
+    /** Present on the real collection; here so a cast sees the same shape. */
+    protected bool $escapeWhenCastingToString = false; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase -- the real class's property name.
+
+    public function __construct(array $items)
+    {
+        $this->items = array_values($items);
+    }
+
+    /** @return object[] */
+    public function all(): array
+    {
+        return $this->items;
+    }
+
+    public function count(): int
+    {
+        return count($this->items);
+    }
+
+    public function getIterator(): ArrayIterator
+    {
+        return new ArrayIterator($this->items);
+    }
+
+    public function offsetExists($offset): bool
+    {
+        return isset($this->items[ $offset ]);
+    }
+
+    #[\ReturnTypeWillChange]
+    public function offsetGet($offset)
+    {
+        return $this->items[ $offset ];
+    }
+
+    public function offsetSet($offset, $value): void
+    {
+        null === $offset ? $this->items[] = $value : $this->items[ $offset ] = $value;
+    }
+
+    public function offsetUnset($offset): void
+    {
+        unset($this->items[ $offset ]);
+    }
+}
 
 class FF_Test_Query
 {
@@ -76,15 +136,14 @@ class FF_Test_Query
         return $wpdb->prefix . $this->table;
     }
 
-    /** @return object[] */
-    public function get(): array
+    public function get(): FF_Test_Collection
     {
         global $wpdb;
         $sql = $wpdb->prepare('SELECT * FROM %i', $this->table_name()) . $this->where_sql() . $this->order;
         if (null !== $this->limit) {
             $sql .= $wpdb->prepare(' LIMIT %d, %d', (int) $this->offset, $this->limit);
         }
-        return (array) $wpdb->get_results($sql);
+        return new FF_Test_Collection((array) $wpdb->get_results($sql));
     }
 
     public function first()

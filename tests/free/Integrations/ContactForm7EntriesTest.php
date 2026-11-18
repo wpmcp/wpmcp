@@ -7,6 +7,7 @@ use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Operation;
 
 require_once __DIR__ . '/../../support/forms-stubs.php';
+require_once __DIR__ . '/../../support/forms-delete-preview.php';
 
 /**
  * The Contact Form 7 entry operations, which read submissions out of Flamingo.
@@ -22,6 +23,8 @@ require_once __DIR__ . '/../../support/forms-stubs.php';
  */
 class ContactForm7EntriesTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Support\Forms_Delete_Preview_Assertions;
+
     private Contact_Form_7_Integration $integration;
     private int $channel_a;
     private int $channel_b;
@@ -318,6 +321,21 @@ class ContactForm7EntriesTest extends \WP_UnitTestCase
 
         $this->assertSame('confirmation_required', $out['error']['code']);
         $this->assertNotNull(get_post($this->entries_a[0]));
+    }
+
+    /** Issue #946: the Flamingo delete previews what it removes, without the values. */
+    public function test_delete_entry_preview_names_the_entry_and_says_it_is_not_an_erasure(): void
+    {
+        $id  = $this->entries_a[0];
+        $out = $this->write_with_optin([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $id ] ]);
+
+        $this->assert_delete_entry_preview($out, sprintf('Contact Form 7 (Flamingo) entry %d', $id), $id, 2);
+        $this->assertFalse($out['error']['data']['files_stay_on_disk'], 'Flamingo stores no uploads');
+        $this->assertStringNotContainsString('edsger', wp_json_encode($out));
+
+        $other = $this->write_with_optin([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->form_a ] ]);
+        $this->assertSame('confirmation_required', $other['error']['code']);
+        $this->assertStringContainsString('No Flamingo entry has that id', $other['error']['message']);
     }
 
     public function test_delete_entry_requires_the_entry_capability(): void

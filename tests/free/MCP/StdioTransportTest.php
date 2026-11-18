@@ -294,6 +294,8 @@ class StdioTransportTest extends \WP_UnitTestCase
         ]);
 
         $this->assertTrue($response['result']['isError']);
+        // The refusal names the capability instead of a bare denial (issue #875).
+        $this->assertStringContainsString('wpmcp-get-settings requires the "manage_options" capability', $response['result']['content'][0]['text']);
     }
 
     /**

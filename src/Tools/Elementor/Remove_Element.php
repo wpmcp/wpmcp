@@ -36,6 +36,11 @@ class Remove_Element
             return new \WP_Error('element_not_found', "No element found with id '{$element_id}'.");
         }
 
+        $refusal = Elementor_Page_Data::builder_mode_refusal($post_id);
+        if ($refusal) {
+            return $refusal;
+        }
+
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'post',
@@ -48,6 +53,7 @@ class Remove_Element
                 $elements = Elementor_Page_Data::get($post_id);
                 Elementor_Page_Data::remove($elements, $element_id);
                 Elementor_Page_Data::save($post_id, $elements);
+                Elementor_Page_Data::mark_built_with_elementor($post_id);
                 return true;
             }
         );

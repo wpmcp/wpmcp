@@ -803,8 +803,9 @@ final class Plugin
             add_action('woocommerce_delete_shipping_zone', ['\\WPMCP\\Safety\\Wc_Shipping_Zone_Snapshot', 'forget_creation']);
             // The WP-Cron executor for trigger-backup's scheduled events: runs
             // the queued job (producing a backup artifact) and flips its
-            // status to completed/failed. See Run_Backup_Job's docblock.
-            add_action(Run_Backup_Job::HOOK, [new Run_Backup_Job(), 'handle']);
+            // status to completed/failed, in steps under a PHP time limit
+            // (issue #783). See Run_Backup_Job's docblock.
+            add_action(Run_Backup_Job::HOOK, [new Run_Backup_Job(), 'handle_scheduled']);
             // The executor for a restore queued by restore-site-backup
             // (issue #727). See Run_Restore_Job's docblock.
             add_action(Run_Restore_Job::HOOK, [new Run_Restore_Job(), 'handle']);
@@ -916,7 +917,17 @@ final class Plugin
             // refuses, for abilities disabled by name) third-party calls.
             \WPMCP\Governance\Call_Source::register();
             \WPMCP\Governance\Site_Wide_Governance::register();
+            // Admin toggles for the default-off opt-in operation groups
+            // (issue #823): each hooks its group's own opt-in filter, and
+            // stands down whenever site code hooks that filter too.
+            \WPMCP\Governance\Opt_In_Settings::register();
+            add_action('network_admin_menu', [\WPMCP\Admin\Opt_In_Settings_Page::class, 'register_network_menu']);
             add_action('wp_ability_invoked', [Registrar::class, 'note_invoked'], PHP_INT_MIN, 1);
+            // A denial of our own ability reaches a standalone permission
+            // check (adapter, stdio, REST run route) as the refusal naming
+            // what is missing (issue #875), while the callback itself only
+            // ever returns a bool. Just before Site_Wide_Governance (MAX).
+            add_filter('wp_ability_permission_result', [Registrar::class, 'permission_result'], PHP_INT_MAX - 1, 2);
             // Handshake context injection (issue #80): swap the MCP
             // Adapter's initialize `instructions` for the admin-authored
             // text plus the permission-gated site summary. A no-op unless
@@ -967,6 +978,9 @@ final class Plugin
             // old domain. Scoped to our own routes; everything else on the
             // site is untouched.
             (new Transport_Guard())->register();
+            // A direct call to a plugin-data tool held back for want of an
+            // active plugin names the plugin to activate (issue #876).
+            (new \WPMCP\MCP\Hidden_Tool_Refusal())->register();
             // Mounts /wp-json/mcp/wpmcp-server, the JSON-RPC endpoint the
             // README and get-connection-info have always advertised. Without
             // it wp_register_ability() gives us abilities but no MCP
@@ -1018,6 +1032,21 @@ final class Plugin
         ]);
     }
 
+    /**
+     * The sidebar icon for the top-level menu (issue #879): the brand mark's
+     * circular undo arrow, drawn as one-colour filled shapes. WordPress's
+     * svg-painter recolours only base64 SVG data URIs (it rewrites fill
+     * attributes, not strokes), so the URI is base64. It is a precomputed
+     * literal of this exact SVG (AdminMenuIconTest decodes and checks it):
+     *
+     * <svg xmlns="http://www.w3.org/2000/svg" viewBox="48 44 160 160">
+     * <path fill="black" d="M155.3 60.3A73 73 0 1 1 100.7 60.3L108.9 80.7
+     * A51 51 0 1 0 147.1 80.7A11 11 0 0 1 155.3 60.3Z"/>
+     * <path fill="black" d="M74 70.5L112 47V94Z"/></svg>
+     */
+    private const MENU_ICON = 'data:image/svg+xml;base64,'
+        . 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjQ4IDQ0IDE2MCAxNjAiPjxwYXRoIGZpbGw9ImJsYWNrIiBkPSJNMTU1LjMgNjAuM0E3MyA3MyAwIDEgMSAxMDAuNyA2MC4zTDEwOC45IDgwLjdBNTEgNTEgMCAxIDAgMTQ3LjEgODAuN0ExMSAxMSAwIDAgMSAxNTUuMyA2MC4zWiIvPjxwYXRoIGZpbGw9ImJsYWNrIiBkPSJNNzQgNzAuNUwxMTIgNDdWOTRaIi8+PC9zdmc+';
+
     public function register_admin_menu(): void
     {
         // Pending agent memory proposals (issue #131) are surfaced as the
@@ -1038,7 +1067,8 @@ final class Plugin
             $menu_title,
             Management_Access::CAPABILITY,
             'wpmcp',
-            [new History_Page(), 'render']
+            [new History_Page(), 'render'],
+            self::MENU_ICON
         );
 
         // The history screen, added explicitly rather than left to the
@@ -1129,6 +1159,21 @@ final class Plugin
             Skills_Settings_Page::SLUG,
             [new Skills_Settings_Page(), 'render']
         );
+
+        // Opt-in operations (issue #823): switches on groups of operations
+        // that are off by default, so a site-wide trust decision like the rest.
+        // Writing a toggle also takes manage_options, checked on the screen.
+        // No entry on a build that ships none of the groups.
+        if ([] !== \WPMCP\Governance\Opt_In_Settings::groups()) {
+            add_submenu_page(
+                'wpmcp',
+                self::page_title(__('Opt-in operations', 'wpmcp')),
+                _x('Opt-in operations', 'admin menu', 'wpmcp'),
+                Management_Access::CAPABILITY,
+                \WPMCP\Admin\Opt_In_Settings_Page::SLUG,
+                [new \WPMCP\Admin\Opt_In_Settings_Page(), 'render']
+            );
+        }
 
         // In-admin AI chat (issue #73): the chat drives the same governed
         // ability surface as external MCP clients under the admin's own
@@ -1643,6 +1688,8 @@ final class Plugin
                     'confirm'    => [ 'type' => 'boolean' ],
                     'force'      => [ 'type' => 'boolean' ],
                     'session_id' => [ 'type' => 'string' ],
+                    // Delete even when some files could not be backed up.
+                    'allow_unrecoverable_files' => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'media_id', 'confirm' ],
             ],
@@ -1753,6 +1800,8 @@ final class Plugin
                     'media_id'   => [ 'type' => 'integer' ],
                     'sizes'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
                     'session_id' => [ 'type' => 'string' ],
+                    // Resize even when some files could not be backed up.
+                    'allow_unrecoverable_files' => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'media_id', 'sizes' ],
             ],

@@ -15,7 +15,11 @@ if (! defined('ABSPATH')) {
  * _kad_element_show_conditionals, _kad_element_hide_conditionals,
  * _kad_element_user_conditionals and _kad_element_device_conditionals, plus
  * the _kad_element_all_show flag, each in the shape the element editor
- * saves and Elements_Controller::check_element_conditionals() reads.
+ * saves and Elements_Controller::check_element_conditionals() reads. The
+ * Expires Settings (issue #892) are _kad_element_enable_expires and
+ * _kad_element_expires, a site-time date as the editor's date picker
+ * saves it (Y-m-d\TH:i:s); Kadence hides the element once that time has
+ * passed.
  *
  * HTML code elements (type script) print raw markup and scripts, so they
  * are read without their content and never written.
@@ -57,7 +61,7 @@ final class Theme_Layouts_Kadence extends Theme_Layouts_Adapter
 
     public function module_hint(): string
     {
-        return 'Switch on Elements under Appearance > Kadence > Pro Add-ons.';
+        return 'Switch on Hooked Elements under Appearance > Kadence > Pro Addons.';
     }
 
     public function types(): array
@@ -134,6 +138,17 @@ final class Theme_Layouts_Kadence extends Theme_Layouts_Adapter
         return 'post_content';
     }
 
+    /** A Kadence HTML element prints its code as is. */
+    public function runs_code(int $id): ?string
+    {
+        return 'script' === $this->type_of($id) ? 'markup' : null;
+    }
+
+    public function location_keys(): array
+    {
+        return [ 'show', 'hide' ];
+    }
+
     public function read_rules(int $id): array
     {
         $user   = self::json($id, '_kad_element_user_conditionals');
@@ -144,7 +159,81 @@ final class Theme_Layouts_Kadence extends Theme_Layouts_Adapter
             'hide'     => self::json($id, '_kad_element_hide_conditionals'),
             'user'     => array_values(array_filter(array_map(static fn ($u) => is_array($u) ? (string) ($u['role'] ?? '') : '', $user))),
             'device'   => array_values(array_filter(array_map(static fn ($d) => is_array($d) ? (string) ($d['value'] ?? '') : '', $device))),
+            'expires'  => self::read_expiry($id),
         ];
+    }
+
+    /**
+     * The element's expiry. expired follows Kadence's own check: on, a
+     * date, and that site time has passed.
+     *
+     * @return array{enabled:bool,date:?string,expired:bool}
+     */
+    private static function read_expiry(int $id): array
+    {
+        $enabled = (bool) get_post_meta($id, '_kad_element_enable_expires', true);
+        $date    = (string) get_post_meta($id, '_kad_element_expires', true);
+        $time    = '' === $date ? false : strtotime($date);
+        return [
+            'enabled' => $enabled,
+            'date'    => '' === $date ? null : $date,
+            'expired' => $enabled && false !== $time && $time < strtotime(current_time('mysql')),
+        ];
+    }
+
+    /**
+     * An expiry in stored shape: false or null switches it off and keeps
+     * the date, as the editor's toggle does; a date string or {date} sets
+     * the date and switches it on; {enabled:false, date} stores the date
+     * switched off.
+     *
+     * @param mixed $value
+     * @return array{enabled:bool,date?:string}
+     */
+    private static function expiry($value): array
+    {
+        if (false === $value || null === $value) {
+            return [ 'enabled' => false ];
+        }
+        if (is_string($value)) {
+            $value = [ 'date' => $value ];
+        }
+        if (! is_array($value) || array_is_list($value) && [] !== $value) {
+            throw self::bad_rules('expires is {enabled, date} with date in site time (YYYY-MM-DD HH:MM), a date string, or false to switch it off.');
+        }
+        foreach (array_keys($value) as $key) {
+            if (! in_array($key, [ 'enabled', 'date' ], true)) {
+                throw self::bad_rules(sprintf('expires takes enabled and date, not "%s".', (string) $key));
+            }
+        }
+        if (array_key_exists('enabled', $value) && ! is_bool($value['enabled'])) {
+            throw self::bad_rules('expires.enabled is true or false.');
+        }
+        $out = [ 'enabled' => (bool) ($value['enabled'] ?? true) ];
+        if (array_key_exists('date', $value)) {
+            $date = \DateTime::createFromFormat('!Y-m-d H:i:s', self::date_text($value['date']));
+            if (false === $date) {
+                throw self::bad_rules('expires.date is a site time as YYYY-MM-DD, YYYY-MM-DD HH:MM or YYYY-MM-DDTHH:MM:SS.', $value['date']);
+            }
+            $out['date'] = $date->format('Y-m-d\TH:i:s');
+        } elseif ($out['enabled']) {
+            throw self::bad_rules('Switching the expiry on needs expires.date, the site time it ends.');
+        }
+        return $out;
+    }
+
+    /**
+     * A date argument as Y-m-d H:i:s, or '' when it is not one of the
+     * accepted shapes.
+     *
+     * @param mixed $date
+     */
+    private static function date_text($date): string
+    {
+        if (! is_string($date) || 1 !== preg_match('/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2})(:\d{2})?)?$/', trim($date), $m)) {
+            return '';
+        }
+        return $m[1] . ' ' . ($m[2] ?? '00:00') . ($m[3] ?? ':00');
     }
 
     public function normalize_rules(array $rules): array
@@ -176,8 +265,10 @@ final class Theme_Layouts_Kadence extends Theme_Layouts_Adapter
                     }
                     $out['device'][] = [ 'value' => $device, 'label' => self::DEVICES[ $device ] ];
                 }
+            } elseif ('expires' === $key) {
+                $out['expires'] = self::expiry($value);
             } else {
-                throw self::bad_rules(sprintf('Kadence display rules take show, all_show, hide, user and device, not "%s".', (string) $key));
+                throw self::bad_rules(sprintf('Kadence display rules take show, all_show, hide, user, device and expires, not "%s".', (string) $key));
             }
         }
         return $out;
@@ -194,12 +285,18 @@ final class Theme_Layouts_Kadence extends Theme_Layouts_Adapter
         if (array_key_exists('all_show', $rules)) {
             self::put_meta($id, '_kad_element_all_show', $rules['all_show'] ? true : '');
         }
+        if (array_key_exists('expires', $rules)) {
+            self::put_meta($id, '_kad_element_enable_expires', $rules['expires']['enabled'] ? true : '');
+            if (array_key_exists('date', $rules['expires'])) {
+                self::put_meta($id, '_kad_element_expires', $rules['expires']['date']);
+            }
+        }
     }
 
     public function rule_vocabulary(): array
     {
         $out = [
-            'format' => '{show: [{rule, select, ids, subRule, subSelection, mustMatch}], all_show: bool, hide: [same], user: [roles], device: [desktop|tablet|mobile]}. rule: general|site, general|front_page, general|home, general|search, general|404, general|singular, general|archive, general|author, general|date, general|paged, singular|<post_type> or tax_archive|<taxonomy>. select (singular and tax_archive rules): all, ids (ids: post ids), tax (subRule: taxonomy, subSelection: [{value: term_id}]), author (subRule: user id) or individual (subSelection: [{value: term_id}]). user: public, logged_in, logged_out or a role.',
+            'format' => '{show: [{rule, select, ids, subRule, subSelection, mustMatch}], all_show: bool, hide: [same], user: [roles], device: [desktop|tablet|mobile]}. rule: general|site, general|front_page, general|home, general|search, general|404, general|singular, general|archive, general|author, general|date, general|paged, singular|<post_type> or tax_archive|<taxonomy>. select (singular and tax_archive rules): all, ids (ids: post ids), tax (subRule: taxonomy, subSelection: [{value: term_id}]), author (subRule: user id) or individual (subSelection: [{value: term_id}]). user: public, logged_in, logged_out or a role. expires: {enabled: bool, date: YYYY-MM-DD HH:MM in site time}, a date string, or false to switch it off (the date is kept); Kadence hides the element after that time.',
         ];
         if (class_exists('\Kadence_Pro\Elements_Controller')) {
             $controller = \Kadence_Pro\Elements_Controller::get_instance();

@@ -393,7 +393,27 @@ class Woo_Write
         return $this->result($plan, $mutation['result']) + [
             'operation_id' => $mutation['operation_id'],
             'recoverable'  => $def['recoverable'],
-        ] + $extra;
+        ] + self::undo_scope($def, $mutation['operation_id']) + $extra;
+    }
+
+    /**
+     * What undo reverses for a snapshotted op that still reports
+     * recoverable:false (issue #823): the stored state comes back, what
+     * already left the site does not. Empty for a recoverable op.
+     *
+     * @param array<string, mixed> $def
+     * @param mixed                $operation_id
+     * @return array<string, string>
+     */
+    private static function undo_scope(array $def, $operation_id): array
+    {
+        if (false !== $def['recoverable'] || ! is_string($operation_id) || '' === $operation_id) {
+            return [];
+        }
+
+        return [
+            'undo_scope' => 'rollback-operation with this operation_id restores what was snapshotted before the change (the record\'s status, dates and schedule). It cannot reverse what already left the site: emails sent, or a change a payment gateway made on its side (see side_effects).',
+        ];
     }
 
     /**

@@ -76,6 +76,20 @@ abstract class Theme_Layouts_Adapter
      */
     abstract public function content_key(string $type, int $id = 0): string;
 
+    /**
+     * The code a layout runs once it is live (issue #890): 'php' for code
+     * the add-on executes as PHP, 'markup' for raw code it prints as is, or
+     * null for a layout with no code.
+     */
+    abstract public function runs_code(int $id): ?string;
+
+    /**
+     * The rules key that places a layout and the one that excludes places.
+     *
+     * @return array{0:string,1:string}
+     */
+    abstract public function location_keys(): array;
+
     /** @return array<string,mixed> the stored rules, in the shape the ops take them. */
     abstract public function read_rules(int $id): array;
 
@@ -185,6 +199,23 @@ abstract class Theme_Layouts_Adapter
             return;
         }
         update_post_meta($id, $key, wp_slash($value));
+    }
+
+    /**
+     * The admin screen functions an add-on's rule lists call (issue #894):
+     * Astra Pro's location rules call get_current_screen(), which core loads
+     * only in wp-admin. Loaded as wp-admin/includes/admin.php loads them;
+     * with no screen set it returns null, and Astra's check falls back to
+     * $pagenow.
+     */
+    protected static function load_screen_functions(): void
+    {
+        if (! class_exists('WP_Screen', false)) {
+            require_once ABSPATH . 'wp-admin/includes/class-wp-screen.php';
+        }
+        if (! function_exists('get_current_screen')) {
+            require_once ABSPATH . 'wp-admin/includes/screen.php';
+        }
     }
 
     /** The admin user functions the add-ons' role lists call. */

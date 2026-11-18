@@ -41,7 +41,7 @@ class SecurityCapabilityTest extends \WP_UnitTestCase
 
         $editor = self::factory()->user->create(['role' => 'editor']);
         wp_set_current_user($editor);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/scan-security']->check_permissions(),
             'wpmcp/scan-security must deny an editor (no manage_options)'
         );

@@ -237,6 +237,11 @@ class Atomic_Element
      */
     public static function write(int $post_id, array $elements, string $tool_name, array $args)
     {
+        $refusal = Elementor_Page_Data::builder_mode_refusal($post_id);
+        if ($refusal) {
+            return $refusal;
+        }
+
         $operation_id = wp_generate_uuid4();
         // Compare what the JSON meta can actually represent: wp_json_encode
         // writes a float 32.0 as `32`, which decodes back as int, so an
@@ -256,6 +261,7 @@ class Atomic_Element
                 ],
                 function () use ($post_id, $elements) {
                     Elementor_Page_Data::save($post_id, $elements);
+                    Elementor_Page_Data::mark_built_with_elementor($post_id);
                     return true;
                 },
                 function () use ($post_id, $intended) {

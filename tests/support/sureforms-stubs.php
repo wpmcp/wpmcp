@@ -103,19 +103,51 @@ namespace SRFM\Inc\Database\Tables {
                 return self::$rows[ (int) $id ] ?? [];
             }
 
-            /** Honours only the equality WHERE clauses the integration sends. */
-            public static function get_all($args = [])
+            /**
+             * SureForms' get_records_by_args() WHERE contract, as its
+             * Base::prepare_where_clauses() reads it: an int key holds a GROUP,
+             * a list of int-keyed conditions; a string key is a plain column
+             * equality. A condition placed directly at the top level (one
+             * nesting level too shallow, issue #944) is dropped without a word,
+             * exactly as the real builder drops it. Only '=' is honoured. Like
+             * the real accessor it applies LIMIT offset, limit (default 10)
+             * unless $set_limit is false.
+             */
+            public static function get_all($args = [], $set_limit = true)
             {
+                $args = (array) $args + [ 'where' => [], 'limit' => 10, 'offset' => 0 ];
                 $rows = array_values(self::$rows);
-                foreach ((array) ($args['where'] ?? []) as $clause) {
-                    $key   = (string) ($clause['key'] ?? '');
-                    $value = $clause['value'] ?? null;
-                    $rows  = array_values(array_filter(
-                        $rows,
-                        static fn ($row) => isset($row[ $key ]) && (string) $row[ $key ] === (string) $value
-                    ));
+                foreach ((array) $args['where'] as $key => $group) {
+                    $conditions = [];
+                    if (is_int($key)) {
+                        foreach ((array) $group as $inner => $condition) {
+                            if (is_int($inner) && is_array($condition) && '=' === ($condition['compare'] ?? '')) {
+                                $conditions[] = [ (string) ($condition['key'] ?? ''), $condition['value'] ?? null ];
+                            }
+                        }
+                    } else {
+                        $conditions[] = [ (string) $key, $group ];
+                    }
+                    foreach ($conditions as [ $column, $value ]) {
+                        $rows = array_values(array_filter(
+                            $rows,
+                            static fn ($row) => isset($row[ $column ]) && (string) $row[ $column ] === (string) $value
+                        ));
+                    }
                 }
-                return $rows;
+                return $set_limit ? array_slice($rows, (int) $args['offset'], (int) $args['limit']) : $rows;
+            }
+
+            /** SureForms' Get_Instance trait: the accessor's singleton. */
+            public static function get_instance(): self
+            {
+                return new self();
+            }
+
+            /** Base::get_total_count(): COUNT(*) under the same WHERE contract as get_all(). */
+            public function get_total_count($where_clauses = [])
+            {
+                return count(self::get_all([ 'where' => $where_clauses ], false));
             }
 
             public static function get_total_entries_by_status($status, $form_id = 0)

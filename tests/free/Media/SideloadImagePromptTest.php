@@ -457,7 +457,7 @@ class SideloadImagePromptTest extends \WP_UnitTestCase
 
         $abilities = wp_get_abilities();
         wp_set_current_user(self::factory()->user->create(['role' => 'contributor']));
-        $this->assertFalse($abilities['wpmcp/sideload-image']->check_permissions(), 'a Contributor cannot upload files');
+        $this->assertNotTrue($abilities['wpmcp/sideload-image']->check_permissions(), 'a Contributor cannot upload files');
 
         wp_set_current_user(self::factory()->user->create(['role' => 'author']));
         $this->assertTrue($abilities['wpmcp/sideload-image']->check_permissions());
