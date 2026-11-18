@@ -48,7 +48,12 @@ class LocoTranslatePackTest extends \WP_UnitTestCase
         parent::setUp();
         Snapshot_Store::install();
         Gate::set_pro_for_tests(true);
-        wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
+        $admin = self::factory()->user->create([ 'role' => 'administrator' ]);
+        if (is_multisite()) {
+            // On a network only a super admin may edit files, as core decides.
+            grant_super_admin($admin);
+        }
+        wp_set_current_user($admin);
         add_filter('wpmcp_loco_active', '__return_true');
         add_filter(Loco_Translate_Pack::ENABLE_FILTER, '__return_true');
         // The .l10n.php refresh asks the site check first; keep it offline.
