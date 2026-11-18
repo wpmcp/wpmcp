@@ -185,7 +185,6 @@ class KnowledgeBaseSupportLiveTest extends \WP_UnitTestCase
         $page  = $pages->newInstanceWithoutConstructor();
         foreach ([ 'validateAttachmentSignature', 'canViewWithoutSignature' ] as $check) {
             $method = $pages->getMethod($check);
-            $method->setAccessible(true);
             $this->assertFalse($method->invoke($page, $opened), "a logged-out visitor fails {$check}, so Fluent Support sends them to the login page");
         }
     }

@@ -646,6 +646,9 @@ class FunnelKitPackTest extends \WP_UnitTestCase
 
         $manager = self::factory()->user->create([ 'role' => 'editor' ]);
         get_userdata($manager)->add_cap('manage_woocommerce');
+        // The theme pair holds its ops to edit_theme_options in dispatch()
+        // too (issue #952), as WooCommerce's Shop manager role has it.
+        get_userdata($manager)->add_cap('edit_theme_options');
         wp_set_current_user($manager);
         $upsells = $this->steps_by_type($this->read(self::GET_OP, [ 'id' => $ids['funnel'] ])['result'])['wc_upsells'];
         $this->assertSame('offer_parent_meta', $upsells['offers_source']);
