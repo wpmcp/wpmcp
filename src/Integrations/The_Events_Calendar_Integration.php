@@ -18,8 +18,9 @@ if (! defined('ABSPATH')) {
  * them through a curated, TEC-aware read: list events, and read one event's
  * schedule as clean named fields.
  *
- * Read-only: tribe_events is an ordinary CPT, so create/edit is available via
- * the generic content tools (snapshotted); this adds the curated read on top.
+ * Venues, organizers, categories and the event writes (create, update,
+ * cancel, create-venue, create-organizer; off until wpmcp_enable_tec_write,
+ * issue #677) live in The_Events_Calendar_Writes on this same pair.
  */
 class The_Events_Calendar_Integration extends Integration_Dispatcher
 {
@@ -63,8 +64,11 @@ class The_Events_Calendar_Integration extends Integration_Dispatcher
 
     protected function operations(): array
     {
+        $requires = static fn () => The_Events_Calendar_Writes::presence();
+
         return [
             'list-events' => [
+                'requires'     => $requires,
                 'mode'         => 'read',
                 'description'  => 'List The Events Calendar events with id, title, status, and start/end date, newest first (paged; page_size default 20, max 100)',
                 'input_schema' => [
@@ -99,9 +103,10 @@ class The_Events_Calendar_Integration extends Integration_Dispatcher
                 },
             ],
             'get-event' => [
+                'requires'     => $requires,
                 'mode'         => 'read',
                 'objects'      => [ 'event_id' => [ 'type' => 'post', 'own_type' => true ] ],
-                'description'  => 'Read one event: title, content, status, and its curated schedule (start/end date, UTC start, all-day flag, venue and organizer ids, cost, URL)',
+                'description'  => 'Read one event: title, content, status, its curated schedule (start/end date, UTC start, all-day flag, venue and organizer ids, cost, URL), organizer and category ids, and its TEC event status (canceled, postponed) with reason',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'event_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
@@ -119,10 +124,10 @@ class The_Events_Calendar_Integration extends Integration_Dispatcher
                             'status'   => (string) $post->post_status,
                             'content'  => (string) $post->post_content,
                             'schedule' => self::schedule((int) $post->ID),
-                        ],
+                        ] + The_Events_Calendar_Writes::details((int) $post->ID),
                     ];
                 },
             ],
-        ];
+        ] + The_Events_Calendar_Writes::operations();
     }
 }

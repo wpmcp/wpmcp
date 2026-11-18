@@ -524,6 +524,10 @@ final class Plugin
         [\WPMCP\Tools\I18n\I18n_Adapter::class, 'restore_translation_group', 'wpmcp_rollback_translation_group'],
         [\WPMCP\Tools\I18n\I18n_Adapter::class, 'hold_sync', 'wpmcp_rollback_hold_translation_sync'],
         [\WPMCP\Tools\I18n\I18n_Adapter::class, 'release_sync', 'wpmcp_rollback_release_translation_sync'],
+        // Modern Events Calendar reads its calendar from its own mec_events
+        // and mec_dates tables, derived from the event meta; an undo that
+        // restores an event post rebuilds them as the write did (#677).
+        [\WPMCP\Integrations\Modern_Events_Calendar_Writes::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],
     ];
 
     /**
