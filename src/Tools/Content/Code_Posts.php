@@ -20,10 +20,16 @@ if (! defined('ABSPATH')) {
  *
  * Described as data (post types and meta keys, never an add-on's classes),
  * so it ships in every build and protects a site whether or not the layout
- * ops do. GP Premium needs no entry: its element code is in protected
- * `_`-prefixed meta, which Content_Guard::check_meta() already refuses.
- * Other code layouts can be declared through the wpmcp_code_post_rules
- * filter.
+ * ops do. GP Premium's element code is in protected `_`-prefixed meta,
+ * which Content_Guard::check_meta() already refuses, so its entry only
+ * holds the PHP switch for the status gate below. Other code layouts can be
+ * declared through the wpmcp_code_post_rules filter.
+ *
+ * Nor do the generic tools switch such a layout on (follow-up to #890):
+ * publishing it, or setting it to private, pending or future, would run its
+ * code, so update-post, duplicate-post and the builder publish ops refuse
+ * that with code_layout and point to the layout op, which checks whether
+ * the site allows that code. Unpublishing stays open.
  *
  * Undo is not refused: Rollback_Service puts back what a snapshot holds.
  */
@@ -31,13 +37,18 @@ final class Code_Posts
 {
     public const CODE = 'code_layout';
 
+    /** Statuses that put a layout live, now or later. */
+    private const LIVE_STATUSES = [ 'publish', 'private', 'pending', 'future' ];
+
     /**
      * Post type => rule:
      *  - type_meta / code_types: the meta key holding the layout kind and
      *    the kinds whose post_content is code;
      *  - code_meta: meta keys that hold code, never read or written;
      *  - switch_meta: meta keys that turn stored code on, never written;
-     *  - message / op: the refusal, and the layout op that reads the rest.
+     *  - run_meta: meta keys whose non-empty value makes the layout run code;
+     *  - message / op / update_op: the refusal, the layout op that reads the
+     *    rest and the one that publishes it.
      *
      * @return array<string,array<string,mixed>>
      */
@@ -51,6 +62,7 @@ final class Code_Posts
                 'switch_meta' => [ '_kad_element_type' ],
                 'message'     => 'This Kadence element is an HTML code element; its code is edited in wp-admin only.',
                 'op'          => 'get-kadence-layout',
+                'update_op'   => 'update-kadence-layout',
             ],
             'astra-advanced-hook' => [
                 'type_meta'   => 'editor_type',
@@ -59,6 +71,15 @@ final class Code_Posts
                 'switch_meta' => [ 'editor_type' ],
                 'message'     => 'This Astra layout is a code snippet (code editor); its code is edited in wp-admin only.',
                 'op'          => 'get-astra-layout',
+                'update_op'   => 'update-astra-layout',
+            ],
+            'gp_elements'         => [
+                'code_meta'   => [],
+                'switch_meta' => [],
+                'run_meta'    => [ '_generate_hook_execute_php' ],
+                'message'     => 'This GeneratePress hook element executes PHP; PHP execution is switched on in wp-admin only.',
+                'op'          => 'get-generatepress-layout',
+                'update_op'   => 'update-generatepress-layout',
             ],
         ];
 
@@ -93,11 +114,77 @@ final class Code_Posts
         if (null === $rule) {
             return null;
         }
-        $kind = (string) get_post_meta((int) $subject->ID, (string) ($rule['type_meta'] ?? ''), true);
-        if (! in_array($kind, (array) ($rule['code_types'] ?? []), true)) {
-            return null;
+        return self::content_is_code((int) $subject->ID, $rule) ? self::note($rule) : null;
+    }
+
+    /** @param array<string,mixed> $rule */
+    private static function content_is_code(int $post_id, array $rule): bool
+    {
+        $type_meta = (string) ($rule['type_meta'] ?? '');
+        if ('' === $type_meta) {
+            return false;
         }
-        return self::note($rule);
+        $kind = (string) get_post_meta($post_id, $type_meta, true);
+        return in_array($kind, (array) ($rule['code_types'] ?? []), true);
+    }
+
+    /** @param array<string,mixed> $rule */
+    private static function runs_code(int $post_id, array $rule): bool
+    {
+        if (self::content_is_code($post_id, $rule)) {
+            return true;
+        }
+        foreach ((array) ($rule['run_meta'] ?? []) as $key) {
+            if ('' !== (string) get_post_meta($post_id, (string) $key, true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Refuse giving a code layout a status that runs its code (publish,
+     * private, pending to publish later, future): the layout op checks
+     * whether the site allows that code; the generic tools do not switch it
+     * on. A status the post already has, and draft, stay open.
+     *
+     * @throws Post_Write_Refused
+     */
+    public static function assert_status_allowed(int $post_id, string $status): void
+    {
+        if (! in_array($status, self::LIVE_STATUSES, true)) {
+            return;
+        }
+        $post = get_post($post_id);
+        if (! $post instanceof \WP_Post || $status === (string) $post->post_status) {
+            return;
+        }
+        self::assert_copy_allowed($post, $status);
+    }
+
+    /**
+     * Refuse a new post in $status that copies $source when $source is a
+     * code layout and $status runs its code (duplicate-post).
+     *
+     * @throws Post_Write_Refused
+     */
+    public static function assert_copy_allowed(\WP_Post $source, string $status): void
+    {
+        if (! in_array($status, self::LIVE_STATUSES, true)) {
+            return;
+        }
+        $rule = self::rule((string) $source->post_type);
+        if (null === $rule || ! self::runs_code((int) $source->ID, $rule)) {
+            return;
+        }
+        $op = (string) ($rule['update_op'] ?? '');
+        // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Post_Write_Refused escapes the message it is given.
+        throw self::refused(trim(sprintf(
+            '%1$s Setting it to %2$s would run its code on the site, so the generic post tools do not switch it on.%3$s',
+            (string) ($rule['message'] ?? ''),
+            esc_html($status),
+            '' === $op ? ' Publish it in wp-admin instead.' : sprintf(' Use theme-write %s, which checks whether the site allows that code, or publish it in wp-admin.', $op)
+        )), (int) $source->ID);
     }
 
     /** The note for a post that holds code in meta the reads leave out, or null. */

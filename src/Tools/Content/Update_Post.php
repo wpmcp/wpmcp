@@ -89,6 +89,8 @@ class Update_Post
         }
         if (! empty($args['status'])) {
             Post_Status_Guard::assert((string) $post->post_type, sanitize_key((string) $args['status']), false);
+            // A code layout goes live through its layout op only (#890, #893).
+            Code_Posts::assert_status_allowed($post_id, sanitize_key((string) $args['status']));
         }
 
         $old_status = (string) $post->post_status;
