@@ -94,7 +94,9 @@ final class Hardening_Settings
     /** @return array<string,bool> every setting => on. */
     public static function all(): array
     {
-        $stored = get_option(self::OPTION, []);
+        // The audit's pure checks also run outside WordPress (tests), where
+        // nothing can be stored, so every setting reads as off there.
+        $stored = function_exists('get_option') ? get_option(self::OPTION, []) : [];
         $stored = is_array($stored) ? $stored : [];
         $out    = [];
         foreach (self::SETTINGS as $setting) {
