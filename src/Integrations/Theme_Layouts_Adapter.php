@@ -201,6 +201,23 @@ abstract class Theme_Layouts_Adapter
         update_post_meta($id, $key, wp_slash($value));
     }
 
+    /**
+     * The admin screen functions an add-on's rule lists call (issue #894):
+     * Astra Pro's location rules call get_current_screen(), which core loads
+     * only in wp-admin. Loaded as wp-admin/includes/admin.php loads them;
+     * with no screen set it returns null, and Astra's check falls back to
+     * $pagenow.
+     */
+    protected static function load_screen_functions(): void
+    {
+        if (! class_exists('WP_Screen', false)) {
+            require_once ABSPATH . 'wp-admin/includes/class-wp-screen.php';
+        }
+        if (! function_exists('get_current_screen')) {
+            require_once ABSPATH . 'wp-admin/includes/screen.php';
+        }
+    }
+
     /** The admin user functions the add-ons' role lists call. */
     protected static function load_role_functions(): void
     {

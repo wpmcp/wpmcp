@@ -207,7 +207,7 @@ final class SMTP_Pack_Support
     public static function send_test(string $recipient): array
     {
         try {
-            return (new Mail_Check(static fn (): int => time()))->run($recipient, true);
+            return (new Mail_Check(static fn (): int => time(), 'recipient'))->run($recipient, true);
         } catch (\InvalidArgumentException $e) {
             throw new Operation_Refused('mail_test_recipient_refused', esc_html($e->getMessage()));
         } catch (\RuntimeException $e) {

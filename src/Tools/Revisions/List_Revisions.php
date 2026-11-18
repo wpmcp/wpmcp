@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tools\Revisions;
 
+use WPMCP\Tools\Content\Code_Posts;
+
 if (! defined('ABSPATH')) {
     exit;
 }
@@ -17,6 +19,8 @@ class List_Revisions
         }
 
         $revisions = wp_get_post_revisions($post_id);
+        // A theme layout's code is not excerpted (issue #893).
+        $code = Code_Posts::content_note($post);
 
         $rows = [];
         foreach ($revisions as $revision) {
@@ -24,7 +28,7 @@ class List_Revisions
                 'revision_id' => (int) $revision->ID,
                 'author_id'   => (int) $revision->post_author,
                 'date'        => (string) $revision->post_date,
-                'excerpt'     => wp_trim_words((string) $revision->post_content, 20),
+                'excerpt'     => null === $code ? wp_trim_words((string) $revision->post_content, 20) : '',
             ];
         }
 

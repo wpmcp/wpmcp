@@ -23,7 +23,8 @@ if (! defined('ABSPATH')) {
  *    logging_enabled:false when the Pro log is off or absent.
  *  - send-wp-mail-smtp-test: Mail_Check (issue #415), the check behind
  *    get-site-health's mail_test, with its rules: confirm:true, only to the
- *    caller's own or the admin address, the shared hourly limit.
+ *    caller's own or the admin address, the shared hourly limit. recipient
+ *    is optional: without it the op only reports the transport (#887).
  *  - set-wp-mail-smtp-from: the from name and address, merged into the
  *    settings through Options::set() as WP Mail SMTP's own settings screen
  *    saves them, snapshot-wrapped on the wp_mail_smtp option. A field a
@@ -71,17 +72,16 @@ final class WP_Mail_SMTP_Status
             'send-wp-mail-smtp-test'  => [
                 'mode'         => 'read',
                 'capability'   => 'manage_options',
-                'description'  => 'Report how mail is sent now and, with confirm:true, send a test email to your own or the admin address. Same rules as get-site-health mail_test',
+                'description'  => 'Report how mail is sent now; with recipient (your own or the admin address) and confirm:true, send a test email. Same rules as get-site-health mail_test',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
                         'recipient' => [ 'type' => 'string' ],
                         'confirm'   => [ 'type' => 'boolean' ],
                     ],
-                    'required'   => [ 'recipient' ],
                 ],
                 'requires'     => $requires,
-                'handler'      => static fn (array $args): array => self::scrub(self::send_test((string) $args['recipient'], true === ($args['confirm'] ?? false))),
+                'handler'      => static fn (array $args): array => self::scrub(self::send_test((string) ($args['recipient'] ?? ''), true === ($args['confirm'] ?? false))),
             ],
             'set-wp-mail-smtp-from'   => [
                 'mode'          => 'write',
@@ -195,7 +195,9 @@ final class WP_Mail_SMTP_Status
     /** @return array<string,mixed> */
     private static function send_test(string $recipient, bool $confirm): array
     {
-        $check = new Mail_Check(static fn (): int => time());
+        // Mail_Check names this op's argument, recipient, not mail_test (#887).
+        // With no recipient it only reports, and its next step says how to send.
+        $check = new Mail_Check(static fn (): int => time(), 'recipient');
         try {
             return $check->run($recipient, $confirm);
         } catch (Confirmation_Required $e) {

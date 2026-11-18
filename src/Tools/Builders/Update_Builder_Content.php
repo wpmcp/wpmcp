@@ -2,8 +2,10 @@
 
 namespace WPMCP\Tools\Builders;
 
+use WPMCP\Safety\Post_Write_Refused;
 use WPMCP\Safety\Safe_Mutation;
 use WPMCP\Safety\Save_Filters;
+use WPMCP\Tools\Content\Code_Posts;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -575,6 +577,12 @@ class Update_Builder_Content
         }
         if (! current_user_can('publish_post', $post_id)) {
             return new \WP_Error('forbidden', 'You are not allowed to publish this page.');
+        }
+        try {
+            // A code layout goes live through its layout op only (#890, #893).
+            Code_Posts::assert_status_allowed($post_id, 'publish');
+        } catch (Post_Write_Refused $e) {
+            return $e->error();
         }
 
         return null;

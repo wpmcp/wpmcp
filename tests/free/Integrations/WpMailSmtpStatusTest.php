@@ -301,6 +301,32 @@ class WpMailSmtpStatusTest extends \WP_UnitTestCase
         $this->assertSame(0, $sent, 'an unconfirmed test must not send');
     }
 
+    public function test_send_test_without_confirm_names_recipient_in_the_next_step(): void
+    {
+        $out = $this->read('send-wp-mail-smtp-test', [ 'recipient' => 'ada@example.test' ]);
+
+        $steps = implode(' ', $out['result']['next_steps'] ?? []);
+        $this->assertStringContainsString('pass recipient set to', $steps, (string) wp_json_encode($out));
+        $this->assertStringNotContainsString('mail_test', (string) wp_json_encode($out['result']));
+    }
+
+    public function test_send_test_without_args_reports_the_transport_and_sends_nothing(): void
+    {
+        $sent = 0;
+        add_filter('pre_wp_mail', static function () use (&$sent) {
+            $sent++;
+            return true;
+        });
+
+        $out = $this->read('send-wp-mail-smtp-test', []);
+
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertArrayHasKey('transport', $out['result']);
+        $this->assertNull($out['result']['test']);
+        $this->assertStringContainsString('pass recipient set to', implode(' ', $out['result']['next_steps']));
+        $this->assertSame(0, $sent, 'the report alone must not send');
+    }
+
     public function test_send_test_with_confirm_sends_one_message_to_the_caller(): void
     {
         $to = [];
@@ -326,6 +352,7 @@ class WpMailSmtpStatusTest extends \WP_UnitTestCase
         $out = $this->read('send-wp-mail-smtp-test', [ 'recipient' => 'stranger@example.test', 'confirm' => true ]);
 
         $this->assertSame('mail_test_recipient_refused', $out['error']['code'] ?? null);
+        $this->assertStringStartsWith('recipient only sends', (string) ($out['error']['message'] ?? ''));
         $this->assertSame(0, $sent);
     }
 

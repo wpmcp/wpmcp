@@ -52,9 +52,13 @@ class Mail_Check
     /** @var string[] Credential values seen on the scratch mailer, scrubbed from errors. */
     private array $secrets = [];
 
-    public function __construct(callable $clock)
+    /** The caller's argument that carries the recipient, named in refusals and next steps (#887). */
+    private string $arg;
+
+    public function __construct(callable $clock, string $arg = 'mail_test')
     {
         $this->clock = $clock;
+        $this->arg   = $arg;
     }
 
     public static function reset_limit(int $user_id): void
@@ -68,7 +72,7 @@ class Mail_Check
         $recipient      = strtolower(trim($recipient));
         $report['test'] = '' === $recipient ? null : $this->send($recipient, $confirm);
 
-        $report['next_steps'] = self::next_steps($report);
+        $report['next_steps'] = self::next_steps($report, $this->arg);
 
         return $report;
     }
@@ -148,7 +152,7 @@ class Mail_Check
             $role = 'admin';
         } else {
             Governance_Audit_Log::record_quietly(self::ABILITY, false, 'mail-test:refused-recipient');
-            throw new \InvalidArgumentException('mail_test only sends to your own email address or the site admin email.');
+            throw new \InvalidArgumentException(esc_html(sprintf('%s only sends to your own email address or the site admin email.', $this->arg)));
         }
 
         $key    = self::LIMIT_KEY . (int) $user->ID;
@@ -213,7 +217,7 @@ class Mail_Check
     }
 
     /** @return string[] */
-    private static function next_steps(array $report): array
+    private static function next_steps(array $report, string $arg): array
     {
         $steps = [];
 
@@ -234,7 +238,7 @@ class Mail_Check
 
         $test = $report['test'];
         if (null === $test) {
-            $steps[] = 'To verify sending, pass mail_test set to your own email address or the site admin email, with confirm:true.';
+            $steps[] = sprintf('To verify sending, pass %s set to your own email address or the site admin email, with confirm:true.', $arg);
         } elseif ($test['sent']) {
             $steps[] = 'If the test email does not arrive, check the spam folder, then the mail plugin\'s log, then the SPF, DKIM and DMARC records of the From domain.';
         } else {
