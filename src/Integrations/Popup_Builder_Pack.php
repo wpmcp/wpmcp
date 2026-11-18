@@ -254,7 +254,7 @@ final class Popup_Builder_Pack
                 }
                 foreach ((array) $rule['term_ids'] as $tid) {
                     if (! get_term((int) $tid, self::TERM_RULES[ $param ]) instanceof \WP_Term) {
-                        return self::rule_refusal($i, sprintf('%d is not a %s term.', (int) $tid, self::TERM_RULES[ $param ]));
+                        return self::rule_refusal($i, sprintf('%d is not a term of the %s taxonomy.', (int) $tid, self::TERM_RULES[ $param ]));
                     }
                 }
             } elseif ('post_type' === $param || 'page_type' === $param) {
@@ -264,7 +264,7 @@ final class Popup_Builder_Pack
                 foreach ((array) $rule['values'] as $value) {
                     $known = 'post_type' === $param ? post_type_exists((string) $value) : in_array((string) $value, self::PAGE_TYPES, true);
                     if (! $known) {
-                        return self::rule_refusal($i, sprintf('%s is not a %s Popup Builder knows.', (string) $value, str_replace('_', ' ', $param)));
+                        return self::rule_refusal($i, sprintf('Popup Builder does not know %s as a value of %s.', (string) $value, $param));
                     }
                 }
             }
