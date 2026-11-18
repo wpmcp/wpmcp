@@ -62,6 +62,9 @@ final class Plugin_Refusal
         'Under Construction' => [ 'file' => 'under-construction-page/under-construction.php', 'slug' => 'under-construction-page' ],
         'Weglot'           => [ 'file' => 'weglot/weglot.php', 'slug' => 'weglot' ],
         'GTranslate'       => [ 'file' => 'gtranslate/gtranslate.php', 'slug' => 'gtranslate' ],
+        'Happy Addons for Elementor' => [ 'file' => 'happy-elementor-addons/plugin.php', 'slug' => 'happy-elementor-addons' ],
+        'Royal Elementor Addons' => [ 'file' => 'royal-elementor-addons/wpr-addons.php', 'slug' => 'royal-elementor-addons' ],
+        'PowerPack Lite for Elementor' => [ 'file' => 'powerpack-lite-for-elementor/powerpack-lite-elementor.php', 'slug' => 'powerpack-lite-for-elementor' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
