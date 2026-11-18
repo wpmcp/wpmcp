@@ -45,7 +45,9 @@ if (! defined('ABSPATH')) {
  * 20,000. A body that is returned is redacted on a best effort basis: links
  * with a known token key or word, or an opaque token in the path or query,
  * become [redacted-link], and the value after password, passcode, code, otp,
- * pin, token, secret or api key is replaced by [redacted]. The patterns
+ * pin, token, secret or api key is replaced by [redacted] when it follows a
+ * label (":", "=" or "is") or carries a digit, so wording such as "Password
+ * Reset" stays readable. The patterns
  * cannot recognise every secret, so a body can still hold one. The IP
  * address Check and Log Email and Email Log store is never returned, and
  * attachments come back as file names only. Nothing here reads an option,
@@ -596,9 +598,14 @@ final class Email_Log_Pack
             static fn (array $m): string => self::link_is_sensitive($m[0]) ? self::REDACTED_LINK : $m[0],
             $text
         );
-        // Links go first; the value pass then skips a [redacted-link] it lands on (the atomic
-        // separator group stops it backtracking onto the ":" or "is" instead).
-        return (string) preg_replace('/\b(password|passcode|passwd|pwd|passphrase|code|otp|pin|token|secret|api[_ -]?key)\b((?>(?:\s+is)?\s*[:=]?\s*))(?!\[redacted-link\])[^\s<]+/i', '$1$2[redacted]', $text);
+        // Links go first; the value passes then skip a [redacted-link] they land on (the atomic
+        // separator group stops them backtracking onto the ":" or "is" instead).
+        // A labelled value ("password: x", "password=x", "code is x") is always a secret.
+        $words = '\b(password|passcode|passwd|pwd|passphrase|code|otp|pin|token|secret|api[_ -]?key)\b';
+        $text  = (string) preg_replace('/' . $words . '((?>\s+is\b\s*[:=]?\s*|\s*[:=]\s*))(?!\[redacted-link\])(?=[^\s<]*[A-Za-z0-9])[^\s<]+/i', '$1$2[redacted]', $text);
+        // Without a label only a value that carries a digit counts ("code 482913"), so plain
+        // wording such as "Password Reset" or "your password, visit" stays readable (#953).
+        return (string) preg_replace('/' . $words . '(\s+)(?!\[redacted)(?=[^\s<]*[0-9])[^\s<]+/i', '$1$2[redacted]', $text);
     }
 
     /** The header block with credential headers blanked and secrets in values removed. */
