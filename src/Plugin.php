@@ -917,6 +917,11 @@ final class Plugin
             // refuses, for abilities disabled by name) third-party calls.
             \WPMCP\Governance\Call_Source::register();
             \WPMCP\Governance\Site_Wide_Governance::register();
+            // Admin toggles for the default-off opt-in operation groups
+            // (issue #823): each hooks its group's own opt-in filter, and
+            // stands down whenever site code hooks that filter too.
+            \WPMCP\Governance\Opt_In_Settings::register();
+            add_action('network_admin_menu', [\WPMCP\Admin\Opt_In_Settings_Page::class, 'register_network_menu']);
             add_action('wp_ability_invoked', [Registrar::class, 'note_invoked'], PHP_INT_MIN, 1);
             // A denial of our own ability reaches a standalone permission
             // check (adapter, stdio, REST run route) as the refusal naming
@@ -1154,6 +1159,21 @@ final class Plugin
             Skills_Settings_Page::SLUG,
             [new Skills_Settings_Page(), 'render']
         );
+
+        // Opt-in operations (issue #823): switches on groups of operations
+        // that are off by default, so a site-wide trust decision like the rest.
+        // Writing a toggle also takes manage_options, checked on the screen.
+        // No entry on a build that ships none of the groups.
+        if ([] !== \WPMCP\Governance\Opt_In_Settings::groups()) {
+            add_submenu_page(
+                'wpmcp',
+                self::page_title(__('Opt-in operations', 'wpmcp')),
+                _x('Opt-in operations', 'admin menu', 'wpmcp'),
+                Management_Access::CAPABILITY,
+                \WPMCP\Admin\Opt_In_Settings_Page::SLUG,
+                [new \WPMCP\Admin\Opt_In_Settings_Page(), 'render']
+            );
+        }
 
         // In-admin AI chat (issue #73): the chat drives the same governed
         // ability surface as external MCP clients under the admin's own
