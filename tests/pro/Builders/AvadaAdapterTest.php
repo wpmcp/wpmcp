@@ -113,6 +113,69 @@ class AvadaAdapterTest extends \WP_UnitTestCase
         $this->assertSame('classic', (new Detect_Builder())->handle(['post_id' => $lookalike])['builder']);
     }
 
+    /**
+     * Issue #861: WPBakery adds `_wpb_vc_js_status` (and its other `_wpb_`
+     * rows) to any page opened while it is active, so an Avada page can carry
+     * both flags. The content decides: Avada markers and no `vc_` shortcode
+     * is Avada, whatever WPBakery's flag says.
+     */
+    private function avada_page_with_wpbakery_flags(): int
+    {
+        $post_id = $this->avada_page();
+        foreach (['_wpb_vc_js_status' => 'true', '_wpb_vc_editor_type' => 'backend', '_wpb_vc_use_optimized_css' => 'true', '_wpb_vc_use_optimized_js' => 'true', '_wpb_post_custom_layout' => 'default'] as $key => $value) {
+            update_post_meta($post_id, $key, $value);
+        }
+
+        return $post_id;
+    }
+
+    public function test_an_avada_page_carrying_the_wpbakery_flag_is_detected_as_avada(): void
+    {
+        $flagged  = $this->avada_page_with_wpbakery_flags();
+        $unflagged = $this->page('[fusion_builder_container][fusion_builder_row][/fusion_builder_row][/fusion_builder_container]', ['_wpb_vc_js_status' => 'true']);
+        $flag_only = $this->page('', ['_wpb_vc_js_status' => 'true', 'fusion_builder_status' => 'active']);
+
+        foreach ([$flagged, $unflagged, $flag_only] as $post_id) {
+            $this->assertSame('avada', (new Detect_Builder())->handle(['post_id' => $post_id])['builder']);
+        }
+    }
+
+    public function test_a_wpbakery_page_keeps_winning_over_avada_markers(): void
+    {
+        $both       = $this->page('[vc_row][vc_column][vc_column_text]Hi[/vc_column_text][/vc_column][/vc_row]', ['_wpb_vc_js_status' => 'true', 'fusion_builder_status' => 'active']);
+        $mixed      = $this->page('[fusion_builder_container][/fusion_builder_container][vc_row][/vc_row]', ['_wpb_vc_js_status' => 'true']);
+        $empty      = $this->page('', ['_wpb_vc_js_status' => 'true']);
+        $plain      = $this->page('<p>Plain</p>', ['_wpb_vc_js_status' => 'true']);
+        $inactive   = $this->page('<p>Plain</p>', ['_wpb_vc_js_status' => 'true', 'fusion_builder_status' => 'inactive']);
+
+        foreach ([$both, $mixed, $empty, $plain, $inactive] as $post_id) {
+            $this->assertSame('wpbakery', (new Detect_Builder())->handle(['post_id' => $post_id])['builder']);
+        }
+    }
+
+    public function test_an_avada_page_carrying_the_wpbakery_flag_reads_and_writes_as_avada_and_rolls_back(): void
+    {
+        add_filter('wpmcp_avada_active', '__return_true');
+        $post_id = $this->avada_page_with_wpbakery_flags();
+        $before  = $this->state($post_id);
+
+        $read = (new Get_Builder_Content())->handle(['post_id' => $post_id, 'builder' => 'avada']);
+        $this->assertSame('avada', $read['builder']);
+        $this->assertSame('active', $read['builder_status']);
+        $this->assertTrue($read['plugin_active']);
+
+        $out = $this->update($post_id, ['operation' => 'update', 'path' => '0.0.0.1', 'text' => 'Hello from WP MCP']);
+
+        $this->assertNotWPError($out);
+        $this->assertSame('avada', $out['builder']);
+        $this->assertSame('Hello from WP MCP', $this->tree($post_id)[0]['children'][0]['children'][0]['children'][1]['text']);
+        $this->assertSame('true', get_post_meta($post_id, '_wpb_vc_js_status', true));
+
+        Rollback_Service::restore_operation($out['operation_id']);
+
+        $this->assertSame($before, $this->state($post_id));
+    }
+
     public function test_detection_is_the_same_whether_or_not_the_plugin_is_active(): void
     {
         $post_id = $this->avada_page();

@@ -21,7 +21,8 @@ if (! defined('ABSPATH')) {
  * Checked in priority order: Elementor's `_elementor_edit_mode` flag,
  * Bricks' `_bricks_page_content_2` postmeta, Divi's `_et_pb_use_builder`
  * flag (or Divi 5's `_et_pb_use_divi_5`), WPBakery's `_wpb_vc_js_status`
- * = 'true' editor flag, Beaver Builder's `_fl_builder_enabled` flag, a
+ * = 'true' editor flag (unless the page carries Avada markers and no `vc_`
+ * shortcode, issue #861), Beaver Builder's `_fl_builder_enabled` flag, a
  * Breakdance `_breakdance_data` row holding a valid tree (a root with id, data and children inside its
  * `tree_json_string`), the same for Oxygen 6's `_oxygen_data`, Avada's
  * `fusion_builder_status` = 'active' flag, Thrive Architect's
@@ -61,7 +62,10 @@ class Builder_Detector
             return 'divi';
         }
 
-        if ('true' === get_post_meta($post_id, '_wpb_vc_js_status', true)) {
+        // WPBakery writes this flag on any page opened while it is active,
+        // so an Avada page can carry it too (issue #861). Avada markers with
+        // no `vc_` shortcode in the content fall through to the Avada check.
+        if ('true' === get_post_meta($post_id, '_wpb_vc_js_status', true) && ! self::is_avada_without_wpbakery_content($post_id)) {
             return 'wpbakery';
         }
 
@@ -127,6 +131,26 @@ class Builder_Detector
         }
 
         return 'classic';
+    }
+
+    /**
+     * Whether a page flagged by WPBakery is really an Avada page: Avada's
+     * `fusion_builder_status` = 'active' flag or a
+     * `[fusion_builder_container]` in post_content, and no WPBakery `[vc_*]`
+     * shortcode anywhere in post_content. A page holding any `vc_` shortcode
+     * stays WPBakery.
+     */
+    private static function is_avada_without_wpbakery_content(int $post_id): bool
+    {
+        $post    = get_post($post_id);
+        $content = $post ? (string) $post->post_content : '';
+
+        if (preg_match('/\[vc_[a-z0-9_]+[\s\]\/]/i', $content)) {
+            return false;
+        }
+
+        return 'active' === get_post_meta($post_id, 'fusion_builder_status', true)
+            || 1 === preg_match('/\[fusion_builder_container[\s\]]/', $content);
     }
 
     /**

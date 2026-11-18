@@ -103,6 +103,28 @@ class AvadaLiveTest extends \WP_UnitTestCase
         $this->assertStringContainsString('Welcome', $this->render($id));
     }
 
+    /** Issue #861: an Avada page WPBakery once flagged reads and writes as Avada. */
+    public function test_an_avada_page_carrying_the_wpbakery_flag_reads_and_writes_as_avada(): void
+    {
+        $id = self::factory()->post->create(['post_type' => 'page', 'post_status' => 'publish', 'post_content' => wp_slash(AvadaShortcodesTest::FIXTURE)]);
+        update_post_meta($id, 'fusion_builder_status', 'active');
+        update_post_meta($id, '_wpb_vc_js_status', 'true');
+        update_post_meta($id, '_wpb_vc_editor_type', 'backend');
+        $before = get_post($id)->post_content;
+
+        $this->assertSame('avada', (new Detect_Builder())->handle(['post_id' => $id])['builder']);
+        $read = (new Get_Builder_Content())->handle(['post_id' => $id, 'builder' => 'avada']);
+        $this->assertSame('avada', $read['builder']);
+        $this->assertSame(FUSION_BUILDER_VERSION, $read['plugin_version']);
+
+        $out = $this->update(['post_id' => $id, 'operation' => 'update', 'path' => '0.0.0.0', 'text' => 'Hello from WP MCP', 'expected_hash' => $read['hash']]);
+        $this->assertStringContainsString('Hello from WP MCP', $this->render($id));
+
+        Rollback_Service::restore_operation($out['operation_id']);
+
+        $this->assertSame($before, get_post($id)->post_content);
+    }
+
     public function test_catalog_comes_from_avadas_element_map(): void
     {
         $list = (new Get_Builder_Content())->handle(['builder' => 'avada', 'scope' => 'catalog']);
