@@ -326,6 +326,9 @@ tests_add_filter( 'muplugins_loaded', function () {
         }, 10, 3 );
         wpmcp_maybe_require_plugin( 'fluent-crm/fluent-crm.php' );
         wpmcp_maybe_require_plugin( 'mailpoet/mailpoet.php' );
+        // Newsletter (issue #683) builds its own tables on init when its
+        // version option is behind, before any test transaction starts.
+        wpmcp_maybe_require_plugin( 'newsletter/plugin.php' );
     }
 
     // The live knowledge base and support desk job (issue #708,

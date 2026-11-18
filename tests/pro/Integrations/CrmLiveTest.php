@@ -8,7 +8,8 @@ use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 
 /**
- * Issue #477: the FluentCRM and MailPoet ops against the real plugins.
+ * Issue #477: the FluentCRM and MailPoet ops against the real plugins, and
+ * (issue #683) the Newsletter ops, loaded in the same leg.
  *
  * It runs only in the local gate's live CRM leg (bin/test-local.sh, or
  * bin/test-local.sh --live-crm alone), which sets WPMCP_LIVE_CRM=1, installs
@@ -71,6 +72,55 @@ class CrmLiveTest extends \WP_UnitTestCase
             $out[] = preg_match('/<([^>]+)>/', (string) $message['to'], $m) ? $m[1] : (string) $message['to'];
         }
         return $out;
+    }
+
+    /**
+     * Issue #683: the Newsletter ops, loaded in the same live leg. A contact
+     * made through an op reads back through Newsletter's own get_user(), one
+     * Newsletter made reads through the op, and each write rolls back
+     * without ever lifting an unsubscribe.
+     */
+    public function test_newsletter_ops_agree_with_newsletters_own_api(): void
+    {
+        if (! class_exists('Newsletter', false) || ! defined('NEWSLETTER_VERSION')) {
+            $this->fail('The live CRM leg loads Newsletter too (WPMCP_LIVE_CRM=1).');
+        }
+        add_filter('wpmcp_enable_newsletter_write', '__return_true');
+        update_option('newsletter_lists', [ 'list_1' => 'Live list', 'list_1_status' => 1 ]);
+        $newsletter = \Newsletter::instance();
+        $call       = static function (string $half, string $op, array $args): array {
+            $call = [ 'operation' => $op, 'args' => $args ];
+            return 'read' === $half ? (new Plugin_Data_Integration())->handle_read($call) : (new Plugin_Data_Integration())->handle_write($call);
+        };
+
+        // One Newsletter made reads through the op.
+        $made = $newsletter->save_user([ 'email' => 'made-683@example.com', 'name' => 'Made', 'status' => 'C', 'list_1' => 1 ], ARRAY_A);
+        $read = $call('read', 'newsletter-get-contact', [ 'id' => (int) $made['id'] ]);
+        $this->assertArrayNotHasKey('error', $read, (string) wp_json_encode($read));
+        $this->assertSame('subscribed', $read['result']['contact']['status']);
+        $this->assertSame([ 1 ], $read['result']['contact']['lists']);
+
+        // One made through the op reads through Newsletter, pending.
+        $out = $call('write', 'newsletter-create-contact', [ 'email' => 'op-683@example.com', 'first_name' => 'Op', 'lists' => [ 1 ] ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $user = $newsletter->get_user('op-683@example.com');
+        $this->assertNotNull($user);
+        $this->assertSame('S', $user->status);
+        $this->assertSame(1, (int) $user->list_1);
+        $this->assertNotSame('', (string) $user->token);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertNull($newsletter->get_user('op-683@example.com'), 'undo removes the contact the op created');
+
+        // An unsubscribe through the op is never undone.
+        $out = $call('write', 'newsletter-update-contact', [ 'id' => (int) $made['id'], 'status' => 'unsubscribed', 'first_name' => 'Changed' ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertSame('U', $newsletter->get_user((int) $made['id'])->status);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $after = $newsletter->get_user((int) $made['id']);
+        $this->assertSame('U', $after->status);
+        $this->assertSame('Made', $after->name);
+
+        remove_all_filters('wpmcp_enable_newsletter_write');
     }
 
     protected function tearDown(): void

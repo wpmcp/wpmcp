@@ -35,7 +35,11 @@ if (! defined('ABSPATH')) {
  *                            unsent, so refusal() refuses every undo of one;
  *  - fluentcrm_funnel:       the fc_funnels row (an automation's status);
  *  - mailpoet_automation:    the mailpoet_automations row and its
- *                            mailpoet_automation_versions rows.
+ *                            mailpoet_automation_versions rows;
+ *  - newsletter_subscriber:  the Newsletter plugin's one subscriber row
+ *                            ({prefix}newsletter, issue #683), which holds
+ *                            its status and its list memberships (list_<n>
+ *                            columns) alike.
  * A kind's optional sets are left out while their table is missing.
  *
  * A create has no id when its snapshot is taken: it is keyed "<kind>:0" and
@@ -70,7 +74,8 @@ if (! defined('ABSPATH')) {
  * longer the draft the write left (scheduled or sent since) is not restored
  * at all, and neither is a send (refusal()).
  *
- * Restoring takes the plugin's own permission: FluentCRM's contact manager
+ * Restoring takes the plugin's own permission: manage_options for a
+ * Newsletter subscriber (the capability its admin takes), FluentCRM's contact manager
  * permission (fcrm_manage_contacts, which FluentCRM grants every
  * manage_options user), fcrm_manage_emails for a campaign and
  * fcrm_write_funnels for an automation, or MailPoet's
@@ -214,6 +219,10 @@ final class Crm_Rows_Snapshot
                 [ 'mailpoet_automation_versions', 'automation_id', true ],
             ],
         ],
+        'newsletter_subscriber'    => [
+            'plugin' => 'newsletter',
+            'sets'   => [ [ 'newsletter', 'id' ] ],
+        ],
     ];
 
     /**
@@ -228,6 +237,8 @@ final class Crm_Rows_Snapshot
         'fc_subscribers'              => [ 'status', [ 'unsubscribed', 'bounced', 'complained', 'spammed' ], true ],
         'mailpoet_subscribers'        => [ 'status', [ 'unsubscribed', 'bounced', 'inactive' ], true ],
         'mailpoet_subscriber_segment' => [ 'status', [ 'unsubscribed' ], false ],
+        // Newsletter: U unsubscribed, B bounced, P complained.
+        'newsletter'                  => [ 'status', [ 'U', 'B', 'P' ], true ],
         // An automation's status, kept when someone changed it since.
         'fc_funnels'                  => [ 'status', [], false ],
         'mailpoet_automations'        => [ 'status', [], false ],
@@ -254,7 +265,7 @@ final class Crm_Rows_Snapshot
         return array_keys(self::KINDS);
     }
 
-    /** The plugin a kind belongs to ('fluentcrm' or 'mailpoet'), or ''. */
+    /** The plugin a kind belongs to ('fluentcrm', 'mailpoet' or 'newsletter'), or ''. */
     public static function plugin(string $kind): string
     {
         return (string) (self::KINDS[ $kind ]['plugin'] ?? '');
@@ -555,6 +566,9 @@ final class Crm_Rows_Snapshot
         if ('mailpoet' === self::plugin($kind)) {
             return current_user_can(self::mailpoet_capability($kind));
         }
+        if ('newsletter' === self::plugin($kind)) {
+            return current_user_can('manage_options');
+        }
         return false;
     }
 
@@ -611,7 +625,7 @@ final class Crm_Rows_Snapshot
     /** 'contact', 'group' (a list or tag) or 'other' (a campaign or an automation). */
     private static function family(string $kind): string
     {
-        if (in_array($kind, [ 'fluentcrm_contact', 'fluentcrm_contact_full', 'mailpoet_subscriber' ], true)) {
+        if (in_array($kind, [ 'fluentcrm_contact', 'fluentcrm_contact_full', 'mailpoet_subscriber', 'newsletter_subscriber' ], true)) {
             return 'contact';
         }
         return in_array($kind, [ 'fluentcrm_list', 'fluentcrm_tag', 'mailpoet_list', 'mailpoet_tag' ], true) ? 'group' : 'other';
@@ -650,6 +664,9 @@ final class Crm_Rows_Snapshot
     private static function authorize(string $kind): void
     {
         if (! self::may_manage($kind)) {
+            if ('newsletter' === self::plugin($kind)) {
+                throw new Mutation_Failed('Rollback refused: restoring Newsletter subscribers requires the manage_options capability.');
+            }
             throw new Mutation_Failed(
                 'fluentcrm' === self::plugin($kind)
                     ? 'Rollback refused: restoring FluentCRM data requires FluentCRM\'s contact management permission.'

@@ -55,6 +55,9 @@ if (! defined('ABSPATH')) {
  *  - Issue #481 adds the paid-tier TablePress ops (TablePress_Pack): tables
  *    read, edited cell by cell, imported, exported and placed through
  *    TablePress's own table model, with snapshotted writes.
+ *  - Issue #683 adds the paid-tier mailing list ops (Mailing_List_Pack):
+ *    Newsletter, Groundhogg, MC4WP and Brevo lists, forms and contacts
+ *    (masked in lists), with undoable Newsletter contact writes.
  *  - Issue #477 adds the paid-tier CRM ops (CRM_Pack): FluentCRM and
  *    MailPoet contacts, lists, tags, campaigns and automations, with writes
  *    through each plugin's own API, snapshotted as 'crm_rows' images.
@@ -132,6 +135,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || Offload_Media_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
+            || Mailing_List_Pack::active()
             || Amelia_Pack::active()
             || I18n_Pack::active()
             || MemberPress_Pack::active()
@@ -152,6 +156,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', WP Offload Media status'
             . ', FluentCRM and MailPoet'
+            . ', Newsletter, Groundhogg, MC4WP and Brevo lists'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
             . ', BetterDocs docs, Fluent Support and Awesome Support tickets'
             . ', Weglot and GTranslate language settings';
@@ -192,6 +197,9 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         $groups[] = [ 'TablePress', false, TablePress_Pack::operations() ];
         foreach (CRM_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
+        }
+        foreach (Mailing_List_Pack::hosts() as $plugin => $ops) {
+            $groups[] = [ $plugin, false, $ops ];
         }
         $groups[] = [ 'Amelia', false, Amelia_Pack::operations() ];
         $groups[] = [ 'Polylang, WPML', true, I18n_Pack::operations() ];
@@ -238,6 +246,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Offload_Media_Pack::operations(),
             TablePress_Pack::operations(),
             CRM_Pack::operations(),
+            Mailing_List_Pack::operations(),
             Amelia_Pack::operations(),
             I18n_Pack::operations(),
             MemberPress_Pack::operations(),

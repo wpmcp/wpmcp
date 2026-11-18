@@ -1469,6 +1469,26 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The mailing list ops (issue #683) are the paid add-on's, removed by
+    // policy.php. Their lines go first, so every edit below matches the
+    // file as it was before them.
+    [
+        " *  - Issue #683 adds the paid-tier mailing list ops (Mailing_List_Pack):\n"
+            . " *    Newsletter, Groundhogg, MC4WP and Brevo lists, forms and contacts\n"
+            . " *    (masked in lists), with undoable Newsletter contact writes.\n",
+        '',
+        1,
+    ],
+    [ "            || Mailing_List_Pack::active()\n", '', 1 ],
+    [ "            . ', Newsletter, Groundhogg, MC4WP and Brevo lists'\n", '', 1 ],
+    [
+        "        foreach (Mailing_List_Pack::hosts() as \$plugin => \$ops) {\n"
+            . "            \$groups[] = [ \$plugin, false, \$ops ];\n"
+            . "        }\n",
+        '',
+        1,
+    ],
+    [ "            Mailing_List_Pack::operations(),\n", '', 1 ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.

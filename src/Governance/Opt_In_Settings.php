@@ -85,6 +85,7 @@ final class Opt_In_Settings
             'wpmcp_enable_translation_settings_write' => [ 'owner' => $i . 'Translation_Settings_Pack.php', 'destructive' => false ],
             'wpmcp_enable_advanced_ads_write'      => [ 'owner' => $i . 'Advanced_Ads_Pack.php', 'destructive' => false ],
             'wpmcp_enable_image_optimizer_write'   => [ 'owner' => $i . 'Image_Optimizer_Pack.php', 'destructive' => true ],
+            'wpmcp_enable_newsletter_write'        => [ 'owner' => $i . 'Mailing_List_Newsletter.php', 'destructive' => false ],
         ];
     }
 
@@ -125,6 +126,7 @@ final class Opt_In_Settings
             'wpmcp_enable_translation_settings_write' => __('GTranslate: language settings writes', 'wpmcp'),
             'wpmcp_enable_advanced_ads_write'      => __('Advanced Ads: writes', 'wpmcp'),
             'wpmcp_enable_image_optimizer_write'   => __('Image optimization plugins: optimize an image', 'wpmcp'),
+            'wpmcp_enable_newsletter_write'        => __('Newsletter: contact writes', 'wpmcp'),
         ];
     }
 
