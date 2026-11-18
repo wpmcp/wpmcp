@@ -1474,6 +1474,43 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The email marketing ops (issue #900) are the paid add-on's, removed by
+    // policy.php. Their lines go first, so every edit below matches the file
+    // as it was before them.
+    [
+        " *  - Issue #900 adds the paid-tier email marketing ops\n"
+            . " *    (Email_Marketing_Pack): MailerLite, Klaviyo, Kit, Omnisend and\n"
+            . " *    ActiveCampaign connection, forms and list mapping read with keys never\n"
+            . " *    returned, and Klaviyo checkout signup and Kit default forms set (off\n"
+            . " *    until wpmcp_enable_email_marketing_write), snapshotted on each option.\n",
+        '',
+        1,
+    ],
+    [
+        "            || Translation_Settings_Pack::active()\n"
+            . "            || Email_Marketing_Pack::active();\n",
+        "            || Translation_Settings_Pack::active();\n",
+        1,
+    ],
+    [
+        "            . ', Weglot and GTranslate language settings'\n"
+            . "            . ', MailerLite, Klaviyo, Kit, Omnisend and ActiveCampaign settings';\n",
+        "            . ', Weglot and GTranslate language settings';\n",
+        1,
+    ],
+    [
+        "        foreach (Email_Marketing_Pack::groups() as [ \$label, \$ops ]) {\n"
+            . "            \$groups[] = [ \$label, false, \$ops ];\n"
+            . "        }\n",
+        '',
+        1,
+    ],
+    [
+        "            Translation_Settings_Pack::operations(),\n"
+            . "            Email_Marketing_Pack::operations()\n",
+        "            Translation_Settings_Pack::operations()\n",
+        1,
+    ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.

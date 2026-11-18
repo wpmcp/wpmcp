@@ -96,6 +96,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // GTranslate's settings, whose language lists the
             // gtranslate-set-languages op changes (issue #690).
             'GTranslate',
+            // Klaviyo's and Kit's settings, whose checkout signup and default
+            // forms the email marketing ops change (issue #900).
+            'klaviyo_settings',
+            '_wp_convertkit_settings',
             // FiboSearch's settings, changed by update-fibosearch-settings
             // on the theme pair (issue #700).
             'dgwt_wcas_settings',
