@@ -37,6 +37,7 @@ final class Plugin_Refusal
         'Tutor LMS'        => [ 'file' => 'tutor/tutor.php', 'slug' => 'tutor' ],
         'FluentCRM'        => [ 'file' => 'fluent-crm/fluent-crm.php', 'slug' => 'fluent-crm' ],
         'MailPoet'         => [ 'file' => 'mailpoet/mailpoet.php', 'slug' => 'mailpoet' ],
+        'FunnelKit Automations' => [ 'file' => 'wp-marketing-automations/wp-marketing-automations.php', 'slug' => 'wp-marketing-automations' ],
         'Fluent Support'   => [ 'file' => 'fluent-support/fluent-support.php', 'slug' => 'fluent-support' ],
         'Awesome Support'  => [ 'file' => 'awesome-support/awesome-support.php', 'slug' => 'awesome-support' ],
         'BetterDocs'       => [ 'file' => 'betterdocs/betterdocs.php', 'slug' => 'betterdocs' ],

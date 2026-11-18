@@ -100,6 +100,9 @@ class Snapshot
         if (FunnelKit_Funnel_Snapshot::TYPE === $object_type) {
             return FunnelKit_Funnel_Snapshot::capture((int) $object_id);
         }
+        if (FunnelKit_Automations_Snapshot::TYPE === $object_type) {
+            return FunnelKit_Automations_Snapshot::capture((string) $object_id);
+        }
         if (Amelia_Rows_Snapshot::TYPE === $object_type) {
             return Amelia_Rows_Snapshot::capture((string) $object_id);
         }

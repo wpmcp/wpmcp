@@ -14,7 +14,8 @@ if (! defined('ABSPATH')) {
  * tools: for FluentCRM (CRM_FluentCRM) and MailPoet (CRM_MailPoet), each op
  * prefixed with the plugin (fluentcrm-get-contact, mailpoet-tag-contact,
  * ...). What both share, the op catalog, the consent checks and the
- * snapshot discipline, is CRM_Adapter.
+ * snapshot discipline, is CRM_Adapter. FunnelKit Automations (issue #831,
+ * CRM_FunnelKit) has its own smaller catalog of fka- ops beside them.
  *
  * Presence is filterable per plugin (wpmcp_fluentcrm_active,
  * wpmcp_mailpoet_active); an op whose plugin is not loaded stays documented
@@ -22,13 +23,17 @@ if (! defined('ABSPATH')) {
  */
 final class CRM_Pack
 {
-    /** @var CRM_Adapter[]|null adapters standing in for the real ones, for tests */
+    /** @var array<int, CRM_Adapter|CRM_FunnelKit>|null adapters standing in for the real ones, for tests */
     private static ?array $adapters = null;
 
-    /** @return CRM_Adapter[] */
+    /**
+     * Each plugin's adapter: label(), active() and operations().
+     *
+     * @return array<int, CRM_Adapter|CRM_FunnelKit>
+     */
     public static function adapters(): array
     {
-        return self::$adapters ?? [ new CRM_FluentCRM(), new CRM_MailPoet() ];
+        return self::$adapters ?? [ new CRM_FluentCRM(), new CRM_MailPoet(), new CRM_FunnelKit() ];
     }
 
     /**
@@ -37,7 +42,7 @@ final class CRM_Pack
      * replace only the calls into the plugin's own API. Null restores the
      * real ones.
      *
-     * @param CRM_Adapter[]|null $adapters
+     * @param array<int, CRM_Adapter|CRM_FunnelKit>|null $adapters
      */
     public static function use_adapters_for_tests(?array $adapters): void
     {
