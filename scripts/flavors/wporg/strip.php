@@ -1487,15 +1487,42 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
             . "        \$groups[] = [ 'BetterDocs', false, BetterDocs_Pack::operations() ];\n"
             . "        foreach (Helpdesk_Pack::adapters() as \$adapter) {\n"
             . "            \$groups[] = [ \$adapter->label(), false, \$adapter->operations() ];\n"
-            . "        }\n",
+            . "        }\n"
+            . "        \$groups[] = [ 'Weglot', false, Translation_Settings_Pack::weglot_operations() ];\n"
+            . "        \$groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];\n",
         '',
         1,
     ],
     [
         "            . ', FluentCRM and MailPoet'\n"
             . "            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'\n"
-            . "            . ', BetterDocs docs, Fluent Support and Awesome Support tickets';\n",
+            . "            . ', BetterDocs docs, Fluent Support and Awesome Support tickets'\n"
+            . "            . ', Weglot and GTranslate language settings';\n",
         "            . ', FluentCRM and MailPoet';\n",
+        1,
+    ],
+    // The translation settings ops (issue #690) are the paid add-on's too,
+    // removed by policy.php; their lines go first, so the knowledge base
+    // and support desk edits below still match.
+    [
+        " *  - Issue #690 adds the paid-tier translation settings ops\n"
+            . " *    (Translation_Settings_Pack): Weglot languages and exclusions read, and\n"
+            . " *    GTranslate languages read and set (off until\n"
+            . " *    wpmcp_enable_translation_settings_write), the write snapshotted on the\n"
+            . " *    GTranslate option.\n",
+        '',
+        1,
+    ],
+    [
+        "            || Helpdesk_Pack::active()\n"
+            . "            || Translation_Settings_Pack::active();\n",
+        "            || Helpdesk_Pack::active();\n",
+        1,
+    ],
+    [
+        "            Helpdesk_Pack::operations(),\n"
+            . "            Translation_Settings_Pack::operations()\n",
+        "            Helpdesk_Pack::operations()\n",
         1,
     ],
     // The knowledge base and support desk ops (issue #708) are the paid
@@ -1667,9 +1694,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails'\n"
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans'\n"
             . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans';\n",
         1,
     ],
     [

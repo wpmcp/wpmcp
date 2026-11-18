@@ -18,11 +18,15 @@ if (! defined('ABSPATH')) {
  *  - list-updraftplus-backups and run-updraftplus-backup (UpdraftPlus_Status, #694)
  *  - list-aio-wp-migration-backups (AIOWM_Status, #694)
  *  - get-solid-security-status (Solid_Security_Status)
+ *  - get-sucuri-status, get-aios-status and get-limit-login-attempts-status
+ *    (Sucuri_Status, AIOS_Status, Limit_Login_Attempts_Status, #695)
  *  - get-monsterinsights-status (MonsterInsights_Status)
  *  - get-wordfence-status and the Wordfence lists and writes (Wordfence_Integration)
  *  - get-w3tc-status and purge-w3tc-cache (W3TC_Status)
  *  - WP Mail SMTP config, log, test send and set-from (WP_Mail_SMTP_Status)
  *  - FluentSMTP and Post SMTP config, log, test send and from (Fluent_SMTP_Status, Post_SMTP_Status)
+ *  - get-image-optimizer-status and optimize-attachment for Smush, ShortPixel,
+ *    EWWW Image Optimizer and Imagify (Image_Optimizer_Pack, #693)
  *
  * Every op runs at manage_options, the capability each plugin gates its own
  * settings behind, and declares a 'requires' check, so an inactive plugin is
@@ -30,7 +34,8 @@ if (! defined('ABSPATH')) {
  * (dependency_met:false) and answer <plugin>_inactive without touching
  * anything. Presence is filterable per plugin (wpmcp_updraftplus_active,
  * wpmcp_duplicator_active, wpmcp_solid_security_active,
- * wpmcp_monsterinsights_active, wpmcp_w3tc_active).
+ * wpmcp_monsterinsights_active, wpmcp_w3tc_active, wpmcp_sucuri_active,
+ * wpmcp_aios_active, wpmcp_limit_login_attempts_active).
  *
  * The reads build their answers from allowlisted fields only, never echoing
  * a plugin's stored settings wholesale, so remote storage credentials, OAuth
@@ -57,12 +62,16 @@ final class Ops_Status_Packs
             Duplicator_Status::operations(),
             AIOWM_Status::operations(),
             Solid_Security_Status::operations(),
+            Sucuri_Status::operations(),
+            AIOS_Status::operations(),
+            Limit_Login_Attempts_Status::operations(),
             MonsterInsights_Status::operations(),
             Wordfence_Integration::operations(),
             W3TC_Status::operations(),
             WP_Mail_SMTP_Status::operations(),
             Fluent_SMTP_Status::operations(),
-            Post_SMTP_Status::operations()
+            Post_SMTP_Status::operations(),
+            Image_Optimizer_Pack::operations()
         );
     }
 

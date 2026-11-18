@@ -1,0 +1,11 @@
+# Known failing tests of the phpunit-default leg, one Class::test per line (data sets
+# stripped), sorted. The parallel gate (bin/test-local.sh --parallel) fails
+# only on a failing test that is not listed here, and reports listed tests
+# that pass again.
+#
+# POLICY: this list may only SHRINK. Never add a line: fix the test (or the
+# code) instead. Drop the lines of fixed tests with
+# `bin/test-local.sh --parallel --prune-baseline`; it only ever removes.
+#
+# Seeded from a parallel run on 52f990d9, 2026-11-18 20:48 PKT.
+
