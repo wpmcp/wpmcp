@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Connect;
 
 use WPMCP\Connect\Client_Config_Generator;
+use WPMCP\MCP\Tool_Availability;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -70,6 +71,7 @@ class Get_Connection_Info
                 ],
                 'custom-connector' => Client_Config_Generator::custom_connector(),
             ],
+            'unavailable_summary' => Tool_Availability::summary(Tool_Availability::report()),
             'note'     => 'This tool never returns a real credential. The wpmcp -> Connection screen in wp-admin creates an application password and shows the same snippets filled in, plus the Claude Desktop bundle (.mcpb).',
         ];
     }

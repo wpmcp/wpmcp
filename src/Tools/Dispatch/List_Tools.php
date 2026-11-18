@@ -4,6 +4,8 @@ namespace WPMCP\Tools\Dispatch;
 
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
+use WPMCP\MCP\Tool_Availability;
+use WPMCP\MCP\Tool_Exposure;
 use WPMCP\MCP\Tool_Search;
 use WPMCP\Plugin;
 
@@ -34,6 +36,15 @@ if (! defined('ABSPATH')) {
  * search (issue #732) keeps only the tools whose name, description or
  * operation names contain the term (Tool_Search); a dispatcher pair matched
  * through its ops lists them as matched_operations.
+ *
+ * Unavailable tools (issue #629): every reply ends with unavailable_summary,
+ * one line naming what this site cannot run; include_unavailable:true adds
+ * the full Tool_Availability report, grouped by reason (a tier this
+ * install lacks as a count per domain, plugin and governance groups by
+ * name). The report is the whole site's, not narrowed by domain or
+ * search. In compact mode an
+ * entry that tools/list leaves out carries hidden_compact: it is still
+ * callable through call-tool.
  */
 class List_Tools
 {
@@ -50,7 +61,9 @@ class List_Tools
         $full   = ! empty($args['full']);
         $search = isset($args['search']) ? trim((string) $args['search']) : '';
 
-        $abilities = ($registrar ?? Plugin::instance()->registrar())->all();
+        $registrar = $registrar ?? Plugin::instance()->registrar();
+        $abilities = $registrar->all();
+        $exposure  = new Tool_Exposure();
         usort($abilities, static fn(Ability $a, Ability $b) => strcmp($a->name, $b->name));
 
         $tools = [];
@@ -74,6 +87,9 @@ class List_Tools
             if ([] !== $matched_ops) {
                 $entry['matched_operations'] = $matched_ops;
             }
+            if (Tool_Availability::hidden_compact($ability->name, $exposure)) {
+                $entry['hidden_compact'] = true;
+            }
 
             if ($full) {
                 $entry['description'] = $ability->description;
@@ -87,9 +103,16 @@ class List_Tools
             $tools[] = $entry;
         }
 
-        return [
+        $report = Tool_Availability::report($registrar);
+        $out    = [
             'total' => count($tools),
             'tools' => $tools,
         ];
+        if (! empty($args['include_unavailable'])) {
+            $out['unavailable'] = $report;
+        }
+        $out['unavailable_summary'] = Tool_Availability::summary($report);
+
+        return $out;
     }
 }
