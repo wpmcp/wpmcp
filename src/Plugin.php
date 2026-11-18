@@ -1018,6 +1018,21 @@ final class Plugin
         ]);
     }
 
+    /**
+     * The sidebar icon for the top-level menu (issue #879): the brand mark's
+     * circular undo arrow, drawn as one-colour filled shapes. WordPress's
+     * svg-painter recolours only base64 SVG data URIs (it rewrites fill
+     * attributes, not strokes), so the URI is base64. It is a precomputed
+     * literal of this exact SVG (AdminMenuIconTest decodes and checks it):
+     *
+     * <svg xmlns="http://www.w3.org/2000/svg" viewBox="48 44 160 160">
+     * <path fill="black" d="M155.3 60.3A73 73 0 1 1 100.7 60.3L108.9 80.7
+     * A51 51 0 1 0 147.1 80.7A11 11 0 0 1 155.3 60.3Z"/>
+     * <path fill="black" d="M74 70.5L112 47V94Z"/></svg>
+     */
+    private const MENU_ICON = 'data:image/svg+xml;base64,'
+        . 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjQ4IDQ0IDE2MCAxNjAiPjxwYXRoIGZpbGw9ImJsYWNrIiBkPSJNMTU1LjMgNjAuM0E3MyA3MyAwIDEgMSAxMDAuNyA2MC4zTDEwOC45IDgwLjdBNTEgNTEgMCAxIDAgMTQ3LjEgODAuN0ExMSAxMSAwIDAgMSAxNTUuMyA2MC4zWiIvPjxwYXRoIGZpbGw9ImJsYWNrIiBkPSJNNzQgNzAuNUwxMTIgNDdWOTRaIi8+PC9zdmc+';
+
     public function register_admin_menu(): void
     {
         // Pending agent memory proposals (issue #131) are surfaced as the
@@ -1038,7 +1053,8 @@ final class Plugin
             $menu_title,
             Management_Access::CAPABILITY,
             'wpmcp',
-            [new History_Page(), 'render']
+            [new History_Page(), 'render'],
+            self::MENU_ICON
         );
 
         // The history screen, added explicitly rather than left to the
