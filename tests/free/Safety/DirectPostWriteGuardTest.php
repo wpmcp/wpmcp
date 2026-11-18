@@ -105,6 +105,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new course, section or lesson post.',
         ],
+        'Integrations/LMS_Thrive_Apprentice.php'      => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new Thrive Apprentice lesson post.',
+        ],
         'Integrations/Core_Patterns_Pack.php'         => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new synced pattern (wp_block) post.',
