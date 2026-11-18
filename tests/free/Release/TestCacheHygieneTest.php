@@ -364,6 +364,36 @@ SH);
         $this->assertDirectoryDoesNotExist($this->cache . '/locks/run-2', 'the targeted run took no slot');
     }
 
+    /**
+     * Targeted runs queue among themselves (WPMCP_TEST_MAX_TARGETED), never
+     * behind a gate: ten agents each testing a fix once held the load at 42
+     * on 12 cores.
+     */
+    public function test_targeted_runs_queue_among_themselves_and_give_up_after_the_timeout(): void
+    {
+        $this->hold_the_slot();
+        mkdir($this->cache . '/locks/targeted-1', 0777, true);
+        file_put_contents($this->cache . '/locks/targeted-1/pid', (string) getmypid());
+
+        [$status, $out] = $this->run_gate(['--', '--filter', 'Foo'], ['WPMCP_TEST_MAX_TARGETED' => '1', 'WPMCP_TEST_TARGETED_TIMEOUT' => '2']);
+
+        $this->assertNotSame(0, $status);
+        $this->assertStringContainsString('Waiting for a targeted slot', $out);
+        $this->assertStringContainsString('WPMCP_TEST_MAX_TARGETED=1', $out);
+        $this->assertStringContainsString('timed out', $out);
+        $this->assertFileDoesNotExist($this->tmp . '/db.log', 'a targeted run without a slot starts nothing');
+        $this->assertSame((string) getmypid(), file_get_contents($this->cache . '/locks/targeted-1/pid'), 'the slot stays with its holder');
+    }
+
+    public function test_a_targeted_run_takes_a_free_targeted_slot_and_releases_it(): void
+    {
+        [, $out] = $this->run_gate(['--', '--filter', 'Foo'], ['WPMCP_TEST_MAX_TARGETED' => '2']);
+
+        $this->assertStringNotContainsString('Waiting', $out);
+        $this->assertFileExists($this->tmp . '/db.log', 'the targeted run went on to the database');
+        $this->assertDirectoryDoesNotExist($this->cache . '/locks/targeted-1', 'the slot is released on exit');
+    }
+
     public function test_a_targeted_multisite_run_does_not_wait_either(): void
     {
         $this->hold_the_slot();
