@@ -250,6 +250,12 @@ return [
         // the ops and count the pack towards availability. The option
         // snapshot it writes is generic and needs no plugin class.
         'src/Integrations/Translation_Settings_Pack.php',
+        // Loco Translate .po files (issue #691), paid-tier, carried onto the
+        // pair by Translation_Settings_Pack; strip.php takes out the line in
+        // Plugin_Data_Integration that names its ops' plugin. The file_write
+        // snapshots it writes are the generic file tools' own.
+        'src/Integrations/Loco_Translate_Pack.php',
+        'src/Integrations/Po_File.php',
         // Cache and performance plugin settings (issue #692), paid-tier.
         // strip.php takes out the line in Theme_Integration that merges the
         // ops and the rollback refresher in Plugin.

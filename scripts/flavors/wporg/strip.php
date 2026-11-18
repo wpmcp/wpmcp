@@ -1503,7 +1503,8 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
             . "            \$groups[] = [ \$adapter->label(), false, \$adapter->operations() ];\n"
             . "        }\n"
             . "        \$groups[] = [ 'Weglot', false, Translation_Settings_Pack::weglot_operations() ];\n"
-            . "        \$groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];\n",
+            . "        \$groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];\n"
+            . "        \$groups[] = [ 'Loco Translate', false, Loco_Translate_Pack::operations() ];\n",
         '',
         1,
     ],
@@ -1511,7 +1512,7 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         "            . ', FluentCRM and MailPoet'\n"
             . "            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'\n"
             . "            . ', BetterDocs docs, Fluent Support and Awesome Support tickets'\n"
-            . "            . ', Weglot and GTranslate language settings';\n",
+            . "            . ', Weglot and GTranslate language settings, Loco Translate .po strings';\n",
         "            . ', FluentCRM and MailPoet';\n",
         1,
     ],

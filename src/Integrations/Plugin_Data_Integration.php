@@ -154,7 +154,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
             . ', BetterDocs docs, Fluent Support and Awesome Support tickets'
-            . ', Weglot and GTranslate language settings';
+            . ', Weglot and GTranslate language settings, Loco Translate .po strings';
     }
 
     /**
@@ -203,6 +203,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         }
         $groups[] = [ 'Weglot', false, Translation_Settings_Pack::weglot_operations() ];
         $groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];
+        $groups[] = [ 'Loco Translate', false, Loco_Translate_Pack::operations() ];
 
         $hosts = [];
         foreach ($groups as [ $plugin, $several, $ops ]) {
