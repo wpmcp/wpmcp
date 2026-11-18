@@ -34,6 +34,9 @@ class BlockSuitesStackableTest extends \WP_UnitTestCase
     /** @var callable */
     private $presence;
 
+    /** @var callable */
+    private $kses;
+
     /** @var string[] */
     private array $registered = [];
 
@@ -46,6 +49,16 @@ class BlockSuitesStackableTest extends \WP_UnitTestCase
         $this->presence = fn ($default, string $suite): bool => $this->active[ $suite ] ?? false;
         add_filter('wpmcp_block_suite_active', $this->presence, 10, 2);
 
+        // Stackable's kses.php lets users who can edit posts keep its style
+        // tags; without it a multisite admin (no unfiltered_html) loses them.
+        $this->kses = static function ($tags) {
+            if (current_user_can('edit_posts')) {
+                $tags['style'] = [ 'id' => true, 'class' => true, 'type' => true ];
+            }
+            return $tags;
+        };
+        add_filter('wp_kses_allowed_html', $this->kses, 10, 1);
+
         $this->register('stackable/text', []);
         $this->register('stackable/columns', []);
         $this->register('stackable/column', []);
@@ -56,6 +69,7 @@ class BlockSuitesStackableTest extends \WP_UnitTestCase
     protected function tearDown(): void
     {
         remove_filter('wpmcp_block_suite_active', $this->presence, 10);
+        remove_filter('wp_kses_allowed_html', $this->kses, 10);
         foreach ($this->registered as $name) {
             if (\WP_Block_Type_Registry::get_instance()->is_registered($name)) {
                 unregister_block_type($name);

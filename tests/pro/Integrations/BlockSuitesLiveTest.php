@@ -401,8 +401,15 @@ class BlockSuitesLiveTest extends \WP_UnitTestCase
     public function test_ultimate_blocks_heading_renders_with_its_block_id_and_follows_edits(): void
     {
         [ $id, $hash ]  = $this->page();
-        [ $unique, $w ] = $this->insert('ultimate-blocks', $id, $hash,
-            '<!-- wp:ub/advanced-heading {"content":"UB live","level":"h2","textColor":"#4d5e6f"} /-->');
+        // Ultimate Blocks' asset loader reads fontFamily from the saved
+        // attributes, so it goes in as its editor saves it: the default stack.
+        $attrs          = [
+            'content'    => 'UB live',
+            'level'      => 'h2',
+            'textColor'  => '#4d5e6f',
+            'fontFamily' => '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif',
+        ];
+        [ $unique, $w ] = $this->insert('ultimate-blocks', $id, $hash, '<!-- wp:ub/advanced-heading ' . serialize_block_attributes($attrs) . ' /-->');
         $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $unique);
         $original = $this->content_of($id, $w);
 
