@@ -24,6 +24,7 @@ case "${1:-}" in
 	--list)
 		group=""
 		[ "${2:-}" != --group ] || group=${3:?group number}
+		# shellcheck disable=SC2016 # PHP code, expanded by PHP.
 		legs_json | php -r '
 			$legs = json_decode(stream_get_contents(STDIN), true);
 			if (!is_array($legs) || !$legs) { fwrite(STDERR, "live-legs: no free legs listed\n"); exit(1); }

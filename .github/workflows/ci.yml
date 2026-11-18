@@ -36,11 +36,15 @@ jobs:
         run: bash .github/ci/licensed-guard.sh
       - uses: shivammathur/setup-php@v2
         with: { php-version: '8.1', coverage: none }
-      - name: PHP 8.1 syntax check
-        run: find src wpmcp.php uninstall.php -name '*.php' -print0 | xargs -0 -n 1 -P 8 php -d display_errors=stderr -l >/dev/null
       - run: composer install --no-interaction
       - run: composer lint
       - run: composer drift:check
+      # Last and always, so a PHP 8.1 break never hides lint or drift. Every
+      # file is checked (exit 1 per file keeps xargs going) and each failing
+      # one is named.
+      - name: PHP 8.1 syntax check
+        if: always()
+        run: bash .github/ci/php-syntax.sh
 
   # WordPress's own Plugin Check, run against the assembled directory zip
   # rather than the checkout, with vendor/ left in scope. This is the
