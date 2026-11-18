@@ -45,6 +45,9 @@ if (! defined('ABSPATH')) {
  *    LifterLMS and LearnDash course, section, lesson and quiz trees with
  *    snapshotted writes, and read-only enrollments (LearnDash also enrolls,
  *    unenrolls and resets progress, each snapshotted).
+ *  - Issue #701 adds the paid-tier WP Offload Media ops
+ *    (Offload_Media_Pack): offload status, bucket and counts, and per
+ *    attachment whether it is in the bucket and the URL the site serves.
  *  - Issue #481 adds the paid-tier TablePress ops (TablePress_Pack): tables
  *    read, edited cell by cell, imported, exported and placed through
  *    TablePress's own table model, with snapshotted writes.
@@ -113,6 +116,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
     {
         return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Site_Reviews_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
+            || Offload_Media_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
             || Amelia_Pack::active()
@@ -132,6 +136,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
     {
         return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
+            . ', WP Offload Media status'
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
             . ', BetterDocs docs, Fluent Support and Awesome Support tickets';
@@ -165,6 +170,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         foreach (LMS_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
         }
+        $groups[] = [ 'WP Offload Media', false, Offload_Media_Pack::operations() ];
         $groups[] = [ 'TablePress', false, TablePress_Pack::operations() ];
         foreach (CRM_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
@@ -206,6 +212,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Site_Reviews_Pack::operations(),
             BuddyPress_Pack::operations(),
             LMS_Pack::operations(),
+            Offload_Media_Pack::operations(),
             TablePress_Pack::operations(),
             CRM_Pack::operations(),
             Amelia_Pack::operations(),
