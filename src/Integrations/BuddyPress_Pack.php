@@ -5,6 +5,7 @@ namespace WPMCP\Integrations;
 use WPMCP\Privacy\Masking;
 use WPMCP\Safety\BuddyPress_Rows_Snapshot;
 use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Content\Readable_Posts;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -69,7 +70,7 @@ final class BuddyPress_Pack
     public static function requirement(string $component)
     {
         if (! self::active()) {
-            return Plugin_Refusal::make('buddypress_inactive', 'BuddyPress');
+            return self::inactive_refusal();
         }
         [$label, $tables] = self::COMPONENTS[ $component ];
         if (! BuddyPress_Rows_Snapshot::tables_exist(...$tables)) {
@@ -79,6 +80,24 @@ final class BuddyPress_Pack
             ];
         }
         return true;
+    }
+
+    /**
+     * The refusal while neither BuddyPress nor BuddyBoss Platform (issue #670)
+     * is loaded: an installed BuddyBoss copy is asked to be activated, else
+     * BuddyPress is offered with BuddyBoss Platform as the alternative.
+     *
+     * @return array{code: string, message: string, data: array<string, string>}
+     */
+    private static function inactive_refusal(): array
+    {
+        $boss = Plugin_Refusal::make('buddypress_inactive', 'BuddyBoss Platform');
+        if ('inactive' === $boss['data']['state']) {
+            return $boss;
+        }
+        $refusal             = Plugin_Refusal::make('buddypress_inactive', 'BuddyPress');
+        $refusal['message'] .= ' BuddyBoss Platform works too.';
+        return $refusal;
     }
 
     /** @return array<string, array<string, mixed>> */
@@ -117,7 +136,7 @@ final class BuddyPress_Pack
             ],
             'buddypress-get-group'            => [
                 'mode'         => 'read',
-                'description'  => 'Read one BuddyPress group by id, with its last activity time',
+                'description'  => 'Read one BuddyPress group by id, with its last activity time and forum_ids (its linked forums you may read; list their topics with bbpress-list-topics)',
                 'input_schema' => $id_only,
                 'requires'     => $groups,
                 'validate'     => static fn (array $args): ?array => self::group_refusal((int) $args['id']),
@@ -408,8 +427,42 @@ final class BuddyPress_Pack
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table; one allowlisted meta key only.
             $last                 = $wpdb->get_var($wpdb->prepare('SELECT meta_value FROM %i WHERE group_id = %d AND meta_key = %s ORDER BY id DESC LIMIT 1', BuddyPress_Rows_Snapshot::table('bp_groups_groupmeta'), $id, 'last_activity'));
             $out['last_activity'] = null === $last ? null : (string) $last;
+            $out['forum_ids']     = self::group_forum_ids($id);
         }
         return $out;
+    }
+
+    /**
+     * The forums linked to a group, from its forum_id meta (one id or a list,
+     * as BuddyBoss Platform and bbPress's group extension store it), kept to
+     * existing forums the caller may read, in link order.
+     *
+     * @return int[]
+     */
+    private static function group_forum_ids(int $group): array
+    {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- BuddyPress's own table; one allowlisted meta key only.
+        $raw = $wpdb->get_var($wpdb->prepare('SELECT meta_value FROM %i WHERE group_id = %d AND meta_key = %s ORDER BY id DESC LIMIT 1', BuddyPress_Rows_Snapshot::table('bp_groups_groupmeta'), $group, 'forum_id'));
+        $raw = (string) $raw;
+        if (is_serialized($raw)) {
+            // Read the ids straight from the serialized list, without unserializing stored data.
+            preg_match_all('/i:\d+;(?:i:(\d+)|s:\d+:"(\d+)");/', $raw, $m);
+            $raw = $m[0] ? array_map(static fn (string $one, string $two): string => '' !== $one ? $one : $two, $m[1], $m[2]) : [];
+        }
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array) $raw), static fn (int $id): bool => $id > 0)));
+        if ([] === $ids) {
+            return [];
+        }
+        $q = Readable_Posts::query([
+            'post_type'      => 'forum',
+            'post__in'       => $ids,
+            'orderby'        => 'post__in',
+            'fields'         => 'ids',
+            'posts_per_page' => count($ids),
+            'no_found_rows'  => true,
+        ]);
+        return array_map('intval', $q->posts);
     }
 
     private static function list_groups(array $args): array
@@ -860,7 +913,7 @@ final class BuddyPress_Pack
     private static array $schema_seen = [];
 
     /** Whether this is BuddyBoss Platform (its schema always has the privacy, status and suspend parts). */
-    private static function is_buddyboss(): bool
+    public static function is_buddyboss(): bool
     {
         return (bool) apply_filters('wpmcp_buddyboss_active', defined('BP_PLATFORM_VERSION'));
     }
