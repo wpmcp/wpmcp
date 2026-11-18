@@ -184,4 +184,89 @@ class DeleteMediaTest extends \WP_UnitTestCase
 
         File_Backup::delete_backup_dir($out['operation_id']);
     }
+
+    /**
+     * Point the uploads base directory somewhere no directory can be made
+     * (under a regular file), so File_Backup cannot create the backup
+     * directory. The attachment keeps an absolute attached-file path, so
+     * its files are still found where they really are.
+     */
+    private function make_backup_impossible(int $id, string $main): void
+    {
+        update_post_meta($id, '_wp_attached_file', $main);
+        $blocker = (string) tempnam(sys_get_temp_dir(), 'wpmcp-blocker-');
+        $this->cleanup_paths[] = $blocker;
+        add_filter('upload_dir', static function (array $dirs) use ($blocker): array {
+            $dirs['basedir'] = $blocker . '/uploads';
+            return $dirs;
+        });
+    }
+
+    public function test_permanent_delete_is_refused_when_the_files_cannot_be_backed_up(): void
+    {
+        add_filter('wpmcp_enable_delete_media', '__return_true');
+        $files = $this->create_attachment_with_real_files();
+        $id    = $files['id'];
+        $this->make_backup_impossible($id, $files['main']);
+
+        $refusal = null;
+        try {
+            (new Delete_Media())->handle(['media_id' => $id, 'confirm' => true, 'force' => true]);
+        } catch (\RuntimeException $e) {
+            $refusal = $e;
+        }
+
+        $this->assertNotNull($refusal, 'A delete whose files cannot be backed up must be refused.');
+        // Not a confirm gate: confirm:true is already set, so asking again would loop.
+        $this->assertNotInstanceOf(\WPMCP\MCP\Confirmation_Required::class, $refusal);
+        $this->assertStringContainsString('allow_unrecoverable_files', $refusal->getMessage());
+        $this->assertStringContainsString(basename($files['main']), $refusal->getMessage());
+        $this->assertStringContainsString(basename($files['thumb']), $refusal->getMessage());
+
+        $this->assertNotNull(get_post($id));
+        $this->assertFileExists($files['main']);
+        $this->assertFileExists($files['thumb']);
+    }
+
+    public function test_default_delete_without_media_trash_is_refused_too_when_backup_fails(): void
+    {
+        add_filter('wpmcp_enable_delete_media', '__return_true');
+        $files = $this->create_attachment_with_real_files();
+        $id    = $files['id'];
+        $this->make_backup_impossible($id, $files['main']);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('allow_unrecoverable_files');
+        (new Delete_Media())->handle(['media_id' => $id, 'confirm' => true]);
+    }
+
+    public function test_delete_with_failed_backup_reports_files_not_recoverable_when_allowed(): void
+    {
+        add_filter('wpmcp_enable_delete_media', '__return_true');
+        $files = $this->create_attachment_with_real_files();
+        $id    = $files['id'];
+        $this->make_backup_impossible($id, $files['main']);
+
+        $out = (new Delete_Media())->handle([
+            'media_id'                  => $id,
+            'confirm'                   => true,
+            'force'                     => true,
+            'allow_unrecoverable_files' => true,
+            'session_id'                => 's1',
+        ]);
+
+        $this->assertSame('deleted', $out['deleted']);
+        $this->assertNull(get_post($id));
+        $this->assertFalse($out['files_recoverable']);
+        $this->assertEqualsCanonicalizing(
+            [basename($files['main']), basename($files['thumb'])],
+            $out['unrecoverable_files']
+        );
+        $this->assertArrayHasKey('warning', $out);
+
+        // The database record is still snapshotted and restorable.
+        $this->assertNotNull(Snapshot_Store::get_by_operation($out['operation_id']));
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $this->assertNotNull(get_post($id));
+    }
 }
