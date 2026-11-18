@@ -157,7 +157,7 @@ Keep `Authorization:${WPMCP_AUTH_HEADER}` without a space; the value with its sp
 
 OAuth 2.1 (with dynamic client registration) is **off by default**, and stays off until the site owner opts in. Clients that use an application password do not need it. The Claude Desktop and claude.ai custom connector does: with OAuth off, the discovery addresses (`/.well-known/oauth-protected-resource/...`, `/.well-known/oauth-authorization-server`) return 404, the endpoint's 401 carries no `WWW-Authenticate` header, and the connector fails with "Couldn't register with WP MCP's sign-in service".
 
-Switch OAuth on with either of these:
+Switch OAuth on from wp-admin: **WP MCP, Connection, Allow OAuth sign-in** (issue #842). Developers can also use either of these, which win over the switch:
 
 ```php
 // wp-config.php, above "That's all, stop editing!"
@@ -170,6 +170,8 @@ add_filter('wpmcp_oauth_enabled', '__return_true');
 ```
 
 Then add the connector: Settings -> Connectors (under Customize in current versions) -> "Add custom connector", enter `https://your-site.com/wp-json/mcp/wpmcp-server`, leave the OAuth Client ID and secret empty, click Connect, and approve the sign-in in the browser. The wpmcp -> Connection screen and the `get-connection-info` tool (`clients.custom-connector`) show whether OAuth is on and repeat these steps.
+
+ChatGPT signs in the same way: switch OAuth on, then add the endpoint as a custom MCP connector in ChatGPT's Developer mode. See [docs/connect-chatgpt.md](docs/connect-chatgpt.md); `get-connection-info` returns the steps under `clients.chatgpt`.
 
 ### Protocol revisions and the MCP adapter
 
