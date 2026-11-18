@@ -286,6 +286,39 @@ final class Action_Scheduler_Pack
     }
 
     /**
+     * When an action is or was due, as ISO 8601 UTC, or null (issue #955).
+     *
+     * The store answers the date it ran for anything but a pending action,
+     * and a canceled action never ran, so the store gives a zero date. A
+     * canceled action reports the date its schedule still holds; any other
+     * zero date falls back the same way, else null.
+     */
+    private static function scheduled_at($store, int $id, \ActionScheduler_Action $action, string $status): ?string
+    {
+        $stored = null;
+        if (Action_Scheduler_Snapshot::CANCELED !== $status) {
+            try {
+                $stored = $store->get_date($id);
+            } catch (\Throwable $e) {
+                $stored = null;
+            }
+            if ($stored instanceof \DateTime && $stored->getTimestamp() > 0) {
+                return self::iso($stored);
+            }
+        }
+        $planned = $action->get_schedule();
+        $date    = null;
+        if (is_object($planned) && method_exists($planned, 'get_date')) {
+            try {
+                $date = $planned->get_date();
+            } catch (\Throwable $e) {
+                $date = null;
+            }
+        }
+        return $date instanceof \DateTime && $date->getTimestamp() > 0 ? self::iso($date) : null;
+    }
+
+    /**
      * The facts of one action, with args as the caller's masking asks.
      *
      * @return array<string, mixed>
@@ -295,12 +328,8 @@ final class Action_Scheduler_Pack
         $store  = \ActionScheduler::store();
         $action = $store->fetch_action($id);
         $status = (string) Action_Scheduler_Snapshot::status($id);
-        try {
-            $when = self::iso($store->get_date($id));
-        } catch (\Throwable $e) {
-            $when = null;
-        }
-        $args = (array) $action->get_args();
+        $when   = self::scheduled_at($store, $id, $action, $status);
+        $args   = (array) $action->get_args();
         return [
             'id'           => $id,
             'hook'         => (string) $action->get_hook(),

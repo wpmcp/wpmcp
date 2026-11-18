@@ -413,6 +413,43 @@ class ActionSchedulerPackTest extends \WP_UnitTestCase
         $this->assertSame([ $twin ], array_map('intval', $pending), 'no duplicate');
     }
 
+    /** Issue #954: undoing the cancel of one of two identical pending actions leaves two pending. */
+    public function test_the_undo_of_one_of_two_identical_pending_actions_queues_it_again(): void
+    {
+        $due   = time() + 3600;
+        $first = (int) as_schedule_single_action($due, self::HOOK, [ 'order_id' => 7 ], self::GROUP);
+        $twin  = (int) as_schedule_single_action($due, self::HOOK, [ 'order_id' => 7 ], self::GROUP);
+        $this->assertNotSame($first, $twin);
+
+        $out = $this->ok($this->write('actionscheduler-cancel-action', [ 'action_id' => $first ]));
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+
+        $pending = array_map('intval', (array) \ActionScheduler::store()->query_actions([ 'hook' => self::HOOK, 'status' => 'pending' ]));
+        $this->assertCount(2, $pending, 'the pending count is back to what it was before the cancel');
+        $this->assertContains($twin, $pending);
+        $new = (int) current(array_diff($pending, [ $twin ]));
+        $this->assertSame($due, \ActionScheduler::store()->get_date($new)->getTimestamp());
+        foreach (Rollback_Service::take_warnings() as $warning) {
+            $this->assertStringNotContainsString('was not queued again', $warning);
+        }
+    }
+
+    /** Issue #955: a canceled action reports the date it was scheduled for, never a zero date. */
+    public function test_get_and_list_report_the_scheduled_date_of_a_canceled_action(): void
+    {
+        $due = time() + 5400;
+        $id  = (int) as_schedule_single_action($due, self::HOOK, [ 'order_id' => 7 ], self::GROUP);
+        $this->ok($this->write('actionscheduler-cancel-action', [ 'action_id' => $id ]));
+
+        $expected = gmdate('Y-m-d\TH:i:s\Z', $due);
+        $get      = $this->ok($this->read('actionscheduler-get-action', [ 'action_id' => $id ]))['action'];
+        $this->assertSame('canceled', $get['status']);
+        $this->assertSame($expected, $get['scheduled_at']);
+
+        $rows = $this->ok($this->read('actionscheduler-list-actions', [ 'hook' => self::HOOK, 'status' => 'canceled' ]))['actions'];
+        $this->assertSame([ $expected ], array_column($rows, 'scheduled_at'));
+    }
+
     public function test_cancel_refuses_an_action_that_is_not_pending_or_does_not_exist(): void
     {
         $done = $this->queue();

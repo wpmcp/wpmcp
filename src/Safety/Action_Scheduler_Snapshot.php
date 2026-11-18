@@ -26,10 +26,14 @@ if (! defined('ABSPATH')) {
  *
  * The store has no call that reopens a canceled action, so the undo queues
  * the same action again, pending, on the same schedule, and the canceled
- * record keeps its id. The undo is skipped, with a warning, when the action
- * is not canceled any more (it was queued again, deleted or run) or when an
- * identical pending action is already there, so a double undo never queues a
- * duplicate. A past due time is queued as is: the queue runs it next.
+ * record keeps its id. The image also counts the identical pending actions
+ * (same hook, args and group, this one included) there were before the
+ * cancel (issue #954). The undo is skipped, with a warning, when the action
+ * is not canceled any more (it was queued again, deleted or run) or when at
+ * least that many identical pending actions are already there, so a double
+ * undo never queues a duplicate while the cancel of one of two identical
+ * actions is still undone. A past due time is queued as is: the queue runs
+ * it next.
  */
 final class Action_Scheduler_Snapshot
 {
@@ -99,6 +103,7 @@ final class Action_Scheduler_Snapshot
         $image['group']    = (string) $action->get_group();
         $image['priority'] = method_exists($action, 'get_priority') ? (int) $action->get_priority() : 10;
         $image['due']      = $due;
+        $image['twins']    = self::count_identical($image);
         if ($schedule instanceof \ActionScheduler_CronSchedule) {
             $image['kind'] = 'cron';
             $image['cron'] = (string) $schedule->get_recurrence();
@@ -168,6 +173,25 @@ final class Action_Scheduler_Snapshot
     }
 
     /**
+     * How many pending actions are the same work as the image (issue #954).
+     *
+     * @param array<string, mixed> $image
+     */
+    public static function count_identical(array $image): int
+    {
+        try {
+            return (int) \ActionScheduler::store()->query_actions([
+                'hook'   => (string) ($image['hook'] ?? ''),
+                'args'   => (array) ($image['args'] ?? []),
+                'group'  => (string) ($image['group'] ?? ''),
+                'status' => self::PENDING,
+            ], 'count');
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
+    /**
      * Undo the cancel. Returns a warning naming what happened (the new id,
      * or why nothing was done), or null.
      *
@@ -192,8 +216,10 @@ final class Action_Scheduler_Snapshot
         if (self::CANCELED !== $now) {
             return sprintf('Action Scheduler action %d is %s now, not canceled, so it was left as it is.', $id, null === $now ? 'gone' : $now);
         }
-        $same = self::find_identical($before);
-        if ($same > 0) {
+        // An image from before issue #954 has no count: it held one action.
+        $twins = max(1, (int) ($before['twins'] ?? 1));
+        $same  = self::find_identical($before);
+        if ($same > 0 && self::count_identical($before) >= $twins) {
             return sprintf('Action Scheduler action %d was not queued again: an identical pending action (%d) already exists.', $id, $same);
         }
         $new = self::requeue($before);
