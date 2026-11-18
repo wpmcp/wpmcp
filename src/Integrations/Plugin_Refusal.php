@@ -67,6 +67,9 @@ final class Plugin_Refusal
         'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
+        'WP Job Manager'   => [ 'file' => 'wp-job-manager/wp-job-manager.php', 'slug' => 'wp-job-manager' ],
+        'GeoDirectory'     => [ 'file' => 'geodirectory/geodirectory.php', 'slug' => 'geodirectory' ],
+        'Directorist'      => [ 'file' => 'directorist/directorist-base.php', 'slug' => 'directorist' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
