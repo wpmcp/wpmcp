@@ -3910,6 +3910,13 @@ class Rollback_Service
 
         $new_id = (int) $result;
         if ($new_id !== $object_id) {
+            // WordPress ignored import_id and inserted a copy at a new ID.
+            // A failed restore must leave nothing behind (issue #984: a
+            // duplicate form action is a second notification), so the copy
+            // goes before the failure is reported.
+            if ($new_id > 0) {
+                wp_delete_post($new_id, true);
+            }
             throw new Mutation_Failed(
                 'Rollback could not resurrect post ' . (int) $object_id . ' at its original ID '
                 . '(import_id collision; WordPress inserted it as post ' . (int) $new_id . ' instead). '

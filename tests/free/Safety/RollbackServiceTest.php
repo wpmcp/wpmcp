@@ -168,6 +168,8 @@ class RollbackServiceTest extends \WP_UnitTestCase
             // The colliding post must be left untouched, not silently
             // overwritten or joined with the resurrection attempt.
             $this->assertSame('someone else now owns this id', get_post($id)->post_title);
+            // And the copy WordPress inserted at a new ID is removed (#984).
+            $this->assertSame('0', (string) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_title = %s", 'keep me')));
         }
     }
 
