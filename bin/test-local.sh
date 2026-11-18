@@ -281,6 +281,17 @@
 #   bin/test-local.sh --plan [...]    print the legs the other options would run, run nothing
 #   bin/test-local.sh --resolve-plugins [--wp V] print the test plugin versions and the
 #                                     install a run would use, install nothing
+#   bin/test-local.sh --parallel[=N]  the same legs (any of the options above that pick legs apply),
+#                                     N jobs at a time (default: every core), each in its own worker
+#                                     with its own database, core copy, config and tmp; the three
+#                                     suite legs split into the shards of tests/parallel-shards.tsv;
+#                                     a database server and a RAM disk of the run's own; known
+#                                     failures from tests/phpunit-baseline-<leg>.txt. See
+#                                     bin/parallel-gate.php. Not for a targeted run.
+#   bin/test-local.sh --parallel --reuse-logs=<dir>  report on that parallel run's logs again
+#   bin/test-local.sh --parallel --prune-baseline    also drop tests that pass again from the
+#                                     baselines (never adds a line)
+#   bin/test-local.sh --parallel --seed-baseline     write the first baseline of a leg that has none
 #   bin/test-local.sh --list-legs[=<tiers>] [--json] print the rows of bin/legs.tsv (the leg
 #                                     table: all, or the tiers named, comma separated, of static,
 #                                     suite, free, licensed, extra), run nothing
@@ -300,6 +311,11 @@
 #   WPMCP_TEST_MAX_PARALLEL  most full runs at once across worktrees (default 1;
 #                        targeted runs do not count)
 #   WPMCP_TEST_SLOT_TIMEOUT  seconds a run waits for a slot (default 3600)
+#   WPMCP_TEST_MAX_TARGETED  most targeted runs at once across worktrees
+#                        (default a third of the cores); more queue among themselves,
+#                        never behind a gate ($CACHE/locks/targeted-<n>)
+#   WPMCP_TEST_TARGETED_TIMEOUT  seconds a targeted run waits for its slot
+#                        (default 1800)
 #   WPMCP_TEST_DOWNLOAD_TTL_DAYS  a cached download unused this long is
 #                        removed (default 30)
 #   WPMCP_TEST_DOWNLOAD_MAX_GB  most gigabytes of cached downloads (default 3)
@@ -422,6 +438,12 @@ MIN_FREE_GB=${WPMCP_TEST_MIN_FREE_GB:-20}
 HARD_MIN_FREE_GB=${WPMCP_TEST_HARD_MIN_FREE_GB:-10}
 MAX_PARALLEL=${WPMCP_TEST_MAX_PARALLEL:-1}
 SLOT_TIMEOUT=${WPMCP_TEST_SLOT_TIMEOUT:-3600}
+_cores=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+# A third of the cores: each targeted run is one PHPUnit process plus its share
+# of the private MariaDB, whose DDL at bootstrap is what six at once already
+# queued on (six concurrent runs took 2.2 times as long each as one alone).
+MAX_TARGETED=${WPMCP_TEST_MAX_TARGETED:-$(( _cores / 3 > 1 ? _cores / 3 : 1 ))}
+TARGETED_TIMEOUT=${WPMCP_TEST_TARGETED_TIMEOUT:-1800}
 # The download cache, see bin/download-cache.sh.
 DOWNLOADS="$CACHE/downloads"
 DOWNLOAD_TTL_DAYS=${WPMCP_TEST_DOWNLOAD_TTL_DAYS:-30}
@@ -434,13 +456,14 @@ RECENT_USE=900
 say() { printf '\033[1m[test-local]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[test-local]\033[0m %s\n' "$*" >&2; exit 1; }
 
-for var in KEEP_INSTALLS INSTALL_TTL_HOURS MAX_PARALLEL SLOT_TIMEOUT DOWNLOAD_TTL_DAYS LATEST_TTL_HOURS; do
+for var in KEEP_INSTALLS INSTALL_TTL_HOURS MAX_PARALLEL SLOT_TIMEOUT MAX_TARGETED TARGETED_TIMEOUT DOWNLOAD_TTL_DAYS LATEST_TTL_HOURS; do
 	[[ "${!var}" =~ ^[0-9]+$ ]] || die "WPMCP_TEST_$var must be a whole number (got '${!var}')"
 done
 for var in MAX_GB MIN_FREE_GB HARD_MIN_FREE_GB DOWNLOAD_MAX_GB; do
 	[[ "${!var}" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "WPMCP_TEST_$var must be a number of gigabytes (got '${!var}')"
 done
 [ "$MAX_PARALLEL" -ge 1 ] || die "WPMCP_TEST_MAX_PARALLEL must be at least 1"
+[ "$MAX_TARGETED" -ge 1 ] || die "WPMCP_TEST_MAX_TARGETED must be at least 1"
 
 # ---------------------------------------------------------------- arguments
 
@@ -493,6 +516,8 @@ resolve_only=false
 prune_only=false
 list_legs=""
 list_json=false
+parallel=""
+child_leg=""
 phpunit_args=()
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -544,6 +569,12 @@ while [ $# -gt 0 ]; do
 		--plan) plan_only=true ;;
 		--resolve-plugins) resolve_only=true ;;
 		--prune) prune_only=true ;;
+		--parallel) parallel=auto ;;
+		--parallel=*) parallel=${1#--parallel=} ;;
+		--reuse-logs=*) export WPMCP_PARALLEL_REUSE_LOGS=${1#--reuse-logs=} ;;
+		--prune-baseline) export WPMCP_PARALLEL_PRUNE_BASELINE=1 ;;
+		--seed-baseline) export WPMCP_PARALLEL_SEED_BASELINE=1 ;;
+		--leg) shift; child_leg=${1:-}; [ -n "$child_leg" ] || die "--leg needs a leg" ;;
 		--list-legs) list_legs=all ;;
 		--list-legs=*) list_legs=${1#--list-legs=} ;;
 		--json) list_json=true ;;
@@ -685,6 +716,18 @@ else
 	done < <(leg_rows)
 fi
 
+# --leg "<kind> [WordPress] [coverage]": the one leg a --parallel run hands
+# to each of its workers (bin/parallel-gate.php); not for use by hand.
+if [ -n "$child_leg" ]; then
+	[ "${WPMCP_PARALLEL_CHILD:-}" = 1 ] || die "--leg is for the workers of a --parallel run"
+	LEGS=("$child_leg")
+fi
+if [ "$parallel" = auto ]; then
+	parallel=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+fi
+[ -z "$parallel" ] || [[ "$parallel" =~ ^[1-9][0-9]*$ ]] || die "--parallel=N needs a whole number of workers (got '$parallel')"
+[ -z "$parallel" ] || [ "$targeted" = false ] || die "--parallel runs gates; a targeted run (PHPUnit arguments after --) is one process already"
+
 # "phpunit 6.9 none" -> "phpunit wp=6.9 coverage=none"; "live-forms 7.1" -> "live-forms wp=7.1".
 leg_label() {
 	local kind wp cov
@@ -725,6 +768,16 @@ if [ "$plan_only" = true ]; then
 	done
 	echo "on-failure: continue"
 	exit 0
+fi
+
+# --parallel --reuse-logs=<dir>: report on a parallel run's logs again (its
+# baselines compared anew), without a slot, a database or a run.
+if [ -n "$parallel" ] && [ -n "${WPMCP_PARALLEL_REUSE_LOGS:-}" ]; then
+	WPMCP_PARALLEL_LEGS=$(printf '%s\n' "${LEGS[@]}") WPMCP_PARALLEL_WORKERS="$parallel" \
+		WPMCP_DEFAULT_WP="$default_wp" WPMCP_FLOOR_WP="$floor_wp" \
+		WPMCP_COVERAGE_FLOOR="$COVERAGE_FLOOR" WPMCP_TEST_CACHE="$CACHE" \
+		"$PHP" "$ROOT/bin/parallel-gate.php"
+	exit $?
 fi
 
 # --resolve-plugins and --prune need no database.
@@ -1082,7 +1135,9 @@ install_wp_locked() {
 		) >"$dir/install.log" 2>&1 || die "WordPress $version install failed, see $dir/install.log"
 	fi
 	touch "$dir/.last-used" "$dir/.ready"
-	prune_installs "$dir"
+	# A --parallel worker leaves pruning to the run: its du over every install
+	# holds the prune lock that every other worker's claim waits on.
+	[ "${WPMCP_PARALLEL_CHILD:-}" = 1 ] || prune_installs "$dir"
 }
 
 # Copies directory <from> to <to>: an instant copy-on-write clone on APFS.
@@ -1167,7 +1222,13 @@ prune_installs_locked() {
 	[ ${#rows[@]} -gt 0 ] || return 0
 	while read -r used d; do
 		if [ "$d" = "$keep" ] || [ $((now - used)) -lt "$recent" ] || install_in_use "$d"; then
-			:
+			# The end of a --parallel run: its own installs were all just used
+			# and none of them can go, so only count them; a du over some forty
+			# installs took longer than the tests.
+			if [ "${WPMCP_PRUNE_COUNT_RECENT_ONLY:-}" = 1 ]; then
+				count=$((count + 1))
+				continue
+			fi
 		elif [ $((now - used)) -ge "$ttl" ]; then
 			say "Removing the install $(basename "$d"), unused for $(((now - used) / 3600)) hours (WPMCP_TEST_INSTALL_TTL_HOURS=$INSTALL_TTL_HOURS)" >&2
 			rm -rf "$d"
@@ -1297,13 +1358,24 @@ space_guard() {
 # by every worktree, waiting up to WPMCP_TEST_SLOT_TIMEOUT seconds for one. A
 # slot whose holder has died is taken over. The slot is released by
 # finish_run, with every other lock this run holds.
+#
+# acquire_slot targeted: the same for a targeted run, one of
+# WPMCP_TEST_MAX_TARGETED slots ($CACHE/locks/targeted-<n>, default a third
+# of the cores), waiting up to WPMCP_TEST_TARGETED_TIMEOUT seconds (default 1800).
+# Targeted runs never wait behind a gate, but a dozen of them at once (agents
+# testing their fixes) once held the load at 42 on 12 cores, so they queue
+# among themselves.
 acquire_slot() {
+	local kind=${1:-run} max=$MAX_PARALLEL timeout=$SLOT_TIMEOUT var=WPMCP_TEST_MAX_PARALLEL tvar=WPMCP_TEST_SLOT_TIMEOUT
 	local n lock holder holders waited=0 said=false
+	if [ "$kind" = targeted ]; then
+		max=$MAX_TARGETED timeout=$TARGETED_TIMEOUT var=WPMCP_TEST_MAX_TARGETED tvar=WPMCP_TEST_TARGETED_TIMEOUT
+	fi
 	mkdir -p "$CACHE/locks"
 	while :; do
 		holders=""
-		for n in $(seq 1 "$MAX_PARALLEL"); do
-			lock="$CACHE/locks/run-$n"
+		for n in $(seq 1 "$max"); do
+			lock="$CACHE/locks/$kind-$n"
 			if mkdir_lock "$lock"; then
 				echo $$ >"$lock/pid"
 				return 0
@@ -1318,10 +1390,10 @@ acquire_slot() {
 			fi
 			holders+="${holders:+, }${holder:-?}"
 		done
-		[ "$waited" -lt "$SLOT_TIMEOUT" ] \
-			|| die "timed out after ${SLOT_TIMEOUT}s waiting for a run slot (WPMCP_TEST_MAX_PARALLEL=$MAX_PARALLEL, WPMCP_TEST_SLOT_TIMEOUT=$SLOT_TIMEOUT; held by pid $holders)"
+		[ "$waited" -lt "$timeout" ] \
+			|| die "timed out after ${timeout}s waiting for a $kind slot ($var=$max, $tvar=$timeout; held by pid $holders)"
 		if [ "$said" = false ]; then
-			say "Waiting for a run slot: $MAX_PARALLEL runs are going already (pid $holders; WPMCP_TEST_MAX_PARALLEL=$MAX_PARALLEL), up to ${SLOT_TIMEOUT}s." >&2
+			say "Waiting for a $kind slot: all $max are taken (pid $holders; $var=$max), up to ${timeout}s." >&2
 			said=true
 		fi
 		sleep 2
@@ -1368,8 +1440,26 @@ checkout_core() {
 	mkdir -p "$CACHE/cores"
 	prune_cores
 	rm -rf "$core"
+	# A --parallel worker clones the whole tree in one clonefile(2) call: about
+	# 2 seconds instead of 35 for cp -cR's file by file clones of some 18,000
+	# files when a dozen workers do it at once.
+	if [ "${WPMCP_PARALLEL_CHILD:-}" = 1 ] && clone_tree "$dir/pristine" "$core"; then
+		echo "$core"
+		return
+	fi
 	cp -cR "$dir/pristine" "$core" 2>/dev/null || cp -R "$dir/pristine" "$core"
 	echo "$core"
+}
+
+# Clones directory tree <from> to <to> with one clonefile(2) call (APFS);
+# fails, leaving nothing behind, where that is not available.
+clone_tree() {
+	command -v python3 >/dev/null 2>&1 || return 1
+	python3 -c 'import ctypes, sys
+libc = ctypes.CDLL(None, use_errno=True)
+sys.exit(0 if hasattr(libc, "clonefile") and libc.clonefile(sys.argv[1].encode(), sys.argv[2].encode(), 0) == 0 else 1)' "$1" "$2" 2>/dev/null && return 0
+	rm -rf "$2"
+	return 1
 }
 
 make_pristine() {
@@ -1394,6 +1484,14 @@ db_config() {
 	# a config. Both are removed when the run exits.
 	name="wpmcp_test_$(printf '%s|%s' "$ROOT" "$version" | shasum | cut -c1-12)_$$"
 	db_sql -e "CREATE DATABASE IF NOT EXISTS \`$name\`"
+	# A --parallel worker (WPMCP_DB_TEMPLATES=1) fills its database from a
+	# template the WordPress test installer filled once per core and network
+	# mode in this run, and tells the test library to skip its installer.
+	if [ "${WPMCP_PARALLEL_CHILD:-}" = 1 ] && [ "${WPMCP_DB_TEMPLATES:-}" = 1 ]; then
+		local ms=0
+		case "$version" in *-multisite) ms=1 ;; esac
+		db_from_template "$dir" "$core" "$name" "$ms" >&2
+	fi
 	mkdir -p "$CACHE/configs"
 	config="$CACHE/configs/$name.php"
 	sed -E \
@@ -1408,7 +1506,71 @@ db_config() {
 	echo "$config"
 }
 
+# Fills database <name> from this run's template for <install dir>'s
+# WordPress, single site or network (WP_MULTISITE), building the template
+# first under a lock: what the test library's install.php writes depends only
+# on the WordPress core, the table prefix and the network mode, never on the
+# plugins (none is active while it runs).
+db_from_template() {
+	local dir=$1 core=$2 name=$3 ms=$4 key tpl
+	key=$(printf '%s|%s|%s' "$(sed -n "s/^\$wp_version = '\(.*\)';/\1/p" "$core/wp-includes/version.php")" "$ms" "${WPMCP_PARALLEL_RUN_ID:-$$}" | shasum | cut -c1-12)
+	tpl="wpmcp_tpl_${key}"
+	with_lock "dbtpl-$key" build_db_template "$dir" "$core" "$tpl" "$ms"
+	"${WPMCP_MARIADB_BIN:?}/mariadb-dump" --no-defaults --socket="${WPMCP_TEST_DB_SOCK:?}" -uroot --single-transaction --skip-comments --skip-triggers "$tpl" \
+		| "$WPMCP_MARIADB_BIN/mariadb" --no-defaults --socket="$WPMCP_TEST_DB_SOCK" -uroot "$name" || die "could not copy the database template $tpl into $name"
+}
+
+build_db_template() {
+	local dir=$1 core=$2 tpl=$3 config ms=no_ms_tests
+	[ -n "$(db_sql -N -e "SHOW DATABASES LIKE '$tpl'")" ] && return 0
+	[ "$4" = 1 ] && ms=run_ms_tests
+	db_sql -e "CREATE DATABASE \`$tpl\`"
+	config="$CACHE/configs/$tpl-$$.php"
+	sed -E \
+		-e "s/define\( *'DB_NAME', *'[^']*' *\)/define( 'DB_NAME', '$tpl' )/" \
+		-e "s/define\( *'DB_USER', *'[^']*' *\)/define( 'DB_USER', '$DB_USER' )/" \
+		-e "s/define\( *'DB_PASSWORD', *'[^']*' *\)/define( 'DB_PASSWORD', '$DB_PASS' )/" \
+		-e "s/define\( *'DB_HOST', *'[^']*' *\)/define( 'DB_HOST', '$DB_HOST_CFG' )/" \
+		-e "s#define\( *'ABSPATH', *'[^']*' *\)#define( 'ABSPATH', '$core/' )#" \
+		"$dir/wordpress-tests-lib/wp-tests-config.php" >"$config"
+	if ! "$PHP" "$dir/wordpress-tests-lib/includes/install.php" "$config" "$ms" no_core_tests >"$config.log" 2>&1; then
+		cat "$config.log" >&2
+		rm -f "$config" "$config.log"
+		db_sql -e "DROP DATABASE IF EXISTS \`$tpl\`"
+		die "the WordPress test installer failed for the template $tpl"
+	fi
+	rm -f "$config" "$config.log"
+}
+
 # ---------------------------------------------------------------- run
+
+# Every PHPUnit run of every leg. A serial run calls PHPUnit as it always did.
+# A worker of a --parallel run (WPMCP_PARALLEL_CHILD=1) adds what its
+# scheduler asked for: WPMCP_PHPUNIT_CONFIG, a configuration listing only the
+# test files of its shard or live group (the groups and filters of the leg
+# still apply), and WPMCP_JUNIT_DIR, where each run leaves a JUnit report.
+PHPUNIT_RUNS=0
+run_phpunit() {
+	local extra=()
+	if [ "${WPMCP_PARALLEL_CHILD:-}" = 1 ]; then
+		PHPUNIT_RUNS=$((PHPUNIT_RUNS + 1))
+		[ -z "${WPMCP_PHPUNIT_CONFIG:-}" ] || extra+=(--configuration "$WPMCP_PHPUNIT_CONFIG")
+		[ -z "${WPMCP_PHPUNIT_FILTER:-}" ] || extra+=(--filter "$WPMCP_PHPUNIT_FILTER")
+		[ -z "${WPMCP_JUNIT_DIR:-}" ] || extra+=(--log-junit "$WPMCP_JUNIT_DIR/run-$PHPUNIT_RUNS.xml")
+		# PHPUnit itself gets none of the worker's settings: tests that run
+		# bin/test-local.sh (the gate's own tests) must see a plain machine,
+		# not a worker that skips its slot and talks to the run's database.
+		local scrub=() var skip=""
+		for var in $(compgen -e | grep -E '^WPMCP_(PARALLEL_|TEST_DB_|PHPUNIT_|JUNIT_DIR$|COVERAGE_OUT$|DB_TEMPLATES$|CORE_TRASH$|MARIADB_BIN$|TEST_PHP$|PRUNE_COUNT_RECENT_ONLY$|TEST_KEEP_INSTALLS$|TEST_MAX_GB$)'); do
+			scrub+=(-u "$var")
+		done
+		# Its database was filled from the run's template (db_config).
+		[ "${WPMCP_DB_TEMPLATES:-}" = 1 ] && skip=1
+		env "${scrub[@]+"${scrub[@]}"}" ${skip:+WP_TESTS_SKIP_INSTALL=1} "$PHP" vendor/bin/phpunit "${extra[@]+"${extra[@]}"}" "$@"
+		return
+	fi
+	"$PHP" vendor/bin/phpunit "${extra[@]+"${extra[@]}"}" "$@"
+}
 
 run_suite() {
 	local version=$1 with_coverage=$2 dir core config
@@ -1420,13 +1582,15 @@ run_suite() {
 	say "PHPUnit on WordPress $version${ELEMENTOR_VERSION:+ (Elementor $ELEMENTOR_VERSION)}"
 	local args=("${phpunit_args[@]+"${phpunit_args[@]}"}")
 	if [ "$with_coverage" = true ]; then
-		args+=(--coverage-clover coverage/clover.xml)
+		args+=(--coverage-clover "${WPMCP_COVERAGE_OUT:-coverage/clover.xml}")
 	fi
 	# WP_CORE_DIR is read at run time too: tests/support/plugins.php finds the
 	# optional plugins through it.
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit "${args[@]+"${args[@]}"}"
-	if [ "$with_coverage" = true ]; then
+		run_phpunit "${args[@]+"${args[@]}"}"
+	# A --parallel worker leaves its shard's report in WPMCP_COVERAGE_OUT; the
+	# scheduler merges the shards and checks the floor once.
+	if [ "$with_coverage" = true ] && [ -z "${WPMCP_COVERAGE_OUT:-}" ]; then
 		"$PHP" bin/check-coverage.php coverage/clover.xml "$COVERAGE_FLOOR"
 	fi
 }
@@ -1444,7 +1608,7 @@ run_multisite() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit on WordPress $version as a multisite network"
 	WP_MULTISITE=1 WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit "${phpunit_args[@]+"${phpunit_args[@]}"}"
+		run_phpunit "${phpunit_args[@]+"${phpunit_args[@]}"}"
 }
 
 # The live forms group (issue #66) on its own install and database. It runs
@@ -1460,7 +1624,7 @@ run_live_forms() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live forms group on WordPress $version (real Contact Form 7, Flamingo, WPForms Lite, Formidable, Ninja Forms, Fluent Forms, Forminator, SureForms)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group forms-live --fail-on-skipped
+		run_phpunit --group forms-live --fail-on-skipped
 	unset WPMCP_LIVE_FORMS
 }
 
@@ -1476,7 +1640,7 @@ run_live_blocks() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live blocks group on WordPress $version (real Kadence Blocks, GenerateBlocks, Spectra, Otter Blocks)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group blocks-live --fail-on-skipped
+		run_phpunit --group blocks-live --fail-on-skipped
 	unset WPMCP_LIVE_BLOCKS
 }
 
@@ -1492,7 +1656,7 @@ run_live_buddypress() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live BuddyPress group on WordPress $version (real BuddyPress)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group buddypress-live --fail-on-skipped
+		run_phpunit --group buddypress-live --fail-on-skipped
 	unset WPMCP_LIVE_BUDDYPRESS
 }
 
@@ -1508,7 +1672,7 @@ run_live_bbpress() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live bbPress group on WordPress $version (real bbPress)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group bbpress-live --fail-on-skipped
+		run_phpunit --group bbpress-live --fail-on-skipped
 	unset WPMCP_LIVE_BBPRESS
 }
 
@@ -1526,7 +1690,7 @@ run_live_lms() {
 		RUN_CONFIGS+=("$config")
 		say "PHPUnit live $lms group on WordPress $version (real $lms)"
 		WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-			"$PHP" vendor/bin/phpunit --group "$lms-live" --fail-on-skipped
+			run_phpunit --group "$lms-live" --fail-on-skipped
 		unset WPMCP_LIVE_LMS
 	done
 }
@@ -1543,7 +1707,7 @@ run_live_tablepress() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live TablePress group on WordPress $version (real TablePress)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group tablepress-live --fail-on-skipped
+		run_phpunit --group tablepress-live --fail-on-skipped
 	unset WPMCP_LIVE_TABLEPRESS
 }
 
@@ -1559,7 +1723,7 @@ run_live_rank_math() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Rank Math group on WordPress $version (real Rank Math SEO)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group rank-math-live --fail-on-skipped
+		run_phpunit --group rank-math-live --fail-on-skipped
 	unset WPMCP_LIVE_RANK_MATH
 }
 
@@ -1575,7 +1739,7 @@ run_live_wp_mail_smtp() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live WP Mail SMTP group on WordPress $version (real WP Mail SMTP)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group wp-mail-smtp-live --fail-on-skipped
+		run_phpunit --group wp-mail-smtp-live --fail-on-skipped
 	unset WPMCP_LIVE_WP_MAIL_SMTP
 }
 
@@ -1593,7 +1757,7 @@ run_live_fluent_smtp() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live FluentSMTP group on WordPress $version (real FluentSMTP)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group fluent-smtp-live --fail-on-skipped
+		run_phpunit --group fluent-smtp-live --fail-on-skipped
 	unset WPMCP_LIVE_FLUENT_SMTP
 }
 
@@ -1607,7 +1771,7 @@ run_live_post_smtp() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Post SMTP group on WordPress $version (real Post SMTP)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group post-smtp-live --fail-on-skipped
+		run_phpunit --group post-smtp-live --fail-on-skipped
 	unset WPMCP_LIVE_POST_SMTP
 }
 
@@ -1623,7 +1787,7 @@ run_live_code_snippets() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Code Snippets group on WordPress $version (real Code Snippets)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group code-snippets-live --fail-on-skipped
+		run_phpunit --group code-snippets-live --fail-on-skipped
 	unset WPMCP_LIVE_CODE_SNIPPETS
 }
 
@@ -1639,7 +1803,7 @@ run_live_crm() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live CRM group on WordPress $version (real FluentCRM and MailPoet)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group crm-live --fail-on-skipped
+		run_phpunit --group crm-live --fail-on-skipped
 	unset WPMCP_LIVE_CRM
 }
 
@@ -1656,7 +1820,7 @@ run_live_helpdesk() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live knowledge base and support desk group on WordPress $version (real BetterDocs, Fluent Support and Awesome Support)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group helpdesk-live --fail-on-skipped
+		run_phpunit --group helpdesk-live --fail-on-skipped
 	unset WPMCP_LIVE_HELPDESK
 }
 
@@ -1673,7 +1837,7 @@ run_live_activity_log() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live activity log group on WordPress $version (real WP Activity Log and Simple History)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group activity-log-live --fail-on-skipped
+		run_phpunit --group activity-log-live --fail-on-skipped
 	unset WPMCP_LIVE_ACTIVITY_LOG
 }
 
@@ -1691,7 +1855,7 @@ run_live_action_scheduler() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Action Scheduler group on WordPress $version (the standalone Action Scheduler)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group action-scheduler-live --fail-on-skipped
+		run_phpunit --group action-scheduler-live --fail-on-skipped
 	unset WPMCP_LIVE_ACTION_SCHEDULER
 }
 
@@ -1710,7 +1874,7 @@ run_live_site_gate() {
 	for slug in coming-soon wp-maintenance-mode under-construction-page maintenance cmp-coming-soon-maintenance; do
 		say "PHPUnit live site gate group on WordPress $version (real $slug)"
 		WPMCP_SITE_GATE_PLUGIN="$slug" WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-			"$PHP" vendor/bin/phpunit --group site-gate-live --fail-on-skipped || { unset WPMCP_LIVE_SITE_GATE; return 1; }
+			run_phpunit --group site-gate-live --fail-on-skipped || { unset WPMCP_LIVE_SITE_GATE; return 1; }
 	done
 	unset WPMCP_LIVE_SITE_GATE
 }
@@ -1728,7 +1892,7 @@ run_live_email_log() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live email log group on WordPress $version (real WP Mail Logging, Check and Log Email and Email Log)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group email-log-live --fail-on-skipped
+		run_phpunit --group email-log-live --fail-on-skipped
 	unset WPMCP_LIVE_EMAIL_LOG
 }
 
@@ -1745,7 +1909,7 @@ run_live_funnelkit() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live FunnelKit group on WordPress $version (real Funnel Builder + WooCommerce)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group funnelkit-live --fail-on-skipped
+		run_phpunit --group funnelkit-live --fail-on-skipped
 	unset WPMCP_LIVE_FUNNELKIT
 }
 
@@ -1761,7 +1925,7 @@ run_live_amelia() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Amelia group on WordPress $version (real Amelia Lite)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group amelia-live --fail-on-skipped
+		run_phpunit --group amelia-live --fail-on-skipped
 	unset WPMCP_LIVE_AMELIA
 }
 
@@ -1778,7 +1942,7 @@ run_live_polylang() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Polylang group on WordPress $version (real Polylang and Elementor)"
 	WPMCP_LIVE_POLYLANG=1 WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group polylang-live --fail-on-skipped
+		run_phpunit --group polylang-live --fail-on-skipped
 }
 
 # The live Breakdance group (issue #457), the same way, with the Breakdance
@@ -1795,7 +1959,7 @@ run_live_breakdance() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Breakdance group on WordPress $version (real Breakdance from $WPMCP_BREAKDANCE_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group breakdance-live --fail-on-skipped
+		run_phpunit --group breakdance-live --fail-on-skipped
 	unset WPMCP_LIVE_BREAKDANCE
 }
 
@@ -1821,7 +1985,7 @@ run_live_theme_pro() {
 		RUN_CONFIGS+=("$config")
 		say "PHPUnit live $family add-on group on WordPress $version (real add-on from $src)"
 		WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-			"$PHP" vendor/bin/phpunit --group "$family-pro-live" --fail-on-skipped
+			run_phpunit --group "$family-pro-live" --fail-on-skipped
 		unset WPMCP_LIVE_THEME_PRO
 	done
 	[ "$ran" = true ] || die "the live theme add-on group needs WPMCP_ASTRA_PRO_SRC, WPMCP_KADENCE_PRO_SRC or WPMCP_GP_PREMIUM_SRC"
@@ -1841,7 +2005,7 @@ run_live_avada() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Avada group on WordPress $version (real Avada from $WPMCP_AVADA_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group avada-live --fail-on-skipped
+		run_phpunit --group avada-live --fail-on-skipped
 	unset WPMCP_LIVE_AVADA
 }
 
@@ -1859,7 +2023,7 @@ run_live_wpbakery() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live WPBakery group on WordPress $version (real WPBakery from $WPMCP_WPBAKERY_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group wpbakery-live --fail-on-skipped
+		run_phpunit --group wpbakery-live --fail-on-skipped
 	unset WPMCP_LIVE_WPBAKERY
 }
 
@@ -1877,7 +2041,7 @@ run_live_thrive() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Thrive Architect group on WordPress $version (real Thrive Architect from $WPMCP_THRIVE_ARCHITECT_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group thrive-live --fail-on-skipped
+		run_phpunit --group thrive-live --fail-on-skipped
 	unset WPMCP_LIVE_THRIVE
 }
 
@@ -1895,7 +2059,7 @@ run_live_cornerstone() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Cornerstone group on WordPress $version (real Cornerstone from $WPMCP_CORNERSTONE_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group cornerstone-live --fail-on-skipped
+		run_phpunit --group cornerstone-live --fail-on-skipped
 	unset WPMCP_LIVE_CORNERSTONE
 }
 
@@ -1913,7 +2077,7 @@ run_live_oxygen() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Oxygen group on WordPress $version (real Oxygen from $WPMCP_OXYGEN_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group oxygen-live --fail-on-skipped
+		run_phpunit --group oxygen-live --fail-on-skipped
 	unset WPMCP_LIVE_OXYGEN
 }
 
@@ -1931,7 +2095,7 @@ run_live_divi() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Divi group on WordPress $version (real Divi from $WPMCP_DIVI_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group divi-live --fail-on-skipped
+		run_phpunit --group divi-live --fail-on-skipped
 	unset WPMCP_LIVE_DIVI
 }
 
@@ -1949,7 +2113,7 @@ run_live_betheme() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live BeTheme group on WordPress $version (real BeTheme from $WPMCP_BETHEME_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group betheme-live --fail-on-skipped
+		run_phpunit --group betheme-live --fail-on-skipped
 	unset WPMCP_LIVE_BETHEME
 }
 
@@ -1967,7 +2131,7 @@ run_live_bricks() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Bricks group on WordPress $version (real Bricks from $WPMCP_BRICKS_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group bricks-live --fail-on-skipped
+		run_phpunit --group bricks-live --fail-on-skipped
 	unset WPMCP_LIVE_BRICKS
 }
 
@@ -1985,7 +2149,7 @@ run_live_memberpress() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live MemberPress group on WordPress $version (real MemberPress from $WPMCP_MEMBERPRESS_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group memberpress-live --fail-on-skipped
+		run_phpunit --group memberpress-live --fail-on-skipped
 	unset WPMCP_LIVE_MEMBERPRESS
 }
 
@@ -2003,7 +2167,7 @@ run_live_elementor_pro() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Elementor Pro group on WordPress $version (real Elementor Pro from $WPMCP_ELEMENTOR_PRO_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group elementor-pro-live --fail-on-skipped
+		run_phpunit --group elementor-pro-live --fail-on-skipped
 	unset WPMCP_LIVE_ELEMENTOR_PRO
 }
 
@@ -2025,7 +2189,7 @@ run_live_cache_settings() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live cache settings groups on WordPress $version (${groups[*]})"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group "$(IFS=,; echo "${groups[*]}")" --fail-on-skipped
+		run_phpunit --group "$(IFS=,; echo "${groups[*]}")" --fail-on-skipped
 	unset WPMCP_LIVE_CACHE_SETTINGS
 }
 
@@ -2041,7 +2205,7 @@ run_live_links() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live links group on WordPress $version (real Pretty Links and ThirstyAffiliates)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group links-live --fail-on-skipped
+		run_phpunit --group links-live --fail-on-skipped
 	unset WPMCP_LIVE_LINKS
 }
 
@@ -2057,7 +2221,7 @@ run_live_site_reviews() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live Site Reviews group on WordPress $version (real Site Reviews)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group site-reviews-live --fail-on-skipped
+		run_phpunit --group site-reviews-live --fail-on-skipped
 	unset WPMCP_LIVE_SITE_REVIEWS
 }
 
@@ -2075,7 +2239,7 @@ run_live_ws_form() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live WS Form group on WordPress $version (real WS Form PRO from $WPMCP_WS_FORM_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group ws-form-live --fail-on-skipped
+		run_phpunit --group ws-form-live --fail-on-skipped
 	unset WPMCP_LIVE_WS_FORM
 }
 
@@ -2093,7 +2257,7 @@ run_live_jet_elements() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live JetElements group on WordPress $version (real JetElements from $WPMCP_JET_ELEMENTS_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group jet-elements-live --fail-on-skipped
+		run_phpunit --group jet-elements-live --fail-on-skipped
 	unset WPMCP_LIVE_JET_ELEMENTS
 }
 
@@ -2111,7 +2275,7 @@ run_live_wc_subscriptions() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live WooCommerce Subscriptions group on WordPress $version (real Subscriptions from $WPMCP_WC_SUBSCRIPTIONS_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group wc-subscriptions-live --fail-on-skipped
+		run_phpunit --group wc-subscriptions-live --fail-on-skipped
 	unset WPMCP_LIVE_WC_SUBSCRIPTIONS
 }
 
@@ -2129,7 +2293,7 @@ run_live_wc_bookings() {
 	RUN_CONFIGS+=("$config")
 	say "PHPUnit live WooCommerce Bookings group on WordPress $version (real Bookings from $WPMCP_WC_BOOKINGS_SRC)"
 	WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group wc-bookings-live --fail-on-skipped
+		run_phpunit --group wc-bookings-live --fail-on-skipped
 	unset WPMCP_LIVE_WC_BOOKINGS
 }
 
@@ -2198,11 +2362,11 @@ run_live_adapter() {
 	say "PHPUnit adapter group on WordPress $version (released MCP Adapter $adapter_version from WordPress.org)"
 	WPMCP_TEST_ADAPTER_PLUGIN="$plugin" WPMCP_TEST_ADAPTER_VERSION="$adapter_version" \
 		WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit --group adapter-live --fail-on-skipped
+		run_phpunit --group adapter-live --fail-on-skipped
 	say "PHPUnit free and pro suites on WordPress $version (released MCP Adapter $adapter_version)"
 	WPMCP_TEST_ADAPTER_PLUGIN="$plugin" WPMCP_TEST_ADAPTER_VERSION="$adapter_version" \
 		WP_TESTS_DIR="$dir/wordpress-tests-lib" WP_TESTS_CONFIG_FILE_PATH="$config" WP_CORE_DIR="$core/" \
-		"$PHP" vendor/bin/phpunit
+		run_phpunit
 }
 
 cd "$ROOT"
@@ -2219,6 +2383,31 @@ if [ "$resolve_only" = true ]; then
 	exit 0
 fi
 
+# What --parallel runs keep in the cache besides installs: their logs (the
+# newest WPMCP_PARALLEL_KEEP_LOGS, default 10), the opcache file cache (1 GB at
+# most), the seed data directory of their database server and the benchmark
+# logs. --prune --all removes all of it but the timings, which only decide the
+# shards of the next layout.
+prune_parallel_extras() {
+	local all=$1 keep=${WPMCP_PARALLEL_KEEP_LOGS:-10} kb d n=0
+	for d in $(ls -dt "$CACHE"/parallel-logs/parallel-* 2>/dev/null); do
+		n=$((n + 1))
+		[ "$all" = true ] || [ "$n" -gt "$keep" ] || continue
+		rm -rf "$d"
+	done
+	kb=$(du -sk "$CACHE/opcache" 2>/dev/null | cut -f1 || true)
+	if [ "$all" = true ] || [ "${kb:-0}" -gt 1048576 ]; then
+		rm -rf "$CACHE/opcache"
+	fi
+	if [ "$all" = true ] && ! ls "$CACHE"/locks/run-* >/dev/null 2>&1; then
+		rm -rf "$CACHE/parallel-datadir-seed" "$CACHE/bench"
+	fi
+	for d in "$CACHE"/cores/.trash-*; do
+		[ -d "$d" ] || continue
+		pid_alive "${d##*-}" || rm -rf "$d"
+	done
+}
+
 if [ "$prune_only" = true ]; then
 	trap 'rm -f "$RESOLVED"' EXIT
 	if [ "$run_all" = true ]; then
@@ -2226,6 +2415,7 @@ if [ "$prune_only" = true ]; then
 	else
 		prune_installs
 	fi
+	prune_parallel_extras "$run_all"
 	prune_cores
 	prune_downloads
 	cache_report
@@ -2236,7 +2426,14 @@ RUN_CORES=()
 RUN_CONFIGS=()
 cleanup_run() {
 	local c db
-	for c in "${RUN_CORES[@]+"${RUN_CORES[@]}"}"; do rm -rf "$c"; done
+	for c in "${RUN_CORES[@]+"${RUN_CORES[@]}"}"; do
+		# A --parallel worker moves its core copy aside for the scheduler to
+		# delete off the critical path (a rename, not a 3 second rm -rf).
+		if [ -n "${WPMCP_CORE_TRASH:-}" ] && [ -d "$c" ] && mv "$c" "$WPMCP_CORE_TRASH/$(basename "$c")" 2>/dev/null; then
+			continue
+		fi
+		rm -rf "$c"
+	done
 	for c in "${RUN_CONFIGS[@]+"${RUN_CONFIGS[@]}"}"; do
 		db=$(basename "$c" .php)
 		db_sql -e "DROP DATABASE IF EXISTS \`$db\`" 2>/dev/null || true
@@ -2256,6 +2453,9 @@ finish_run() {
 	for lock in "$CACHE/locks/"*/; do
 		[ "$(cat "${lock}pid" 2>/dev/null || true)" != $$ ] || rm -rf "$lock"
 	done
+	# The workers of a --parallel run leave the budget to the run itself, so
+	# one worker's prune never removes the install another is about to claim.
+	[ "${WPMCP_PARALLEL_CHILD:-}" = 1 ] && return 0
 	prune_installs || true
 	prune_downloads || true
 }
@@ -2269,8 +2469,11 @@ trap 'exit 143' TERM
 # installs are keyed on their contents, built under their own lock and never
 # changed once ready, and it claims the one it uses. So it skips the slot,
 # but not the free-space guard or the cache budget.
-if [ "$targeted" = true ]; then
+if [ "${WPMCP_PARALLEL_CHILD:-}" = 1 ]; then
+	: # a worker of a --parallel run, which holds the slot for it
+elif [ "$targeted" = true ]; then
 	say "Targeted run: not waiting for a run slot (only full gates queue)."
+	acquire_slot targeted
 else
 	acquire_slot
 fi
@@ -2278,7 +2481,7 @@ space_guard
 
 # Point git at the versioned hooks, so the pre-push gate is on in every
 # worktree of this clone once anyone has run the suite.
-if [ -d .githooks ] && git rev-parse --git-dir >/dev/null 2>&1 \
+if [ "${WPMCP_PARALLEL_CHILD:-}" != 1 ] && [ -d .githooks ] && git rev-parse --git-dir >/dev/null 2>&1 \
 	&& [ "$(git config --get core.hooksPath || true)" != ".githooks" ]; then
 	git config core.hooksPath .githooks
 	say "Enabled the pre-push test gate (git config core.hooksPath .githooks)."
@@ -2287,7 +2490,8 @@ fi
 composer_install() { [ -x vendor/bin/phpunit ] || composer install --no-interaction; }
 [ -x vendor/bin/phpunit ] || with_lock "composer-$(printf '%s' "$ROOT" | shasum | cut -c1-12)" composer_install
 
-start_db
+# A --parallel run starts a database server of its own (bin/parallel-gate.php).
+[ -n "$parallel" ] || start_db
 
 want_coverage=false
 if [ "$coverage" = true ] && [ "$targeted" = false ]; then
@@ -2351,6 +2555,31 @@ run_leg_body() {
 		*) die "unknown leg: $kind" ;;
 	esac
 }
+
+# --parallel[=N]: bin/parallel-gate.php runs the legs on N workers, each a
+# `bin/test-local.sh --leg` process of its own (own database, core copy,
+# config, tmp), the long suites split into shards; see its header.
+if [ -n "$parallel" ]; then
+	# A parallel gate is meant to be fast the next time too: unless the
+	# budget is set, it keeps every install this run uses (about one per
+	# leg, roughly 0.4 to 0.7 GB each) instead of the default 6.
+	if [ -z "${WPMCP_TEST_KEEP_INSTALLS:-}" ]; then
+		KEEP_INSTALLS=$((${#LEGS[@]} + 6))
+		export WPMCP_TEST_KEEP_INSTALLS=$KEEP_INSTALLS
+	fi
+	if [ -z "${WPMCP_TEST_MAX_GB:-}" ]; then
+		MAX_GB=40
+		export WPMCP_TEST_MAX_GB=$MAX_GB
+	fi
+	export WPMCP_PRUNE_COUNT_RECENT_ONLY=1
+	status=0
+	WPMCP_PARALLEL_LEGS=$(printf '%s\n' "${LEGS[@]}") WPMCP_PARALLEL_WORKERS="$parallel" \
+		WPMCP_DEFAULT_WP="$default_wp" WPMCP_FLOOR_WP="$floor_wp" \
+		WPMCP_PARALLEL_COVERAGE="$want_coverage" WPMCP_COVERAGE_FLOOR="$COVERAGE_FLOOR" \
+		WPMCP_TEST_CACHE="$CACHE" WPMCP_MARIADB_BIN="$BIN" WPMCP_PARALLEL_PHP="$PHP" \
+		"$PHP" bin/parallel-gate.php || status=$?
+	exit "$status"
+fi
 
 # Each leg runs in a subshell with errexit on, so its first failing command
 # ends that leg only. The next leg still runs (issue #488: a red floor leg

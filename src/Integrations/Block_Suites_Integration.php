@@ -44,6 +44,10 @@ if (! defined('ABSPATH')) {
  * accepts them too), and remote images are first fetched into the Media
  * Library through Remote_Image_Guard::sideload(), the guard every remote
  * media fetch uses, before the post is snapshotted and written.
+ *
+ * Kadence Blocks and Spectra plugin settings and generated page CSS
+ * (get-settings, update-settings, get-page-styles, rebuild-page-styles) come
+ * from Block_Suite_Settings (issue #648).
  */
 final class Block_Suites_Integration extends Integration_Dispatcher
 {
@@ -84,7 +88,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'block suite blocks and patterns';
+        return 'block suite blocks, patterns, settings and page CSS';
     }
 
     /** Any one supported suite brings the pair back (issue #790). */
@@ -196,7 +200,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
                 ],
                 'handler'           => [ self::class, 'import_pattern' ],
             ],
-        ];
+        ] + Block_Suite_Settings::operations();
     }
 
     /** Refuse, before any handler or snapshot, an op on a suite that is not loaded. */

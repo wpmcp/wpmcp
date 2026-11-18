@@ -162,7 +162,7 @@ final class JetEngine_Pack
             if (in_array($fields[ $key ]['type'], self::LAYOUT_TYPES, true)) {
                 return [
                     'code'    => 'field_not_writable',
-                    'message' => sprintf('JetEngine field "%s" is a %s field, which holds no value.', $key, $fields[ $key ]['type']),
+                    'message' => sprintf('JetEngine field "%s" has type "%s", which holds no value.', $key, $fields[ $key ]['type']),
                     'data'    => [ 'field' => $key ],
                 ];
             }
