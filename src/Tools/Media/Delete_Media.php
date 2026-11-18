@@ -62,7 +62,21 @@ class Delete_Media
         // Safe_Mutation::run(), because the backup directory is keyed by
         // it and must exist before the mutation runs.
         $operation_id = wp_generate_uuid4();
-        $manifest     = File_Backup::backup($operation_id, File_Backup::collect_attachment_files($media_id));
+        $files        = File_Backup::collect_attachment_files($media_id);
+        $manifest     = File_Backup::backup($operation_id, $files);
+
+        // Any file the backup could not copy is gone for good once the
+        // delete runs, so rollback would bring back a record pointing at a
+        // missing file. Refuse unless the caller accepts that explicitly,
+        // and never report such a delete as recoverable.
+        $unrecoverable = array_values(array_map('wp_basename', array_diff($files, array_keys($manifest))));
+        if ($unrecoverable && true !== ($args['allow_unrecoverable_files'] ?? null)) {
+            File_Backup::delete_backup_dir($operation_id);
+            throw new \RuntimeException(sprintf(
+                'Nothing was deleted: these files could not be backed up, so rollback could not restore them: %s. Pass allow_unrecoverable_files:true to delete anyway.',
+                esc_html(implode(', ', $unrecoverable))
+            ));
+        }
 
         $out = Safe_Mutation::run(
             [
@@ -82,11 +96,16 @@ class Delete_Media
 
         // The physical file(s) are backed up above, so rollback restores
         // both the DB record and the bytes on disk. See issue #24.
-        return [
+        $result = [
             'operation_id'      => $out['operation_id'],
             'media_id'          => $media_id,
             'deleted'           => 'deleted',
-            'files_recoverable' => true,
+            'files_recoverable' => ! $unrecoverable,
         ];
+        if ($unrecoverable) {
+            $result['unrecoverable_files'] = $unrecoverable;
+            $result['warning']             = 'Rollback restores the attachment record, but not the files listed in unrecoverable_files.';
+        }
+        return $result;
     }
 }

@@ -1659,6 +1659,8 @@ final class Plugin
                     'confirm'    => [ 'type' => 'boolean' ],
                     'force'      => [ 'type' => 'boolean' ],
                     'session_id' => [ 'type' => 'string' ],
+                    // Delete even when some files could not be backed up.
+                    'allow_unrecoverable_files' => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'media_id', 'confirm' ],
             ],
