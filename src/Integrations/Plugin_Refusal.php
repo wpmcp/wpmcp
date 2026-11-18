@@ -28,6 +28,10 @@ final class Plugin_Refusal
     private const PLUGINS = [
         'WP Mail SMTP'     => [ 'file' => 'wp-mail-smtp/wp_mail_smtp.php', 'slug' => 'wp-mail-smtp' ],
         'Amelia'           => [ 'file' => 'ameliabooking/ameliabooking.php', 'slug' => 'ameliabooking' ],
+        'Bookly'           => [ 'file' => 'bookly-responsive-appointment-booking-tool/main.php', 'slug' => 'bookly-responsive-appointment-booking-tool' ],
+        'Simply Schedule Appointments' => [ 'file' => 'simply-schedule-appointments/simply-schedule-appointments.php', 'slug' => 'simply-schedule-appointments' ],
+        'BookingPress'     => [ 'file' => 'bookingpress-appointment-booking/bookingpress-appointment-booking.php', 'slug' => 'bookingpress-appointment-booking' ],
+        'LatePoint'        => [ 'file' => 'latepoint/latepoint.php', 'slug' => 'latepoint' ],
         'FunnelKit'        => [ 'file' => 'funnel-builder/funnel-builder.php', 'slug' => 'funnel-builder' ],
         'Duplicator'       => [ 'file' => 'duplicator/duplicator.php', 'slug' => 'duplicator' ],
         'TablePress'       => [ 'file' => 'tablepress/tablepress.php', 'slug' => 'tablepress' ],

@@ -1469,6 +1469,22 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The appointment booking ops (issue #679) are the paid add-on's,
+    // removed by policy.php. Their lines go first, so every edit below
+    // matches the file as it was before them.
+    [
+        " *  - Issue #679 adds the paid-tier appointment booking ops (Booking_Pack):\n"
+            . " *    Bookly, Simply Schedule Appointments, BookingPress and LatePoint\n"
+            . " *    services, staff and bookings read with customers masked in lists, and\n"
+            . " *    bookings cancelled (off until wpmcp_enable_booking_write), each cancel\n"
+            . " *    undoable from a 'plugin_table_rows' before-image.\n",
+        '',
+        1,
+    ],
+    [ "            || Booking_Pack::active()\n", '', 1 ],
+    [ "            . ', Bookly, Simply Schedule Appointments, BookingPress and LatePoint bookings'\n", '', 1 ],
+    [ "        array_push(\$groups, ...Booking_Pack::host_groups());\n", '', 1 ],
+    [ "            Booking_Pack::operations(),\n", '', 1 ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.
