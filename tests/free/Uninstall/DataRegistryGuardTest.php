@@ -78,6 +78,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // the Site_Gate_Pack ops on the theme pair (issue #903).
             'seedprod_settings',
             'ucp_options',
+            // FunnelKit Cart's settings, written by cart.update-settings on
+            // the woo-write pair (issue #832).
+            'fkcart_settings',
             // Avada's global options, written by the Avada design_system
             // scope on the builder pair (issue #637).
             'fusion_options',

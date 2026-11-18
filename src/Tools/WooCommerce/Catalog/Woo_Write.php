@@ -105,7 +105,7 @@ class Woo_Write
     /** Whether an op is switched on: destructive ops default off, writes on. */
     public static function is_op_enabled(string $op, array $def): bool
     {
-        $default = 'destructive' !== ($def['mode'] ?? '');
+        $default = 'destructive' !== ($def['mode'] ?? '') && empty($def['opt_in']);
         return (bool) apply_filters('wpmcp_woo_op_enabled', $default, $op);
     }
 
@@ -120,7 +120,7 @@ class Woo_Write
      */
     private static function disabled_refusal(string $op, array $def): array
     {
-        if ('destructive' !== ($def['mode'] ?? '')) {
+        if ('destructive' !== ($def['mode'] ?? '') && empty($def['opt_in'])) {
             return Op_Guard::error(
                 'operation_disabled',
                 "Op \"{$op}\" is switched off on this site by a " . self::ENABLE_FILTER
@@ -132,7 +132,9 @@ class Woo_Write
         return Op_Guard::error(
             Opt_In_Required::CODE,
             Opt_In_Required::message(
-                "Op \"{$op}\" is disabled: destructive WooCommerce ops are opt-in.",
+                empty($def['opt_in'])
+                    ? "Op \"{$op}\" is disabled: destructive WooCommerce ops are opt-in."
+                    : "Op \"{$op}\" is disabled: it changes the storefront, so it is opt-in.",
                 self::ENABLE_FILTER,
                 '',
                 '',
@@ -451,7 +453,7 @@ class Woo_Write
         if (! is_string($handler)) {
             return null;
         }
-        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class, 'review_' => Review_Ops::class, 'gateway_' => Gateway_Ops::class, 'status_' => Status_Ops::class, 'subscription_' => Subscription_Ops::class, 'booking_' => Booking_Ops::class, 'membership_' => Membership_Ops::class ] as $prefix => $class) {
+        foreach ([ 'order_' => Order_Ops::class, 'shipping_' => Shipping_Ops::class, 'webhook_' => Webhook_Ops::class, 'review_' => Review_Ops::class, 'gateway_' => Gateway_Ops::class, 'status_' => Status_Ops::class, 'subscription_' => Subscription_Ops::class, 'booking_' => Booking_Ops::class, 'membership_' => Membership_Ops::class, 'fkcart_' => Cart_Ops::class ] as $prefix => $class) {
             if (str_starts_with($handler, $prefix)) {
                 return $class;
             }
@@ -544,6 +546,12 @@ class Woo_Write
             // Gateway_Ops already resolved the gateway and what the write
             // changes: its settings option, or the gateway order option.
             return Gateway_Ops::snapshot_target($body);
+        }
+
+        if ('option' === $strategy['type']) {
+            // A plugin's own settings option (issue #832), named by the row.
+            // Restored only by someone who may change store settings.
+            return [ 'object_type' => 'option', 'object_id' => (string) $strategy['option'], 'restore_capability' => 'manage_woocommerce' ];
         }
 
         if ('wc_setting' === $strategy['type']) {
