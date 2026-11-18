@@ -451,11 +451,15 @@ class ThemeIntegrationTest extends \WP_UnitTestCase
         $this->assertFalse(get_theme_mod('header_textcolor'));
     }
 
-    public function test_both_halves_demand_edit_theme_options(): void
+    /**
+     * Issue #952: the pair's floor is the synced pattern ops' wp_block
+     * capability; every other op still takes edit_theme_options in dispatch.
+     */
+    public function test_both_halves_take_the_pattern_floor_and_ops_default_to_edit_theme_options(): void
     {
         $this->assertSame('edit_theme_options', $this->integration->capability());
         foreach ($this->integration->abilities() as $ability) {
-            $this->assertSame('edit_theme_options', $ability->capability);
+            $this->assertSame('edit_posts', $ability->capability);
         }
     }
 

@@ -343,8 +343,10 @@ class CorePatternsPackTest extends \WP_UnitTestCase
     {
         $this->enable_writes();
         $this->as_role('contributor');
-        $this->assertSame('forbidden', $this->code($this->write('create-synced-pattern', [ 'title' => 'Pub' ])), 'core gives contributors no create_posts on patterns');
-        $this->assertSame('forbidden', $this->code($this->write('create-synced-pattern', [ 'title' => 'Draft', 'status' => 'draft' ])));
+        // The op takes wp_block's create_posts (publish_posts), so the
+        // dispatcher refuses it before the pack's own check (issue #952).
+        $this->assertSame('operation_denied', $this->code($this->write('create-synced-pattern', [ 'title' => 'Pub' ])), 'core gives contributors no create_posts on patterns');
+        $this->assertSame('operation_denied', $this->code($this->write('create-synced-pattern', [ 'title' => 'Draft', 'status' => 'draft' ])));
         $published = $this->pattern();
         $this->assertArrayHasKey('error', $this->write('update-synced-pattern', [ 'id' => $published, 'title' => 'x' ]));
         $this->assertSame('Promo', get_post($published)->post_title);
