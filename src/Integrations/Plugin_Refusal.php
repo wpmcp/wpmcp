@@ -35,6 +35,7 @@ final class Plugin_Refusal
         'LearnDash'        => [ 'file' => 'sfwd-lms/sfwd_lms.php', 'url' => 'https://www.learndash.com/' ],
         'LifterLMS'        => [ 'file' => 'lifterlms/lifterlms.php', 'slug' => 'lifterlms' ],
         'Tutor LMS'        => [ 'file' => 'tutor/tutor.php', 'slug' => 'tutor' ],
+        'Thrive Apprentice' => [ 'file' => 'thrive-apprentice/thrive-apprentice.php', 'url' => 'https://thrivethemes.com/apprentice/' ],
         'FluentCRM'        => [ 'file' => 'fluent-crm/fluent-crm.php', 'slug' => 'fluent-crm' ],
         'MailPoet'         => [ 'file' => 'mailpoet/mailpoet.php', 'slug' => 'mailpoet' ],
         'Fluent Support'   => [ 'file' => 'fluent-support/fluent-support.php', 'slug' => 'fluent-support' ],
