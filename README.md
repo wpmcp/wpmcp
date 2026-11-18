@@ -416,6 +416,7 @@ bin/test-local.sh --live-wp-mail-smtp   # only the WP Mail SMTP live group
 bin/test-local.sh --live-fluent-smtp    # only the FluentSMTP live group (downloads the plugin)
 bin/test-local.sh --live-post-smtp      # only the Post SMTP live group (downloads the plugin)
 WPMCP_MEMBERPRESS_SRC=/path/to/memberpress bin/test-local.sh --live-memberpress   # only the MemberPress live group, against a local MemberPress copy
+WPMCP_GAMIPRESS_SRC=/path/to/gamipress bin/test-local.sh -- --filter GamipressLiveTest   # the GamiPress live test, against a local GamiPress copy (the wordpress.org plugin works)
 WPMCP_ELEMENTOR_PRO_SRC=/path/to/elementor-pro bin/test-local.sh --live-elementor-pro   # only the Elementor Pro live group, against a local Elementor Pro copy
 WPMCP_WP_ROCKET_SRC=/path/to/wp-rocket WPMCP_PERFMATTERS_SRC=/path/to/perfmatters WPMCP_FLYING_PRESS_SRC=/path/to/flying-press bin/test-local.sh --live-cache-settings   # only the cache settings live groups, against local copies (any one is enough)
 WPMCP_JET_ELEMENTS_SRC=/path/to/jet-elements bin/test-local.sh --live-jet-elements   # only the JetElements live group, against a local JetElements copy

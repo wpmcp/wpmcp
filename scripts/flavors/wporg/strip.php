@@ -1474,6 +1474,22 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The GamiPress ops (issue #833) are the paid add-on's, removed by
+    // policy.php. Their lines go first, so every edit below matches the
+    // file as it was before them.
+    [
+        " *  - Issue #833 adds the paid-tier GamiPress ops (Gamipress_Pack): point,\n"
+            . " *    achievement and rank types, achievements, ranks and a user's points,\n"
+            . " *    earnings and rank, with points, achievement and rank writes through\n"
+            . " *    GamiPress (off until wpmcp_enable_gamipress_write), each under a\n"
+            . " *    'gamipress_user' snapshot of the user.\n",
+        '',
+        1,
+    ],
+    [ "            || Gamipress_Pack::active()\n", '', 1 ],
+    [ "            . ', GamiPress points, achievements and ranks'\n", '', 1 ],
+    [ "        \$groups[] = [ 'GamiPress', false, Gamipress_Pack::operations() ];\n", '', 1 ],
+    [ "            Gamipress_Pack::operations(),\n", '', 1 ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.

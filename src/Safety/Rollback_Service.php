@@ -584,6 +584,11 @@ class Rollback_Service
         if (Action_Scheduler_Snapshot::TYPE === $type) {
             return [ [ 'manage_options' ] ];
         }
+        // A user's GamiPress state (issue #833): restoring it takes the
+        // capability GamiPress's manager screens default to.
+        if (Gamipress_User_Snapshot::TYPE === $type) {
+            return [ [ Gamipress_User_Snapshot::capability() ] ];
+        }
         if ('crm_rows' === $type) {
             $kind = (string) ($snapshot['data']['kind'] ?? '');
             if ('mailpoet' === Crm_Rows_Snapshot::plugin($kind)) {
@@ -1949,6 +1954,7 @@ class Rollback_Service
             'crm_rows',
             'helpdesk_ticket',
             'action_scheduler',
+            'gamipress_user',
             'funnelkit_funnel',
             'funnelkit_funnel_create',
             'amelia_rows',
@@ -2253,6 +2259,12 @@ class Rollback_Service
         // Action_Scheduler_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('action_scheduler' === $snapshot['object_type']) {
             self::warn_if(Action_Scheduler_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // Gamipress_User_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('gamipress_user' === $snapshot['object_type']) {
+            self::warn_if(Gamipress_User_Snapshot::restore($snapshot));
             return;
         }
 

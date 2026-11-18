@@ -233,6 +233,12 @@ return [
         // access rows stays: it acts on MemberPress's own table and needs
         // no MemberPress class.
         'src/Integrations/MemberPress_Pack.php',
+        // GamiPress (issue #833), paid-tier. strip.php takes out the lines in
+        // Plugin_Data_Integration that merge the ops and count the pack
+        // towards availability. The gamipress_user snapshot type stays: it
+        // needs no GamiPress class, so an undo recorded before a downgrade
+        // still restores.
+        'src/Integrations/Gamipress_Pack.php',
         // Elementor Pro form submissions (issue #654), paid-tier. strip.php
         // takes out the lines in Plugin_Data_Integration that merge the ops
         // and count the pack towards availability. The dispatcher's
