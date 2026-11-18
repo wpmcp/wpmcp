@@ -36,6 +36,10 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
      */
     private const NOT_WP_OBJECTS = [
         'gravitytables:get-table:table_id'                     => 'a Gravity Tables table row',
+        'give:list-donations:donor_id'                        => 'a GiveWP donor row in its own give_donors table, behind manage_options',
+        'give:list-donations:campaign_id'                     => 'a GiveWP campaign row in its own give_campaigns table, behind manage_options',
+        'give:get-donor:donor_id'                             => 'a GiveWP donor row in its own give_donors table, behind manage_options',
+        'give:donation-summary:campaign_id'                   => 'a GiveWP campaign row in its own give_campaigns table, behind manage_options',
         'plugin-data:elementor-get-submission:id' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
         'plugin-data:elementor-export-submissions:ids' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
         'plugin-data:elementor-update-submission-status:id' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
