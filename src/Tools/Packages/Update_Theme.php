@@ -36,7 +36,7 @@ class Update_Theme
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \WPMCP\MCP\Confirmation_Required('Updating a theme modifies files on disk. Pass confirm:true to proceed.');
+            throw \WPMCP\MCP\Confirmation_Required::in_arguments('Updating a theme modifies files on disk. Pass confirm:true to proceed.');
         }
 
         $theme = wp_get_theme($stylesheet);

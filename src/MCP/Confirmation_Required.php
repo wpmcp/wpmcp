@@ -21,6 +21,32 @@ class Confirmation_Required extends \InvalidArgumentException
     /** The refusal most recently seen leaving an ability, until taken. */
     private static ?self $observed = null;
 
+    /** Whether a client's elicitation answer may stand in for confirm:true. */
+    private bool $elicitable = true;
+
+    /**
+     * A refusal for an action that cannot be undone (issue #886): only
+     * confirm:true in the call's own arguments satisfies it. A client set to
+     * skip permission prompts can answer an elicitation by itself, so the
+     * transport reports this refusal instead of turning it into a question.
+     */
+    public static function in_arguments(string $message): self
+    {
+        $refusal             = new self($message . ' ' . self::IN_ARGUMENTS_NOTE);
+        $refusal->elicitable = false;
+
+        return $refusal;
+    }
+
+    /** What an in_arguments() refusal adds to its own message. */
+    public const IN_ARGUMENTS_NOTE = 'This cannot be undone, so confirm:true must be in the call\'s own arguments; a confirmation answered through the client does not count.';
+
+    /** Whether the transport may ask the person instead of refusing. */
+    public function elicitable(): bool
+    {
+        return $this->elicitable;
+    }
+
     /**
      * Records a refusal as it leaves an ability's callback.
      *

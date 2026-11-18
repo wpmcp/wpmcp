@@ -61,7 +61,7 @@ class Import_Content
             throw new \WPMCP\MCP\Opt_In_Required('The import-content tool is disabled.', 'wpmcp_enable_import');
         }
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \WPMCP\MCP\Confirmation_Required('Importing content creates posts that are not automatically reversible. Pass confirm:true to proceed.');
+            throw \WPMCP\MCP\Confirmation_Required::in_arguments('Importing content creates posts that are not automatically reversible. Pass confirm:true to proceed.');
         }
 
         $file = self::resolve_import_file((string) ($args['file'] ?? ''));

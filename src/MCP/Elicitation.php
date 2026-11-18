@@ -40,6 +40,11 @@ if (! defined('ABSPATH')) {
  * only asked about when it actually refuses. Tools whose unconfirmed call
  * returns a preview rather than a refusal are answered with the preview,
  * which is the point of those tools, and are never elicited.
+ *
+ * A gate on an action that cannot be undone (issue #886) is never elicited
+ * either: a client running with permission prompts skipped can accept the
+ * question without asking anyone, so those refusals are reported and only
+ * confirm:true in the call's own arguments satisfies them.
  */
 final class Elicitation
 {
@@ -51,6 +56,12 @@ final class Elicitation
 
     /** WP_Error codes and structured error codes a confirm gate refuses with. */
     private const REFUSAL_CODES = [ 'confirm_required', 'confirmation_required' ];
+
+    /**
+     * The flag a dispatcher refusal carries in its data when only
+     * confirm:true in the arguments satisfies it (issue #886).
+     */
+    public const IN_ARGUMENTS_KEY = 'confirm_in_arguments';
 
     /** Longest argument summary shown in the question. */
     private const MAX_ARGUMENTS_CHARS = 600;
@@ -87,12 +98,17 @@ final class Elicitation
     public static function is_confirmation_refusal($outcome): bool
     {
         if ($outcome instanceof Confirmation_Required) {
-            return true;
+            return $outcome->elicitable();
         }
         if (is_wp_error($outcome)) {
             return in_array($outcome->get_error_code(), self::REFUSAL_CODES, true);
         }
         if (is_array($outcome) && isset($outcome['error']) && is_array($outcome['error'])) {
+            // An op whose effect cannot be undone takes confirm:true only
+            // from the call's own arguments (issue #886).
+            if (true === ($outcome['error']['data'][ self::IN_ARGUMENTS_KEY ] ?? null)) {
+                return false;
+            }
             return in_array($outcome['error']['code'] ?? null, self::REFUSAL_CODES, true);
         }
 
