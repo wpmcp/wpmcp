@@ -49,6 +49,11 @@ if (! class_exists(Phpcs_Baseline::class)) {
 $cmd = escapeshellarg($phpcs)
     . ' --standard=' . escapeshellarg($root . '/phpcs-wporg.xml.dist')
     . ' --report=json -q';
+// The parallel gate (bin/parallel-gate.php) adds its own phpcs options, such
+// as --parallel and --cache, one per line.
+foreach (array_filter(explode("\n", (string) getenv('WPMCP_PHPCS_EXTRA_ARGS'))) as $extra_arg) {
+    $cmd .= ' ' . escapeshellarg($extra_arg);
+}
 
 // phpcs writes its own failures (unregistered standard, ruleset reference
 // errors, PHP fatals) to stderr. Discarding them turns every such failure into

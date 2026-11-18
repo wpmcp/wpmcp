@@ -14,10 +14,57 @@ if (! defined('ABSPATH')) {
  * Routed through Safe_Mutation with the attachment as snapshot target
  * (its _wp_attachment_metadata rides in the post-meta capture) plus a
  * physical-file backup, so the operation is restorable like delete-media.
+ *
+ * Issue #716: without "sizes" it fills the registered sizes the attachment
+ * lacks (see Image_Subsizes), and media_ids runs that over a bounded batch,
+ * one snapshotted operation per attachment. Rollback also deletes the size
+ * files the operation created, so an undo leaves no orphans on disk.
  */
 class Resize_Media
 {
+    /** Attachments per media_ids call; page through list-media for more. */
+    public const MAX_BATCH = 20;
+
     public function handle(array $args): array
+    {
+        if (! array_key_exists('media_ids', $args)) {
+            return $this->resize_one($args);
+        }
+        if (isset($args['media_id'])) {
+            throw new \InvalidArgumentException('Pass either media_id or media_ids, not both.');
+        }
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array) $args['media_ids']))));
+        if (! $ids) {
+            throw new \InvalidArgumentException('media_ids must list at least one attachment ID.');
+        }
+        if (count($ids) > self::MAX_BATCH) {
+            throw new \InvalidArgumentException(sprintf(
+                'media_ids takes at most %d attachments per call; split the rest into further calls.',
+                (int) self::MAX_BATCH
+            ));
+        }
+
+        $items       = [];
+        $regenerated = 0;
+        $failed      = 0;
+        foreach ($ids as $id) {
+            $one = $args;
+            unset($one['media_ids']);
+            $one['media_id'] = $id;
+            try {
+                $item         = $this->resize_one($one);
+                $regenerated += $item['sizes'] ? 1 : 0;
+            } catch (\Throwable $e) {
+                $item = ['media_id' => $id, 'error' => $e->getMessage()];
+                ++$failed;
+            }
+            $items[] = $item;
+        }
+
+        return ['items' => $items, 'regenerated' => $regenerated, 'failed' => $failed];
+    }
+
+    private function resize_one(array $args): array
     {
         $media_id = (int) ($args['media_id'] ?? 0);
         $post     = $media_id ? get_post($media_id) : null;
@@ -28,9 +75,22 @@ class Resize_Media
             throw new \InvalidArgumentException('resize-media only works on image attachments.');
         }
 
-        $sizes = array_values(array_filter(array_map('strval', (array) ($args['sizes'] ?? []))));
+        if (! isset($args['sizes'])) {
+            $sizes = Image_Subsizes::missing($media_id);
+            if (! $sizes) {
+                return [
+                    'operation_id'      => null,
+                    'media_id'          => $media_id,
+                    'sizes'             => [],
+                    'files_recoverable' => true,
+                    'message'           => 'No registered image size is missing; nothing was changed.',
+                ];
+            }
+        } else {
+            $sizes = array_values(array_filter(array_map('strval', (array) $args['sizes'])));
+        }
         if (empty($sizes)) {
-            throw new \InvalidArgumentException('Pass at least one registered size name in "sizes".');
+            throw new \InvalidArgumentException('Pass at least one registered size name in "sizes", or omit "sizes" to fill the missing ones.');
         }
 
         $registered = wp_get_registered_image_subsizes();
@@ -71,6 +131,8 @@ class Resize_Media
             ));
         }
 
+        $created = self::files_to_create($file, $sizes, $registered);
+
         $out = Safe_Mutation::run(
             [
                 'object_type'         => 'post',
@@ -79,7 +141,7 @@ class Resize_Media
                 'tool_name'           => 'resize-media',
                 'args'                => $args,
                 'operation_id'        => $operation_id,
-                'extra_snapshot_data' => $manifest ? ['files' => ['operation_id' => $operation_id, 'manifest' => $manifest]] : [],
+                'extra_snapshot_data' => $manifest ? ['files' => ['operation_id' => $operation_id, 'manifest' => $manifest, 'created' => $created]] : [],
             ],
             function () use ($media_id, $file, $sizes, $registered): array {
                 $meta = wp_get_attachment_metadata($media_id);
@@ -121,5 +183,52 @@ class Resize_Media
             $result['warning']             = 'Rollback restores the attachment metadata, but not the files listed in unrecoverable_files.';
         }
         return $result;
+    }
+
+    /**
+     * Size files this regeneration will write that do not exist yet, so a
+     * rollback can delete them (File_Backup::remove_created). Predicted from
+     * core's own naming ({name}-{w}x{h}.{ext}, with the dimensions
+     * image_resize_dimensions() yields); an output-format mapping such as
+     * JPEG to WebP adds that extension as a candidate. Files already on disk
+     * are left out: they are either backed up or not this operation's.
+     *
+     * @param string[] $sizes
+     * @return string[]
+     */
+    private static function files_to_create(string $file, array $sizes, array $registered): array
+    {
+        $dims = wp_getimagesize($file);
+        if (! is_array($dims) || empty($dims[0]) || empty($dims[1])) {
+            return [];
+        }
+        $info = pathinfo($file);
+        $exts = [ (string) ($info['extension'] ?? '') ];
+        $mime = (string) ($dims['mime'] ?? '');
+        if ('' !== $mime) {
+            $map = (array) wp_get_image_editor_output_format($file, $mime);
+            if (! empty($map[ $mime ])) {
+                $mapped = (string) wp_get_default_extension_for_mime_type((string) $map[ $mime ]);
+                if ('' !== $mapped) {
+                    $exts[] = $mapped;
+                }
+            }
+        }
+
+        $created = [];
+        foreach ($sizes as $size) {
+            $spec   = $registered[ $size ];
+            $resize = image_resize_dimensions((int) $dims[0], (int) $dims[1], (int) $spec['width'], (int) $spec['height'], $spec['crop']);
+            if (! is_array($resize)) {
+                continue;
+            }
+            foreach (array_unique(array_filter($exts)) as $ext) {
+                $path = $info['dirname'] . '/' . $info['filename'] . '-' . (int) $resize[4] . 'x' . (int) $resize[5] . '.' . $ext;
+                if (! file_exists($path) && ! in_array($path, $created, true)) {
+                    $created[] = $path;
+                }
+            }
+        }
+        return $created;
     }
 }
