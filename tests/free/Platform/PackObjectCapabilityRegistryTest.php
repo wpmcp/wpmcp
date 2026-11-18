@@ -38,6 +38,8 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
         'gravitytables:get-table:table_id'                     => 'a Gravity Tables table row',
         'plugin-data:elementor-get-submission:id' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
         'plugin-data:elementor-export-submissions:ids' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
+        'plugin-data:gtm4wp-set-settings:container_ids' => 'Google Tag Manager container ids (GTM-XXXX), not WordPress objects, behind manage_options (issue #899)',
+        'plugin-data:clarity-set-project-id:project_id' => 'a Microsoft Clarity project id, not a WordPress object, behind manage_options (issue #899)',
         'plugin-data:elementor-update-submission-status:id' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
         'plugin-data:elementor-delete-submission:id' => 'an Elementor Pro submission row, behind manage_options (Elementor Pro\'s own submissions capability)',
         'plugin-data:code-snippets-get-snippet:id' => 'a Code Snippets snippet row in its own table, behind manage_options (Code Snippets\' own capability)',
