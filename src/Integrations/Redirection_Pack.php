@@ -315,8 +315,22 @@ final class Redirection_Pack
             'enabled'     => 'enabled' === $row['status'],
             'title'       => null === $row['title'] ? null : (string) $row['title'],
             'hits'        => (int) $row['last_count'],
-            'last_access' => (string) $row['last_access'],
+            'last_access' => self::access_time($row['last_access'] ?? null),
         ];
+    }
+
+    /**
+     * A last-access time, or null when the redirect was never hit. Redirection
+     * defaults the column to 1970-01-01 00:00:00 (older installs may hold a
+     * zero date); neither is a real time, so neither is passed on (issue #1051).
+     */
+    private static function access_time($value): ?string
+    {
+        $value = is_string($value) ? trim($value) : '';
+        if ('' === $value || '1970-01-01 00:00:00' === $value || str_starts_with($value, '0000-00-00')) {
+            return null;
+        }
+        return $value;
     }
 
     // -----------------------------------------------------------------
