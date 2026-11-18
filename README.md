@@ -38,6 +38,8 @@ Every supported write is snapshotted before it happens. If a post-write check fa
 
 **Theme add-ons (Pro).** While Astra, Kadence or GeneratePress is the active theme, the theme tools list, read, create and edit that theme's premium layouts (Astra Pro Custom Layouts, Kadence Pro Elements, GP Premium Elements): their content, the hook they are placed on and their display rules, plus the add-on's hook catalog. Writes are off until the site enables theme writes, and every one is snapshotted or recorded so rollback undoes it. Code layouts (PHP or raw script) are never read or written.
 
+**Thrive Theme Builder (Pro).** While Thrive Theme Builder is the active theme, the theme tools list and read its templates (what each renders, layout, header, footer and sections), its headers, footers and shared sections, and the theme settings (logo link, favicon, default featured image). Writes change a template's title, layout, header or footer, give a post or page a template of its own, edit a section's markup (pinned to the hash it was read with) and set those theme settings. Writes are off until the site enables theme writes, and every one is snapshotted so rollback undoes it.
+
 Because snapshots are taken at the WordPress data layer, rollback works the same for every builder in the table. Docs and Pro are at [wpmcp-pro.com](https://wpmcp-pro.com/).
 
 ## Why wpmcp
