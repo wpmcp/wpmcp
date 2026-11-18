@@ -488,7 +488,7 @@ final class Redux_Pack
             return [ null, null, null, $refusal ];
         }
         if (null === self::storage_option($panel)) {
-            return [ null, null, null, self::refusal('redux_storage_not_writable', sprintf('The Redux panel "%s" stores its values as a %s, which this op does not write (no exact undo). Change it in the panel itself.', (string) $panel->args['opt_name'], self::storage($panel))) ];
+            return [ null, null, null, self::refusal('redux_storage_not_writable', sprintf('The Redux panel "%s" stores its values in "%s" storage, which this op does not write (no exact undo). Change it in the panel itself.', (string) $panel->args['opt_name'], self::storage($panel))) ];
         }
         $id     = (string) ($args['field'] ?? '');
         $fields = self::fields($panel);
