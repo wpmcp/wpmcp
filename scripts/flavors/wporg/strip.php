@@ -1474,6 +1474,21 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Thrive Ultimatum ops (issue #828) are the paid add-on's, removed
+    // by policy.php. Each of their lines is removed on its own and first, so
+    // every edit below matches the file as it was before them.
+    [
+        " *  - Issue #828 adds the paid-tier Thrive Ultimatum ops\n"
+            . " *    (Thrive_Ultimatum_Pack): countdown campaigns read, and created, given a\n"
+            . " *    schedule and display rules, paused and resumed (off until\n"
+            . " *    wpmcp_enable_thrive_ultimatum_write), each write undoable.\n",
+        '',
+        1,
+    ],
+    [ "            || Thrive_Ultimatum_Pack::active()\n", '', 1 ],
+    [ "            . ', Thrive Ultimatum campaigns'\n", '', 1 ],
+    [ "        \$groups[] = [ 'Thrive Ultimatum', false, Thrive_Ultimatum_Pack::operations() ];\n", '', 1 ],
+    [ "            Thrive_Ultimatum_Pack::operations(),\n", '', 1 ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.
