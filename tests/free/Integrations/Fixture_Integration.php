@@ -85,6 +85,27 @@ class Fixture_Integration extends Integration_Dispatcher
                     return [ 'done' => true ];
                 },
             ],
+            'open-write'     => [
+                'mode'         => 'write',
+                'description'  => 'A write whose schema says it takes any key',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'name' => [ 'type' => 'string' ] ], 'additionalProperties' => true ],
+                'handler'      => function (array $args) {
+                    self::$calls[] = [ 'open-write', $args ];
+                    return [ 'keys' => array_keys($args) ];
+                },
+            ],
+            'own-args-check' => [
+                'mode'         => 'write',
+                'description'  => 'A write whose own validate refuses unknown keys with its own message',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'name' => [ 'type' => 'string' ] ] ],
+                'validate'     => static fn (array $args): ?array => isset($args['execute_php'])
+                    ? [ 'code' => 'invalid_args', 'message' => 'execute_php is switched on in wp-admin only.' ]
+                    : null,
+                'handler'      => function (array $args) {
+                    self::$calls[] = [ 'own-args-check', $args ];
+                    return [ 'done' => true ];
+                },
+            ],
             'guarded-op'     => [
                 'mode'         => 'write',
                 'description'  => 'A write only admins may run',

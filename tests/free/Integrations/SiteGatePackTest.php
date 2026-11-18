@@ -141,6 +141,23 @@ class SiteGatePackTest extends \WP_UnitTestCase
         $this->assertSame('Keep me', get_option('ucp_options')['heading1']);
     }
 
+    public function test_enabling_refuses_an_unknown_arg_instead_of_falling_back_to_auto(): void
+    {
+        // Issue #956: source is get-site-gate-status's name; this op takes plugin.
+        $this->opt_in();
+        $this->activate('under-construction-page');
+        update_option('ucp_options', [ 'status' => '0', 'whitelisted_roles' => [ 'administrator' ] ]);
+
+        foreach ([ false, true ] as $confirm) {
+            $out = $this->write('enable-site-gate', [ 'source' => 'seedprod', 'mode' => 'coming_soon' ], $confirm);
+            $this->assertSame('invalid_args', $this->code($out), (string) wp_json_encode($out));
+            $this->assertSame([ 'source' ], $out['error']['data']['unknown']);
+            $this->assertSame([ 'plugin', 'mode' ], $out['error']['data']['allowed']);
+        }
+        $this->assertSame('0', get_option('ucp_options')['status'], 'the site stays open');
+        $this->assertSame([], Snapshot_Store::list_by_session('default'));
+    }
+
     public function test_enabling_refuses_when_the_acting_users_role_is_not_whitelisted(): void
     {
         $this->opt_in();
