@@ -518,7 +518,7 @@ final class LMS_Thrive_Apprentice
             return self::refusal('nothing_to_update', 'Pass at least one of title, content, excerpt or status.');
         }
         if (isset($args['status']) && 'lesson' !== $kind) {
-            return self::refusal('status_derived', sprintf('A %s is published while one of its lessons is; change the lessons\' status instead.', $kind), [ 'id' => $id ]);
+            return self::refusal('status_derived', sprintf('The %s %d is published while one of its lessons is; change the lessons\' status instead.', $kind, $id), [ 'id' => $id ]);
         }
         return self::edit_refusal([ $id ])
             ?? self::publish_refusal((string) ($args['status'] ?? ''))
