@@ -580,4 +580,112 @@ class AbilityGridPageTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString('pro license', $html);
         $this->assertStringNotContainsString('(locked)', $html);
     }
+
+    // ---------------------------------------------------------------
+    // Issue #880: collapsed domains, search and filters
+    // ---------------------------------------------------------------
+
+    private function render_html(array $post = []): string
+    {
+        $saved = $_POST;
+        $_POST = $post;
+        try {
+            ob_start();
+            (new Ability_Grid_Page())->render();
+            return (string) ob_get_clean();
+        } finally {
+            $_POST = $saved;
+        }
+    }
+
+    /** The rendered <details> opening tag for one domain. */
+    private function details_tag(string $html, string $domain): string
+    {
+        $pattern = '/<details\b[^>]*data-domain="' . preg_quote($domain, '/') . '"[^>]*>/';
+        $this->assertSame(1, preg_match($pattern, $html, $m), "No collapsible section for domain {$domain}.");
+        return $m[0];
+    }
+
+    public function test_every_domain_renders_as_a_collapsed_disclosure_section(): void
+    {
+        $html = $this->render_html();
+
+        foreach (array_keys($this->rows()) as $domain) {
+            $tag = $this->details_tag($html, $domain);
+            $this->assertDoesNotMatchRegularExpression('/\sopen[\s>=]/', $tag, "Domain {$domain} should load collapsed.");
+        }
+    }
+
+    public function test_the_domain_summary_shows_the_ability_count_and_the_disabled_count(): void
+    {
+        Governance::set_ability_toggle('wpmcp/get-page', false);
+        $domain   = $this->row('wpmcp/get-page')['domain'];
+        $rows     = $this->rows()[ $domain ];
+        $disabled = count(array_filter($rows, static fn (array $r): bool => ! $r['enabled']));
+        $this->assertGreaterThanOrEqual(1, $disabled);
+
+        $html = $this->render_html();
+        $pattern = '/<details\b[^>]*data-domain="' . preg_quote($domain, '/') . '"[^>]*>\s*<summary[^>]*>(.*?)<\/summary>/s';
+        $this->assertSame(1, preg_match($pattern, $html, $m));
+        $summary = wp_strip_all_tags($m[1]);
+
+        $this->assertStringContainsString($domain, $summary);
+        $this->assertStringContainsString(sprintf('%d abilities', count($rows)), $summary);
+        $this->assertStringContainsString(sprintf('%d disabled', $disabled), $summary);
+    }
+
+    public function test_bulk_domain_buttons_stay_inside_each_section_not_its_summary(): void
+    {
+        $html = $this->render_html();
+        $this->assertSame(1, preg_match('/<summary[^>]*>(.*?)<\/summary>/s', $html, $m));
+        $this->assertStringNotContainsString('<button', $m[1], 'Interactive controls inside a summary break keyboard and screen reader use.');
+        $this->assertSame(count($this->rows()), substr_count($html, 'value="toggle_domain"'));
+    }
+
+    public function test_the_search_and_filters_are_labelled_controls(): void
+    {
+        $html = $this->render_html();
+
+        foreach (['wpmcp-ability-search', 'wpmcp-ability-state', 'wpmcp-ability-risk'] as $id) {
+            $this->assertStringContainsString('id="' . $id . '"', $html);
+            $this->assertStringContainsString('<label for="' . $id . '"', $html, "{$id} needs a visible or screen-reader label.");
+        }
+        $this->assertStringContainsString('type="search"', $html);
+        foreach (['enabled', 'disabled'] as $state) {
+            $this->assertMatchesRegularExpression('/<option value="' . $state . '"/', $html);
+        }
+        foreach (['destructive', 'default-off'] as $risk) {
+            $this->assertMatchesRegularExpression('/<option value="' . $risk . '"/', $html);
+        }
+        // A polite live region announces how many abilities match.
+        $this->assertMatchesRegularExpression('/id="wpmcp-ability-status"[^>]*role="status"|role="status"[^>]*id="wpmcp-ability-status"/', $html);
+    }
+
+    public function test_rows_carry_the_name_state_and_risk_the_filter_reads(): void
+    {
+        Governance::set_ability_toggle('wpmcp/get-page', false);
+        $html = $this->render_html();
+
+        $this->assertMatchesRegularExpression('/<tr[^>]*data-name="wpmcp\/get-page"[^>]*data-state="disabled"/', $html);
+        $this->assertMatchesRegularExpression('/<tr[^>]*data-name="wpmcp\/delete-rows"[^>]*data-risk="[^"]*default-off[^"]*"/', $html);
+    }
+
+    public function test_the_domain_just_acted_on_reopens_after_the_post(): void
+    {
+        $domain = $this->row('wpmcp/get-page')['domain'];
+        $html   = $this->render_html($this->post('toggle_ability', ['ability' => 'wpmcp/get-page', 'enabled' => '0']));
+
+        $this->assertMatchesRegularExpression('/\sopen[\s>=]/', $this->details_tag($html, $domain));
+        $this->assertFalse(Governance::ability_toggles()['wpmcp/get-page']);
+
+        $html = $this->render_html($this->post('toggle_domain', ['domain' => 'database', 'enabled' => '0']));
+        $this->assertMatchesRegularExpression('/\sopen[\s>=]/', $this->details_tag($html, 'database'));
+    }
+
+    public function test_the_filter_script_ships_inline_with_no_external_dependency(): void
+    {
+        $html = $this->render_html();
+        $this->assertStringContainsString('<script>', $html);
+        $this->assertStringNotContainsString('<script src', $html);
+    }
 }
