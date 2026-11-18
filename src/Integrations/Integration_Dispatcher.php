@@ -195,6 +195,20 @@ abstract class Integration_Dispatcher
         return 'edit_posts';
     }
 
+    /**
+     * The capability the read/write abilities themselves take (their
+     * permission_callback and tools/list). It is capability() unless a pair
+     * hosts ops with a lower gate of their own (issue #952: the synced
+     * pattern ops on the theme pair). Then every op that does not declare
+     * 'own_capability' => true still takes capability() in dispatch(), on
+     * top of its own 'capability', so lowering this floor reaches only the
+     * ops that opt out.
+     */
+    public function pair_capability(): string
+    {
+        return $this->capability();
+    }
+
     /** Governance domain for the pair and for every synthetic per-op ability. */
     public function domain(): string
     {
@@ -260,7 +274,7 @@ abstract class Integration_Dispatcher
             ),
             $this->dispatcher_schema(false),
             [ $this, 'handle_read' ],
-            $this->capability(),
+            $this->pair_capability(),
             $this->domain(),
             'read',
             objects: \Closure::fromCallable([ $this, 'named_objects' ])
@@ -275,7 +289,7 @@ abstract class Integration_Dispatcher
             ),
             $this->dispatcher_schema(true),
             [ $this, 'handle_write' ],
-            $this->capability(),
+            $this->pair_capability(),
             $this->domain(),
             'update',
             null,
@@ -470,6 +484,18 @@ abstract class Integration_Dispatcher
                 'Operation "%s" has been disabled by governance policy.',
                 $op
             ), [ 'reason' => 'governance' ]);
+        }
+
+        // A pair whose abilities take a lower floor than capability()
+        // (pair_capability()) still holds every op to capability() unless
+        // the op's own capability replaces it ('own_capability').
+        $base = $this->capability();
+        if ($base !== $this->pair_capability() && empty($def['own_capability']) && ! current_user_can($base)) {
+            return $this->error('operation_denied', sprintf(
+                'Operation "%s" requires the "%s" capability.',
+                $op,
+                $base
+            ), [ 'reason' => 'capability' ]);
         }
 
         $capability = $def['capability'] ?? null;

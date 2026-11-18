@@ -49,7 +49,28 @@ final class Core_Patterns_Pack
     /** Most candidate posts one usage lookup scans; beyond it the result says truncated. */
     private const USAGE_LIMIT = 500;
 
-    /** @return array<string, array<string, mixed>> op name => definition for the theme pair. */
+    /**
+     * The wp_block post type's own primitive capability for $cap
+     * ('edit_posts', 'create_posts'), so the pattern ops take the gate core
+     * gives patterns, not the theme pair's edit_theme_options (issue #952).
+     * Falls back to core's mapping while the post type is not registered.
+     */
+    public static function capability(string $cap = 'edit_posts'): string
+    {
+        $type = get_post_type_object(self::POST_TYPE);
+        if ($type instanceof \WP_Post_Type && isset($type->cap->{$cap})) {
+            return (string) $type->cap->{$cap};
+        }
+        return 'create_posts' === $cap ? 'publish_posts' : 'edit_posts';
+    }
+
+    /**
+     * Op name => definition for the theme pair. Every op takes the wp_block
+     * capability in place of the pair's edit_theme_options
+     * ('own_capability', see Integration_Dispatcher::pair_capability()).
+     *
+     * @return array<string, array<string, mixed>>
+     */
     public static function operations(): array
     {
         // The literal name, not ENABLE_FILTER, so the hook stays greppable.
@@ -61,17 +82,20 @@ final class Core_Patterns_Pack
             'synced'        => [ 'type' => 'boolean' ],
             'expected_hash' => [ 'type' => 'string' ],
         ];
+        $edit    = self::capability('edit_posts');
         $write   = [
             'mode'               => 'write',
-            'capability'         => 'edit_posts',
+            'capability'         => $edit,
+            'own_capability'     => true,
             'enabled_by_default' => $enabled,
             'opt_in_filter'      => self::ENABLE_FILTER,
         ];
 
         return [
             'list-synced-patterns'   => [
-                'mode'         => 'read',
-                'capability'   => 'edit_posts',
+                'mode'           => 'read',
+                'capability'     => $edit,
+                'own_capability' => true,
                 'description'  => 'List synced patterns (reusable blocks): id, title, status, sync state, modified. sync: synced (default), unsynced or all',
                 'input_schema' => [
                     'type'       => 'object',
@@ -85,8 +109,9 @@ final class Core_Patterns_Pack
                 'handler'      => static fn (array $args): array => self::list_patterns($args),
             ],
             'get-synced-pattern'     => [
-                'mode'         => 'read',
-                'capability'   => 'edit_posts',
+                'mode'           => 'read',
+                'capability'     => $edit,
+                'own_capability' => true,
                 'objects'      => [ 'id' => [ 'type' => 'post', 'access' => 'read' ] ],
                 'description'  => 'Read one pattern: title, sync state, block content, content_hash (for expected_hash) and how many posts place it',
                 'input_schema' => [ 'type' => 'object', 'properties' => [ 'id' => $id ], 'required' => [ 'id' ] ],
@@ -94,15 +119,16 @@ final class Core_Patterns_Pack
                 'handler'      => static fn (array $args): array => self::get_pattern((int) $args['id']),
             ],
             'find-pattern-usage'     => [
-                'mode'         => 'read',
-                'capability'   => 'edit_posts',
+                'mode'           => 'read',
+                'capability'     => $edit,
+                'own_capability' => true,
                 'objects'      => [ 'id' => [ 'type' => 'post', 'access' => 'read' ] ],
                 'description'  => 'Find the posts, templates and patterns that place a synced pattern (those you can read), with the placements in each. total is every placing post, readable the ones listed, widget_placements the block widgets that place it; truncated:true means the scan stopped at 500 candidates and total is a lower bound',
                 'input_schema' => [ 'type' => 'object', 'properties' => [ 'id' => $id ], 'required' => [ 'id' ] ],
                 'validate'     => static fn (array $args): ?array => self::readable_refusal((int) $args['id']),
                 'handler'      => static fn (array $args): array => [ 'pattern_id' => (int) $args['id'] ] + self::usage_report((int) $args['id']),
             ],
-            'create-synced-pattern'  => $write + [
+            'create-synced-pattern'  => [ 'capability' => self::capability('create_posts') ] + $write + [
                 'self_snapshotting' => true,
                 'description'       => 'Create a pattern (synced unless synced:false) from block markup. Status publish or draft (default publish). Undo: rollback-session trashes it. Disabled by default (wpmcp_enable_core_patterns_write filter)',
                 'input_schema'      => [
