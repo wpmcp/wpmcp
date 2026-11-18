@@ -49,6 +49,13 @@ dc_valid() {
 	esac
 }
 
+# Creates directory <dir> and fails when it already exists: the lock
+# primitive. Not mkdir(1): the uutils coreutils mkdir (Ubuntu 26.04 and the
+# GitHub ubuntu-latest image) reports success when another process creates
+# the same directory at the same moment, so two runs would both hold the
+# lock. perl's mkdir is the mkdir(2) system call, which is atomic.
+dc_mkdir_lock() { perl -e 'exit(mkdir($ARGV[0]) ? 0 : 1)' "$1" 2>/dev/null; }
+
 dc_lock_path() { echo "$WPMCP_DOWNLOAD_CACHE/.locks/${1//\//__}"; }
 
 # Takes the lock on cache entry <name>; a lock whose holder died is taken over.
@@ -57,12 +64,13 @@ dc_lock() {
 	lock=$(dc_lock_path "$1")
 	mkdir -p "$WPMCP_DOWNLOAD_CACHE/.locks"
 	for _ in $(seq 1 1800); do
-		if mkdir "$lock" 2>/dev/null; then
+		if dc_mkdir_lock "$lock"; then
 			echo $$ >"$lock/pid"
 			return 0
 		fi
 		holder=$(cat "$lock/pid" 2>/dev/null || true)
 		if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+			echo "Taking over the download lock $lock from process $holder, which is gone." >&2
 			rm -rf "$lock"
 			continue
 		fi

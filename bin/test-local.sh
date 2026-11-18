@@ -725,6 +725,12 @@ if [ "${stop_db:-false}" = true ]; then
 	exit 0
 fi
 
+# Creates directory <dir> and fails when it already exists: the lock
+# primitive here and in bin/download-cache.sh. Not mkdir(1): the uutils
+# coreutils mkdir (Ubuntu 26.04) reports success when another process creates
+# the same directory at the same moment. perl's mkdir is mkdir(2), atomic.
+mkdir_lock() { perl -e 'exit(mkdir($ARGV[0]) ? 0 : 1)' "$1" 2>/dev/null; }
+
 # Runs "$@" holding an exclusive lock named $1, so parallel runs from several
 # worktrees never start the server or install the same WordPress twice. A lock
 # whose holder has died is taken over.
@@ -734,7 +740,7 @@ with_lock() {
 	mkdir -p "$CACHE/locks"
 	lock="$CACHE/locks/$name"
 	for _ in $(seq 1 1800); do
-		if mkdir "$lock" 2>/dev/null; then
+		if mkdir_lock "$lock"; then
 			echo $$ >"$lock/pid"
 			local status=0
 			"$@" || status=$?
@@ -1193,7 +1199,7 @@ prune_downloads() {
 		if [ -d "$lock" ] && ! pid_alive "$(cat "$lock/pid" 2>/dev/null || true)" && [ -s "$lock/pid" ]; then
 			rm -rf "$lock"
 		fi
-		if ! mkdir "$lock" 2>/dev/null; then
+		if ! mkdir_lock "$lock"; then
 			# In use: it still counts.
 			total=$((total + kb))
 			continue
@@ -1239,14 +1245,14 @@ acquire_slot() {
 		holders=""
 		for n in $(seq 1 "$MAX_PARALLEL"); do
 			lock="$CACHE/locks/run-$n"
-			if mkdir "$lock" 2>/dev/null; then
+			if mkdir_lock "$lock"; then
 				echo $$ >"$lock/pid"
 				return 0
 			fi
 			holder=$(cat "$lock/pid" 2>/dev/null || true)
 			if [ -n "$holder" ] && ! pid_alive "$holder"; then
 				rm -rf "$lock"
-				if mkdir "$lock" 2>/dev/null; then
+				if mkdir_lock "$lock"; then
 					echo $$ >"$lock/pid"
 					return 0
 				fi

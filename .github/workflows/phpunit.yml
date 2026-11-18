@@ -1,0 +1,98 @@
+name: PHPUnit
+
+# The WordPress integration suite on every pull request and every push to main,
+# so main cannot go red unnoticed. It mirrors the default legs of the local
+# gate (bin/test-local.sh): the current WordPress, the `Requires at least`
+# floor from readme.txt, and the current WordPress as a multisite network.
+# The live legs (real third-party plugins, licensed copies) stay local only.
+# No secrets are needed: everything installed here is public.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: phpunit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  phpunit:
+    name: PHPUnit (WP ${{ matrix.wp }}${{ matrix.multisite && ' multisite' || '' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { wp: '7.1', multisite: false }
+          - { wp: '6.9', multisite: false }
+          - { wp: '7.1', multisite: true }
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: wpmcp_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v5
+
+      # Absolute, normalised paths: a ".." in ABSPATH breaks the test library.
+      - name: Paths
+        run: |
+          {
+            echo "WP_TESTS_DIR=$RUNNER_TEMP/wp/wordpress-tests-lib"
+            echo "WP_CORE_DIR=$RUNNER_TEMP/wp/wordpress"
+            echo "TMPDIR=$RUNNER_TEMP/wp/tmp"
+            echo "WPMCP_DOWNLOAD_CACHE=$RUNNER_TEMP/wp/downloads"
+          } >> "$GITHUB_ENV"
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer
+          extensions: mysqli, mbstring, zip, gd, intl, xml
+
+      - name: Composer cache dir
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock', 'composer.json') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      # Core, the test library and the test plugins are cached by exact
+      # version inside the download cache (bin/download-cache.sh).
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/wp/downloads
+          key: wp-downloads-${{ matrix.wp }}-${{ hashFiles('bin/install-wp-tests.sh', 'bin/install-test-plugins.sh', 'bin/download-cache.sh') }}
+          restore-keys: wp-downloads-${{ matrix.wp }}-
+
+      - run: composer install --no-interaction --prefer-dist
+
+      # The WordPress test library is exported from develop.svn.wordpress.org.
+      - name: Install subversion
+        run: command -v svn >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq subversion)
+
+      - name: Install WordPress, the test library and the test plugins
+        run: |
+          mkdir -p "$TMPDIR" "$WPMCP_DOWNLOAD_CACHE"
+          bash bin/install-wp-tests.sh wpmcp_test root root 127.0.0.1:3306 "${{ matrix.wp }}" true
+          bash bin/install-test-plugins.sh
+          mkdir -p "$WP_CORE_DIR/wp-content/uploads"
+
+      - name: PHPUnit
+        env:
+          WP_MULTISITE: ${{ matrix.multisite && '1' || '0' }}
+        run: vendor/bin/phpunit
