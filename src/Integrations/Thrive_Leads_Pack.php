@@ -355,13 +355,13 @@ final class Thrive_Leads_Pack
         $trigger = (string) ($args['trigger'] ?? ($current['trigger'] ?? 'page_load'));
         $applies = self::TRIGGERS[ $trigger ] ?? [];
         if ('*' !== $applies && ! in_array($type, (array) $applies, true)) {
-            return self::refusal('trigger_not_supported', sprintf('The %s trigger does not apply to a %s form.', $trigger, $type), [ 'triggers' => self::triggers_for($type) ]);
+            return self::refusal('trigger_not_supported', sprintf('The %s trigger does not apply to form type "%s".', $trigger, $type), [ 'triggers' => self::triggers_for($type) ]);
         }
         if (isset($args['trigger_config']) && null === self::clean_config($trigger, (array) $args['trigger_config'])) {
             return self::refusal('invalid_trigger_config', sprintf('trigger_config for %s takes only %s (s, p, ms: whole numbers; exi, m: booleans; i, c: CSS ids or classes).', $trigger, implode(', ', self::TRIGGER_KEYS[ $trigger ] ?? []) ?: 'nothing'), [ 'keys' => self::TRIGGER_KEYS[ $trigger ] ?? [] ]);
         }
         if (isset($args['position']) && ! in_array((string) $args['position'], self::POSITIONS[ $type ] ?? [], true)) {
-            return self::refusal('position_not_supported', sprintf('A %s form takes %s.', $type, isset(self::POSITIONS[ $type ]) ? 'position ' . implode(', ', self::POSITIONS[ $type ]) : 'no position'), [ 'positions' => self::POSITIONS[ $type ] ?? [] ]);
+            return self::refusal('position_not_supported', sprintf('Form type "%s" takes %s.', $type, isset(self::POSITIONS[ $type ]) ? 'position ' . implode(', ', self::POSITIONS[ $type ]) : 'no position'), [ 'positions' => self::POSITIONS[ $type ] ?? [] ]);
         }
         return null;
     }
