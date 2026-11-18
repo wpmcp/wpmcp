@@ -96,6 +96,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // GTranslate's settings, whose language lists the
             // gtranslate-set-languages op changes (issue #690).
             'GTranslate',
+            // Checkout Field Editor's checkout sections, whose fields the
+            // update-checkout-fields op changes (issue #660).
+            'wc_fields_*',
         ],
         'transient'      => [
             'scrape_key_*',
