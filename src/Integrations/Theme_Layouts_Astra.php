@@ -22,9 +22,9 @@ if (! defined('ABSPATH')) {
  */
 final class Theme_Layouts_Astra extends Theme_Layouts_Adapter
 {
-    // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- refusals are JSON tool errors surfaced by Integration_Dispatcher, never rendered as HTML.
+    use Theme_Layouts_Target_Rules;
 
-    private const SPECIAL = [ 'special-404', 'special-search', 'special-blog', 'special-front', 'special-date', 'special-author', 'special-woo-shop' ];
+    // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- refusals are JSON tool errors surfaced by Integration_Dispatcher, never rendered as HTML.
 
     public function family(): string
     {
@@ -170,17 +170,9 @@ final class Theme_Layouts_Astra extends Theme_Layouts_Adapter
         $out = [];
         foreach ($rules as $key => $value) {
             if ('location' === $key || 'exclusion' === $key) {
-                $out[ $key ] = self::target($value, $key);
+                $out[ $key ] = self::target($value, $key, 'list-astra-hooks');
             } elseif ('users' === $key) {
-                $users = [];
-                foreach (self::list_of($value, 'users') as $user) {
-                    $user = (string) $user;
-                    if (! in_array($user, [ 'all', 'logged-in', 'logged-out' ], true) && ! self::role_exists($user)) {
-                        throw self::bad_rules(sprintf('User rule "%s" is not all, logged-in, logged-out or a role on this site.', $user));
-                    }
-                    $users[] = $user;
-                }
-                $out['users'] = array_values(array_unique($users));
+                $out['users'] = self::target_users($value);
             } else {
                 throw self::bad_rules(sprintf('Astra display rules take location, exclusion and users, not "%s".', (string) $key));
             }
@@ -205,7 +197,7 @@ final class Theme_Layouts_Astra extends Theme_Layouts_Adapter
     public function rule_vocabulary(): array
     {
         $out = [
-            'format' => '{location: {rule: [...], specific: [...]}, exclusion: {same}, users: [...]}. Rules: basic-global, basic-singulars, basic-archives, special-404|search|blog|front|date|author|woo-shop, <post_type>|all, <post_type>|all|archive, <post_type>|all|taxarchive|<taxonomy>, and specifics with specific entries post-<id>, tax-<term_id> or tax-<term_id>-single-<taxonomy>. Users: all, logged-in, logged-out or a role.',
+            'format' => '{location: {rule: [...], specific: [...]}, exclusion: {same}, users: [...]}. ' . self::target_format(),
         ];
         if (class_exists('\Astra_Target_Rules_Fields')) {
             self::load_role_functions();
@@ -219,61 +211,5 @@ final class Theme_Layouts_Astra extends Theme_Layouts_Adapter
     public function extras(int $id): array
     {
         return [ 'enabled' => 'no' !== get_post_meta($id, 'ast-advanced-hook-enabled', true) ];
-    }
-
-    /**
-     * @param mixed $stored
-     * @return array{rule:array<int,string>,specific:array<int,string>}
-     */
-    private static function stored_target($stored): array
-    {
-        return [
-            'rule'     => is_array($stored) && is_array($stored['rule'] ?? null) ? array_values($stored['rule']) : [],
-            'specific' => is_array($stored) && is_array($stored['specific'] ?? null) ? array_values($stored['specific']) : [],
-        ];
-    }
-
-    /**
-     * One location or exclusion, in get_format_rule_value()'s stored shape.
-     *
-     * @param mixed $value
-     * @return array{rule:array<int,string>,specific:array<int,string>}
-     */
-    private static function target($value, string $key): array
-    {
-        if (! is_array($value)) {
-            throw self::bad_rules(sprintf('"%s" is {rule: [...], specific: [...]}.', $key));
-        }
-        $rule     = array_values(array_unique(array_map('strval', self::list_of($value['rule'] ?? [], $key . '.rule'))));
-        $specific = array_values(array_unique(array_map('strval', self::list_of($value['specific'] ?? [], $key . '.specific'))));
-        foreach ($rule as $r) {
-            self::check_rule($r);
-        }
-        foreach ($specific as $s) {
-            if (1 !== preg_match('/^(post-\d+|tax-\d+(-single-[a-z0-9_-]+)?)$/', $s)) {
-                throw self::bad_rules(sprintf('Specific target "%s" is not post-<id>, tax-<term_id> or tax-<term_id>-single-<taxonomy>.', $s));
-            }
-        }
-        if ([] !== $specific && ! in_array('specifics', $rule, true)) {
-            $rule[] = 'specifics';
-        }
-        if (in_array('specifics', $rule, true) && [] === $specific) {
-            throw self::bad_rules(sprintf('"%s" names the specifics rule but no specific targets.', $key));
-        }
-        return [ 'rule' => $rule, 'specific' => $specific ];
-    }
-
-    private static function check_rule(string $rule): void
-    {
-        if (in_array($rule, [ 'basic-global', 'basic-singulars', 'basic-archives', 'specifics' ], true) || in_array($rule, self::SPECIAL, true)) {
-            return;
-        }
-        if (1 !== preg_match('/^([a-z0-9_-]+)\|all(\|archive|\|taxarchive\|([a-z0-9_-]+))?$/', $rule, $m)) {
-            throw self::bad_rules(sprintf('"%s" is not an Astra display rule (see list-astra-hooks).', $rule));
-        }
-        self::check_post_type($m[1], $rule);
-        if (isset($m[3])) {
-            self::check_taxonomy($m[3], $rule);
-        }
     }
 }

@@ -179,6 +179,8 @@ return [
         'src/Integrations/Theme_Layouts_Astra.php',
         'src/Integrations/Theme_Layouts_Kadence.php',
         'src/Integrations/Theme_Layouts_GeneratePress.php',
+        'src/Integrations/Theme_Layouts_Hfe.php',
+        'src/Integrations/Theme_Layouts_Target_Rules.php',
         // The Elementor addon suite packs (issue #286): widget catalog and
         // module toggle ops for three addon suites, all paid-tier. strip.php
         // takes out the line in Theme_Integration that merges them and the
