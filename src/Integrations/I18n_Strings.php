@@ -45,7 +45,7 @@ if (! defined('ABSPATH')) {
 final class I18n_Strings
 {
     /** The site's switch for update-strings (off by default). */
-    public const OPT_IN_FILTER = 'wpmcp_enable_i18n_strings_write';
+    public const OPT_IN_FILTER = 'wpmcp_enable_string_translation_write';
 
     /** Polylang's term meta holding a language's string translations. */
     public const META_KEY = '_pll_strings_translations';
@@ -133,7 +133,7 @@ final class I18n_Strings
             ],
             'update-strings'      => $base + [
                 'mode'               => 'write',
-                'enabled_by_default' => (bool) apply_filters('wpmcp_enable_i18n_strings_write', false),
+                'enabled_by_default' => (bool) apply_filters('wpmcp_enable_string_translation_write', false),
                 'opt_in_filter'      => self::OPT_IN_FILTER,
                 'description'        => 'Set Polylang string translations in one language by key from get-strings; an empty translation clears one. Undo: rollback-operation.',
                 'input_schema'       => [

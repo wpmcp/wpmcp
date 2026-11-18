@@ -314,7 +314,7 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
      */
     public function test_string_translation_through_polylang_and_rollback(): void
     {
-        add_filter('wpmcp_enable_i18n_strings_write', '__return_true');
+        add_filter('wpmcp_enable_string_translation_write', '__return_true');
         try {
             pll_register_string('cta', 'Call us today', 'my-theme');
             pll_register_string('more', 'Read more', 'my-theme');
@@ -341,7 +341,7 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
             $this->assertSame($before, get_term_meta($de->term_id, '_pll_strings_translations', true));
             $this->assertNotNull(PLL()->model->get_language('de'), 'The language itself survives the undo.');
         } finally {
-            remove_all_filters('wpmcp_enable_i18n_strings_write');
+            remove_all_filters('wpmcp_enable_string_translation_write');
         }
     }
 }
