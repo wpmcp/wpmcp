@@ -172,8 +172,33 @@ class JetElementsLiveTest extends \WP_UnitTestCase
             $this->assertSame('full_detail_needs_widget', $refuse['error']['code']);
             $this->assertLessThan($size($full), $size($one));
 
+            // Issues #862 and #878: the five widgets of the report, with
+            // Elementor's common controls and the group control fields given
+            // once per answer, fit in one client answer, and each widget's
+            // rows put back together are exactly its plain summary.
+            $reported = $this->read('list-jet-elements-widgets', [ 'widgets' => [ 'jet-button', 'jet-headline', 'jet-countdown-timer', 'jet-animated-box', 'jet-banner' ] ])['result'];
+            $this->assertLessThan(100000, $size($reported), 'Five named widgets stay under 100,000 characters');
+            $this->assertGreaterThan(100, count($reported['common']['controls']) + count($reported['common']['groups']), 'The common controls come once');
+            foreach ($reported['widgets'] as $row) {
+                $this->assertSame([], array_intersect_key($row['controls'], $reported['common']['controls']), "{$row['name']}: no common control inside the widget");
+                $rows = $row['controls'];
+                foreach ([ $row['groups'] ?? [], $reported['common']['groups'] ] as $groups) {
+                    foreach ($groups as $prefix => $group) {
+                        $fields = array_diff_key($reported['group_fields'][ $group['type'] ], array_flip($group['omitted'] ?? []));
+                        foreach (array_replace($fields, $group['changed'] ?? []) as $field => $field_row) {
+                            $rows[ $prefix . $field ] = $field_row;
+                        }
+                    }
+                }
+                $rows   += $reported['common']['controls'];
+                $summary = \WPMCP\Tools\Elementor\Widget_View::control_summary(\Elementor\Plugin::instance()->widgets_manager->get_widget_types($row['name']));
+                ksort($rows);
+                ksort($summary);
+                $this->assertSame($summary, $rows, "{$row['name']}: nothing is lost");
+            }
+
             fwrite(STDERR, sprintf(
-                "\n[jet-elements controls, REST mode] plain list of %d widgets: %d bytes. jet-banner: before %d, summary %d, full %d bytes. 5 named widgets (%s): before %d, summary %d bytes. Controls for the whole list and full detail for more than one widget refused.\n",
+                "\n[jet-elements controls, REST mode] plain list of %d widgets: %d bytes. jet-banner: before %d, summary %d, full %d bytes. 5 named widgets (%s): before %d, summary %d bytes. The 5 widgets of #862: summary %d bytes. Controls for the whole list and full detail for more than one widget refused.\n",
                 $plain['result']['count'],
                 $size($plain),
                 $old($one['result']),
@@ -181,7 +206,8 @@ class JetElementsLiveTest extends \WP_UnitTestCase
                 $size($full),
                 implode(', ', $five),
                 $old($list['result']),
-                $size($list)
+                $size($list),
+                strlen((string) wp_json_encode($reported))
             ));
         } finally {
             $frontend->setValue(null, $was);

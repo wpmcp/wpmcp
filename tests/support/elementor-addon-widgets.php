@@ -91,6 +91,94 @@ namespace WPMCP\Tests\Support\ElementorAddons {
         }
     }
 
+    /**
+     * A widget with what every real Elementor widget carries beside its own
+     * controls (issues #878, #862): group controls and the common Advanced
+     * tab controls Elementor merges into every widget's stack from its
+     * 'common' widget. The two background groups (normal and hover) are
+     * copies of the common widget's own background group under the
+     * widget's prefixes, the hover one with a changed default and its image
+     * field left out; the typography popover is marked the way
+     * Group_Control_Base marks every field it adds ('classes').
+     */
+    abstract class Rich_Fixture_Widget extends Fixture_Widget
+    {
+        /** @var array<string, array<string, mixed>> */
+        public const TYPOGRAPHY = [
+            'typography'  => [ 'type' => 'popover_toggle', 'label' => 'Typography' ],
+            'font_family' => [ 'type' => 'font', 'label' => 'Family', 'default' => '' ],
+            'font_weight' => [ 'type' => 'select', 'label' => 'Weight', 'options' => [ '400' => '400', '700' => '700', 'bold' => 'Bold' ] ],
+        ];
+
+        public function get_controls($control_id = null)
+        {
+            $stack  = parent::get_controls();
+            $common = (array) \Elementor\Plugin::instance()->widgets_manager->get_widget_types('common')->get_controls();
+            foreach ($common as $name => $control) {
+                if (0 === strpos((string) $name, '_background_') && false === strpos((string) $name, '_hover_')) {
+                    $field                           = substr((string) $name, strlen('_background_'));
+                    $stack[ 'normal_bg_' . $field ] = [ 'name' => 'normal_bg_' . $field ] + $control;
+                    if ('image' !== $field) {
+                        $stack[ 'hover_bg_' . $field ] = [ 'name' => 'hover_bg_' . $field ] + $control;
+                    }
+                }
+            }
+            $stack['hover_bg_color_b']['default'] = '#000000';
+            foreach (self::TYPOGRAPHY as $field => $control) {
+                $stack[ 'label_typography_' . $field ] = $control + [
+                    'name'    => 'label_typography_' . $field,
+                    'tab'     => 'style',
+                    'section' => 'content_section',
+                    'classes' => "elementor-group-control-typography elementor-group-control elementor-group-control-{$field}",
+                ];
+            }
+            $stack = array_merge($stack, $common);
+            if (null === $control_id) {
+                return $stack;
+            }
+            return $stack[ $control_id ] ?? null;
+        }
+    }
+
+    class Essential_Rich extends Rich_Fixture_Widget
+    {
+        public function get_name()
+        {
+            return 'eael-fixture-rich';
+        }
+
+        public function get_categories()
+        {
+            return [ 'essential-addons-elementor' ];
+        }
+    }
+
+    class Premium_Rich extends Rich_Fixture_Widget
+    {
+        public function get_name()
+        {
+            return 'premium-addon-fixture-rich';
+        }
+
+        public function get_categories()
+        {
+            return [ 'premium-elements' ];
+        }
+    }
+
+    class Ultimate_Rich extends Rich_Fixture_Widget
+    {
+        public function get_name()
+        {
+            return 'fixture-rich-retina';
+        }
+
+        public function get_categories()
+        {
+            return [ 'hfe-widgets' ];
+        }
+    }
+
     class Essential_Card extends Fixture_Widget
     {
         public function get_name()
@@ -162,6 +250,36 @@ namespace Elementor {
         {
             return [ 'cherry' ];
         }
+    }
+
+    /** Five JetElements-shaped widgets with group and common controls, for a five-widget summary read. */
+    class Jet_Elements_Fixture_Rich_A extends \WPMCP\Tests\Support\ElementorAddons\Rich_Fixture_Widget
+    {
+        public function get_name()
+        {
+            return 'jet-fixture-rich-' . strtolower(substr(static::class, -1));
+        }
+
+        public function get_categories()
+        {
+            return [ 'cherry' ];
+        }
+    }
+
+    class Jet_Elements_Fixture_Rich_B extends Jet_Elements_Fixture_Rich_A
+    {
+    }
+
+    class Jet_Elements_Fixture_Rich_C extends Jet_Elements_Fixture_Rich_A
+    {
+    }
+
+    class Jet_Elements_Fixture_Rich_D extends Jet_Elements_Fixture_Rich_A
+    {
+    }
+
+    class Jet_Elements_Fixture_Rich_E extends Jet_Elements_Fixture_Rich_A
+    {
     }
 
     /** Another Crocoblock plugin's widget in the shared 'cherry' category: not JetElements. */
