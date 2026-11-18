@@ -160,6 +160,16 @@ final class Theme_Layouts_GeneratePress extends Theme_Layouts_Adapter
         return '_generate_element_content';
     }
 
+    public function runs_code(int $id): ?string
+    {
+        return '' !== (string) get_post_meta($id, '_generate_hook_execute_php', true) ? 'php' : null;
+    }
+
+    public function location_keys(): array
+    {
+        return [ 'display', 'exclude' ];
+    }
+
     public function read_rules(int $id): array
     {
         $users = get_post_meta($id, '_generate_element_user_conditions', true);
