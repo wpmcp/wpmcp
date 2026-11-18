@@ -1,0 +1,57 @@
+# Patterns the licensed guard (.github/ci/licensed-guard.sh) refuses to find
+# anywhere under .github/ or in the live legs CI runs. One extended regular
+# expression per line, matched case-insensitively. A slug pattern only matches
+# as a whole token: letters and digits may not touch it on either side, so
+# "_", "-", "/" and spaces count as separators (WPMCP_LIVE_<SLUG> matches).
+#
+# This file is the only place under .github/ allowed to name them; the guard
+# skips it. A new licensed leg in bin/test-local.sh needs its slug added here.
+#
+# The licensed copies' directory and their path variables.
+licensed-plugins
+[A-Z0-9_]+_SRC
+# Licensed leg names and plugin or theme slugs.
+breakdance
+avada
+fusion-builder
+fusion-core
+wpbakery
+js_composer
+thrive
+thrive-visual-editor
+cornerstone
+oxygen
+divi
+betheme
+bricks
+memberpress
+wc-subscriptions
+wc_subscriptions
+woocommerce-subscriptions
+wc-bookings
+wc_bookings
+woocommerce-bookings
+theme-pro
+theme_pro
+astra-pro
+astra_pro
+astra-addon
+kadence-pro
+kadence_pro
+gp-premium
+gp_premium
+elementor-pro
+elementor_pro
+cache-settings
+cache_settings
+wp-rocket
+wp_rocket
+perfmatters
+flying-press
+flying_press
+flyingpress
+jet-elements
+jet_elements
+ws-form
+ws_form
+ws-form-pro

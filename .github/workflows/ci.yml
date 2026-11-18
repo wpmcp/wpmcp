@@ -1,23 +1,50 @@
 name: CI
-on: [push, pull_request]
+# Pull requests and main only: a push to a PR branch used to run this twice
+# (push and pull_request).
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to a branch or PR cancels the run it replaces; main finishes.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
 jobs:
-  # PHPUnit does not run here. The WordPress integration suite runs locally
-  # through bin/test-local.sh, which the pre-push hook (.githooks/pre-push)
-  # calls before every push; see README "Development". GitHub keeps the static
-  # gates only: this job, compliance and plugin-check.
+  # The static gates. PHPUnit, sharded, and the free live legs run in the
+  # PHPUnit workflow (phpunit.yml); licensed live legs run on the owner's Mac
+  # only.
   #
   # Static registration drift guard (issue #86) and the lint ratchet. Both are
   # WordPress-free and take seconds, so they stay here as the backstop for a
   # push made with --no-verify.
+  #
+  # It also runs the licensed guard first (seconds, no PHP setup), and runs on
+  # PHP 8.1, the "Requires PHP" floor, with a syntax check of every shipped
+  # PHP file, so a construct newer than 8.1 fails here in about a minute,
+  # before the PHP 8.1 suite shards finish.
   static:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
+      - name: Licensed guard (nothing licensed referenced from CI)
+        run: bash .github/ci/licensed-guard.sh
       - uses: shivammathur/setup-php@v2
-        with: { php-version: '8.3', coverage: none }
+        with: { php-version: '8.1', coverage: none }
       - run: composer install --no-interaction
       - run: composer lint
       - run: composer drift:check
+      # Last and always, so a PHP 8.1 break never hides lint or drift. Every
+      # file is checked (exit 1 per file keeps xargs going) and each failing
+      # one is named.
+      - name: PHP 8.1 syntax check
+        if: always()
+        run: bash .github/ci/php-syntax.sh
 
   # WordPress's own Plugin Check, run against the assembled directory zip
   # rather than the checkout, with vendor/ left in scope. This is the

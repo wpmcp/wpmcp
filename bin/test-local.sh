@@ -281,6 +281,9 @@
 #   bin/test-local.sh --plan [...]    print the legs the other options would run, run nothing
 #   bin/test-local.sh --resolve-plugins [--wp V] print the test plugin versions and the
 #                                     install a run would use, install nothing
+#   bin/test-local.sh --list-legs[=<tiers>] [--json] print the rows of bin/legs.tsv (the leg
+#                                     table: all, or the tiers named, comma separated, of static,
+#                                     suite, free, licensed, extra), run nothing
 #   bin/test-local.sh --stop-db       stop the private MariaDB server and exit
 #   bin/test-local.sh --prune         prune the cache to its budget now, run nothing
 #   bin/test-local.sh --prune --all   remove every install and core copy no live run is using
@@ -304,6 +307,12 @@
 #                        two unversioned downloads, are reused before asking
 #                        again (default 24)
 #   WPMCP_TEST_DB_PORT   MariaDB port (default 3399)
+#   WPMCP_TEST_DB_HOST   an external database server, host:port or host:/socket
+#                        (CI's service container): the private MariaDB is not
+#                        started, and every database is created on that server
+#   WPMCP_TEST_DB_USER, WPMCP_TEST_DB_PASS  the external server's user (default
+#                        root, no password); it must be able to create and drop
+#                        databases
 #   WPMCP_TEST_PHP       PHP binary (default php)
 #   WPMCP_MARIADB_BIN    directory holding mariadbd, if not found automatically
 #   WPMCP_BREAKDANCE_SRC a local Breakdance plugin directory for the live
@@ -393,6 +402,18 @@ DB_USER=wpmcp
 DB_PASS=wpmcp
 DB_DIR="$CACHE/mariadb"
 SOCK="$DB_DIR/mariadbd.sock"
+# An external database server (CI's service container, or the parallel mode's
+# own server): WPMCP_TEST_DB_HOST is host:port (or host:/path/to/socket), with
+# WPMCP_TEST_DB_USER (default root) and WPMCP_TEST_DB_PASS (default empty), a
+# user that may create and drop databases. The private MariaDB is then neither
+# started nor used, and the client is mariadb or mysql from PATH.
+EXT_DB_HOST=${WPMCP_TEST_DB_HOST:-}
+DB_HOST_CFG="127.0.0.1:$PORT"
+if [ -n "$EXT_DB_HOST" ]; then
+	DB_USER=${WPMCP_TEST_DB_USER:-root}
+	DB_PASS=${WPMCP_TEST_DB_PASS:-}
+	DB_HOST_CFG=$EXT_DB_HOST
+fi
 # The cache budget, see "The cache" above.
 KEEP_INSTALLS=${WPMCP_TEST_KEEP_INSTALLS:-6}
 MAX_GB=${WPMCP_TEST_MAX_GB:-15}
@@ -470,6 +491,8 @@ coverage=true
 plan_only=false
 resolve_only=false
 prune_only=false
+list_legs=""
+list_json=false
 phpunit_args=()
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -521,6 +544,9 @@ while [ $# -gt 0 ]; do
 		--plan) plan_only=true ;;
 		--resolve-plugins) resolve_only=true ;;
 		--prune) prune_only=true ;;
+		--list-legs) list_legs=all ;;
+		--list-legs=*) list_legs=${1#--list-legs=} ;;
+		--json) list_json=true ;;
 		--) shift; phpunit_args=("$@"); break ;;
 		-h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
 		*) die "unknown option: $1 (see --help)" ;;
@@ -561,6 +587,9 @@ floor_wp=$(sed -n 's/^Requires at least:[[:space:]]*//p' "$ROOT/readme.txt" | he
 
 targeted=false
 [ ${#phpunit_args[@]} -gt 0 ] && targeted=true
+
+# The rows of bin/legs.tsv without its comments, one leg per line.
+leg_rows() { grep -v -e '^#' -e '^[[:space:]]*$' "$ROOT/bin/legs.tsv"; }
 
 # The legs of this run, in order, one "<kind> [WordPress] [coverage]" each.
 LEGS=()
@@ -610,88 +639,50 @@ elif [ "$only_multisite" = true ]; then
 elif [ -n "$only_wp" ]; then
 	LEGS+=("phpunit $only_wp none")
 else
-	if [ "$targeted" = false ]; then
-		LEGS+=("lint" "drift")
-	fi
-	if [ "$coverage" = true ] && [ "$targeted" = false ]; then
-		LEGS+=("phpunit $default_wp floor")
-	else
-		LEGS+=("phpunit $default_wp none")
-	fi
-	# The floor leg (issue #488): part of every plain run, so the pre-push
-	# hook and the merge queue gate test the oldest WordPress the plugin
-	# claims to support. --all runs every version in WP_VERSIONS instead.
-	if [ "$run_all" = true ]; then
-		for version in "${versions[@]:1}"; do
-			LEGS+=("phpunit $version none")
-		done
-	elif [ "$targeted" = false ] && [ "$floor_wp" != "$default_wp" ]; then
-		LEGS+=("phpunit $floor_wp none")
-	fi
-	# The multisite leg (issue #530): the whole suite on the default
-	# WordPress installed as a network, in every plain run, so a write or a
-	# permission check that only breaks on multisite fails before a push.
-	if [ "$targeted" = false ]; then
-		LEGS+=("multisite $default_wp none")
-	fi
-	if [ "$targeted" = false ]; then
-		LEGS+=("live-forms $default_wp" "live-blocks $default_wp" "live-buddypress $default_wp" "live-bbpress $default_wp" "live-lms $default_wp" "live-tablepress $default_wp" "live-rank-math $default_wp" "live-links $default_wp" "live-site-reviews $default_wp" "live-code-snippets $default_wp" "live-crm $default_wp" "live-helpdesk $default_wp" "live-activity-log $default_wp" "live-action-scheduler $default_wp" "live-site-gate $default_wp" "live-email-log $default_wp" "live-amelia $default_wp" "live-funnelkit $default_wp" "live-polylang $default_wp" "live-wp-mail-smtp $default_wp" "live-fluent-smtp $default_wp" "live-post-smtp $default_wp")
-		if [ -n "${WPMCP_BREAKDANCE_SRC:-}" ]; then
-			LEGS+=("live-breakdance $default_wp")
-		fi
-		if [ -n "${WPMCP_AVADA_SRC:-}" ]; then
-			LEGS+=("live-avada $default_wp")
-		fi
-		if [ -n "${WPMCP_WPBAKERY_SRC:-}" ]; then
-			LEGS+=("live-wpbakery $default_wp")
-		fi
-		if [ -n "${WPMCP_THRIVE_ARCHITECT_SRC:-}" ]; then
-			LEGS+=("live-thrive $default_wp")
-		fi
-		if [ -n "${WPMCP_CORNERSTONE_SRC:-}" ]; then
-			LEGS+=("live-cornerstone $default_wp")
-		fi
-		if [ -n "${WPMCP_OXYGEN_SRC:-}" ]; then
-			LEGS+=("live-oxygen $default_wp")
-		fi
-		if [ -n "${WPMCP_DIVI_SRC:-}" ]; then
-			LEGS+=("live-divi $default_wp")
-		fi
-		if [ -n "${WPMCP_BETHEME_SRC:-}" ]; then
-			LEGS+=("live-betheme $default_wp")
-		fi
-		if [ -n "${WPMCP_BRICKS_SRC:-}" ]; then
-			LEGS+=("live-bricks $default_wp")
-		fi
-		if [ -n "${WPMCP_MEMBERPRESS_SRC:-}" ]; then
-			LEGS+=("live-memberpress $default_wp")
-		fi
-		if [ -n "${WPMCP_WC_SUBSCRIPTIONS_SRC:-}" ]; then
-			LEGS+=("live-wc-subscriptions $default_wp")
-		fi
-		if [ -n "${WPMCP_ASTRA_PRO_SRC:-}${WPMCP_KADENCE_PRO_SRC:-}${WPMCP_GP_PREMIUM_SRC:-}" ]; then
-			LEGS+=("live-theme-pro $default_wp")
-		fi
-		if [ -n "${WPMCP_WC_BOOKINGS_SRC:-}" ]; then
-			LEGS+=("live-wc-bookings $default_wp")
-		fi
-		if [ -n "${WPMCP_ELEMENTOR_PRO_SRC:-}" ]; then
-			LEGS+=("live-elementor-pro $default_wp")
-		fi
-		if [ -n "${WPMCP_WP_ROCKET_SRC:-}${WPMCP_PERFMATTERS_SRC:-}${WPMCP_FLYING_PRESS_SRC:-}" ]; then
-			LEGS+=("live-cache-settings $default_wp")
-		fi
-		if [ -n "${WPMCP_JET_ELEMENTS_SRC:-}" ]; then
-			LEGS+=("live-jet-elements $default_wp")
-		fi
-		if [ -n "${WPMCP_WS_FORM_SRC:-}" ]; then
-			LEGS+=("live-ws-form $default_wp")
-		fi
-		# The adapter leg (issue #501) under --all only; see the header.
-		if [ "$run_all" = true ]; then
-			LEGS+=("live-adapter $default_wp")
-		fi
-	fi
+	# The plain gate, in the order of bin/legs.tsv.
+	while IFS=$'\t' read -r id kind tier _wp _cov _groups requires _tests; do
+		case "$tier" in
+			static) [ "$targeted" = true ] || LEGS+=("$kind") ;;
+			suite)
+				case "$id" in
+					phpunit-default)
+						if [ "$coverage" = true ] && [ "$targeted" = false ]; then
+							LEGS+=("phpunit $default_wp floor")
+						else
+							LEGS+=("phpunit $default_wp none")
+						fi ;;
+					# The floor leg (issue #488): part of every plain run, so the
+					# pre-push hook and the merge queue gate test the oldest
+					# WordPress the plugin claims to support. --all runs every
+					# version in WP_VERSIONS instead.
+					phpunit-floor)
+						if [ "$run_all" = true ]; then
+							for version in "${versions[@]:1}"; do
+								LEGS+=("phpunit $version none")
+							done
+						elif [ "$targeted" = false ] && [ "$floor_wp" != "$default_wp" ]; then
+							LEGS+=("phpunit $floor_wp none")
+						fi ;;
+					# The multisite leg (issue #530): the whole suite on the
+					# default WordPress installed as a network, in every plain run,
+					# so a write or a permission check that only breaks on
+					# multisite fails before a push.
+					*) [ "$targeted" = true ] || LEGS+=("$kind $default_wp none") ;;
+				esac ;;
+			free) [ "$targeted" = true ] || LEGS+=("$kind $default_wp") ;;
+			# A licensed leg runs when any of its local copies is named.
+			licensed)
+				[ "$targeted" = false ] || continue
+				for var in ${requires//,/ }; do
+					if [ -n "${!var:-}" ]; then
+						LEGS+=("$kind $default_wp")
+						break
+					fi
+				done ;;
+			# The adapter leg (issue #501) under --all only; see the header.
+			extra) [ "$targeted" = true ] || [ "$run_all" = false ] || LEGS+=("$kind $default_wp") ;;
+		esac
+	done < <(leg_rows)
 fi
 
 # "phpunit 6.9 none" -> "phpunit wp=6.9 coverage=none"; "live-forms 7.1" -> "live-forms wp=7.1".
@@ -700,6 +691,33 @@ leg_label() {
 	read -r kind wp cov <<<"$1"
 	printf '%s%s%s' "$kind" "${wp:+ wp=$wp}" "${cov:+ coverage=$cov}"
 }
+
+# --list-legs[=<tier>,...] [--json]: the rows of bin/legs.tsv (all, or only
+# those of the tiers named), for CI and other tools; runs nothing.
+if [ -n "$list_legs" ]; then
+	rows=$(leg_rows | awk -F '\t' -v want=",$list_legs," 'want == ",all," || index(want, "," $3 ",")')
+	if [ "$list_json" = true ]; then
+		# shellcheck disable=SC2016 # PHP code, expanded by PHP.
+		"$PHP" -r '
+			$keys = ["id", "kind", "tier", "wp", "coverage", "groups", "requires", "tests"];
+			$out = [];
+			foreach (explode("\n", trim(stream_get_contents(STDIN))) as $line) {
+				if ($line === "") { continue; }
+				$row = array_combine($keys, explode("\t", $line));
+				foreach (["groups", "requires", "tests"] as $k) {
+					$row[$k] = $row[$k] === "-" ? [] : explode(",", $row[$k]);
+				}
+				foreach (["wp", "coverage"] as $k) {
+					$row[$k] = $row[$k] === "-" ? null : $row[$k];
+				}
+				$out[] = $row;
+			}
+			echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), "\n";' <<<"$rows"
+	else
+		[ -z "$rows" ] || printf '%s\n' "$rows"
+	fi
+	exit 0
+fi
 
 if [ "$plan_only" = true ]; then
 	for leg in "${LEGS[@]}"; do
@@ -711,12 +729,52 @@ fi
 
 # --resolve-plugins and --prune need no database.
 BIN=""
-[ "$resolve_only" = true ] || [ "$prune_only" = true ] || BIN=$(mariadb_dir)
+DB_CLIENT=""
+if [ "$resolve_only" = true ] || [ "$prune_only" = true ]; then
+	:
+elif [ -n "$EXT_DB_HOST" ]; then
+	# A MariaDB client first: the MySQL 9 client cannot log in to MariaDB.
+	DB_CLIENT=$(command -v mariadb || true)
+	if [ -z "$DB_CLIENT" ] && dir=$( (mariadb_dir) 2>/dev/null); then
+		DB_CLIENT="$dir/mariadb"
+	fi
+	[ -n "$DB_CLIENT" ] || DB_CLIENT=$(command -v mysql || true)
+	[ -n "$DB_CLIENT" ] || die "WPMCP_TEST_DB_HOST is set but neither a mariadb nor a mysql client is on PATH"
+else
+	BIN=$(mariadb_dir)
+	DB_CLIENT="$BIN/mariadb"
+fi
 
-db_ping() { "$BIN/mariadb-admin" --no-defaults --socket="$SOCK" -uroot ping >/dev/null 2>&1; }
+# Runs the database client as a user that may create and drop databases:
+# root on the private MariaDB's socket, or the external server's user.
+db_sql() {
+	if [ -n "$EXT_DB_HOST" ]; then
+		local host=${EXT_DB_HOST%%:*} rest=""
+		[ "$host" = "$EXT_DB_HOST" ] || rest=${EXT_DB_HOST#*:}
+		if [[ "$rest" =~ ^[0-9]+$ ]]; then
+			MYSQL_PWD="$DB_PASS" "$DB_CLIENT" --no-defaults --protocol=tcp -h "$host" -P "$rest" -u "$DB_USER" "$@"
+		elif [ -n "$rest" ]; then
+			MYSQL_PWD="$DB_PASS" "$DB_CLIENT" --no-defaults --socket="$rest" -u "$DB_USER" "$@"
+		else
+			MYSQL_PWD="$DB_PASS" "$DB_CLIENT" --no-defaults -h "$host" -u "$DB_USER" "$@"
+		fi
+	else
+		"$DB_CLIENT" --no-defaults --socket="$SOCK" -uroot "$@"
+	fi
+}
+
+db_ping() {
+	if [ -n "$EXT_DB_HOST" ]; then
+		db_sql -e 'SELECT 1' >/dev/null 2>&1
+	else
+		"$BIN/mariadb-admin" --no-defaults --socket="$SOCK" -uroot ping >/dev/null 2>&1
+	fi
+}
 
 if [ "${stop_db:-false}" = true ]; then
-	if db_ping; then
+	if [ -n "$EXT_DB_HOST" ]; then
+		say "WPMCP_TEST_DB_HOST names an external database server; there is no private MariaDB to stop."
+	elif db_ping; then
 		"$BIN/mariadb-admin" --no-defaults --socket="$SOCK" -uroot shutdown
 		say "MariaDB stopped."
 	else
@@ -760,6 +818,7 @@ with_lock() {
 
 start_db() {
 	db_ping && return 0
+	[ -z "$EXT_DB_HOST" ] || die "cannot reach the database server WPMCP_TEST_DB_HOST=$EXT_DB_HOST as $DB_USER"
 	with_lock db start_db_locked
 }
 
@@ -1018,7 +1077,7 @@ install_wp_locked() {
 		(
 			export TMPDIR="$dir/tmp" WP_CORE_DIR="$dir/wordpress/" WP_TESTS_DIR="$dir/wordpress-tests-lib" WPMCP_PLUGIN_VERSIONS="$pins"
 			export WPMCP_DOWNLOAD_CACHE="$DOWNLOADS" WPMCP_TEST_LATEST_TTL_HOURS="$LATEST_TTL_HOURS"
-			bash "$ROOT/bin/install-wp-tests.sh" wpmcp_unused "$DB_USER" "$DB_PASS" "127.0.0.1:$PORT" "$version" true
+			bash "$ROOT/bin/install-wp-tests.sh" wpmcp_unused "$DB_USER" "$DB_PASS" "$DB_HOST_CFG" "$version" true
 			bash "$ROOT/bin/install-test-plugins.sh"
 		) >"$dir/install.log" 2>&1 || die "WordPress $version install failed, see $dir/install.log"
 	fi
@@ -1334,14 +1393,14 @@ db_config() {
 	# Per run: parallel runs, even in one checkout, never share a database or
 	# a config. Both are removed when the run exits.
 	name="wpmcp_test_$(printf '%s|%s' "$ROOT" "$version" | shasum | cut -c1-12)_$$"
-	"$BIN/mariadb" --no-defaults --socket="$SOCK" -uroot -e "CREATE DATABASE IF NOT EXISTS \`$name\`"
+	db_sql -e "CREATE DATABASE IF NOT EXISTS \`$name\`"
 	mkdir -p "$CACHE/configs"
 	config="$CACHE/configs/$name.php"
 	sed -E \
 		-e "s/define\( *'DB_NAME', *'[^']*' *\)/define( 'DB_NAME', '$name' )/" \
 		-e "s/define\( *'DB_USER', *'[^']*' *\)/define( 'DB_USER', '$DB_USER' )/" \
 		-e "s/define\( *'DB_PASSWORD', *'[^']*' *\)/define( 'DB_PASSWORD', '$DB_PASS' )/" \
-		-e "s/define\( *'DB_HOST', *'[^']*' *\)/define( 'DB_HOST', '127.0.0.1:$PORT' )/" \
+		-e "s/define\( *'DB_HOST', *'[^']*' *\)/define( 'DB_HOST', '$DB_HOST_CFG' )/" \
 		-e "s#define\( *'ABSPATH', *'[^']*' *\)#define( 'ABSPATH', '$core/' )#" \
 		"$dir/wordpress-tests-lib/wp-tests-config.php" >"$config"
 	grep -q "'$name'" "$config" || die "could not write the DB name into $config"
@@ -2180,7 +2239,7 @@ cleanup_run() {
 	for c in "${RUN_CORES[@]+"${RUN_CORES[@]}"}"; do rm -rf "$c"; done
 	for c in "${RUN_CONFIGS[@]+"${RUN_CONFIGS[@]}"}"; do
 		db=$(basename "$c" .php)
-		"$BIN/mariadb" --no-defaults --socket="$SOCK" -uroot -e "DROP DATABASE IF EXISTS \`$db\`" 2>/dev/null || true
+		db_sql -e "DROP DATABASE IF EXISTS \`$db\`" 2>/dev/null || true
 		rm -f "$c"
 	done
 }

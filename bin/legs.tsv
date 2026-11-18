@@ -1,0 +1,70 @@
+# The legs of the test gate, as data: bin/test-local.sh builds a plain run's
+# plan from this file (in this order), its --parallel mode schedules them, and
+# CI reads it through `bin/test-local.sh --list-legs[=<tiers>] [--json]`.
+#
+# One leg per line, eight tab-separated columns, "-" for an empty one:
+#   id        unique name of the row
+#   kind      the leg kind run_leg_body runs and --plan prints
+#   tier      static    no WordPress (lint, drift)
+#             suite     the whole free and pro suites on one WordPress
+#             free      a live group whose plugins all come from WordPress.org
+#             licensed  a live group that needs a commercial copy (Mac only;
+#                       never run, named in or referenced from CI)
+#             extra     run under --all only (the adapter leg)
+#   wp        default | floor (the Requires at least WordPress) | - (none)
+#   coverage  floor (the coverage floor leg) | none | -
+#   groups    the PHPUnit groups the leg runs, comma separated; - for the
+#             whole suite
+#   requires  for licensed legs: the environment variables naming the local
+#             copies; any one of them set enables the leg; - otherwise
+#   tests     the test files holding the leg's groups, comma separated; - for
+#             the whole suite. TestGateTest checks this column against the
+#             @group annotations.
+#
+# Plugins and versions are not here: bin/install-test-plugins.sh --list is
+# their one home, and each leg's summary line names what it ran against.
+lint	lint	static	-	-	-	-	-
+drift	drift	static	-	-	-	-	-
+phpunit-default	phpunit	suite	default	floor	-	-	-
+phpunit-floor	phpunit	suite	floor	none	-	-	-
+multisite	multisite	suite	default	none	-	-	-
+live-forms	live-forms	free	default	-	forms-live	-	tests/free/Integrations/ContactForm7LiveTest.php,tests/free/Integrations/FluentFormsLiveTest.php,tests/free/Integrations/FormidableLiveTest.php,tests/free/Integrations/ForminatorLiveTest.php,tests/free/Integrations/NinjaFormsLiveTest.php,tests/free/Integrations/SureFormsLiveTest.php,tests/free/Integrations/WPFormsLiveTest.php
+live-blocks	live-blocks	free	default	-	blocks-live	-	tests/pro/Integrations/BlockSuitesLiveTest.php
+live-buddypress	live-buddypress	free	default	-	buddypress-live	-	tests/free/Integrations/BuddyPressLiveTest.php,tests/free/Integrations/BuddyPressPrivateGroupLiveTest.php
+live-bbpress	live-bbpress	free	default	-	bbpress-live	-	tests/free/Integrations/BbPressLiveTest.php
+live-lms	live-lms	free	default	-	tutor-live,lifterlms-live	-	tests/pro/Integrations/TutorLmsLiveTest.php,tests/pro/Integrations/LifterLmsLiveTest.php
+live-tablepress	live-tablepress	free	default	-	tablepress-live	-	tests/pro/Integrations/TablePressLiveTest.php
+live-rank-math	live-rank-math	free	default	-	rank-math-live	-	tests/pro/Integrations/RankMathLiveTest.php
+live-links	live-links	free	default	-	links-live	-	tests/free/Integrations/LinksLiveTest.php
+live-site-reviews	live-site-reviews	free	default	-	site-reviews-live	-	tests/free/Integrations/SiteReviewsLiveTest.php
+live-code-snippets	live-code-snippets	free	default	-	code-snippets-live	-	tests/pro/Integrations/CodeSnippetsLiveTest.php
+live-crm	live-crm	free	default	-	crm-live	-	tests/pro/Integrations/CrmLiveTest.php
+live-helpdesk	live-helpdesk	free	default	-	helpdesk-live	-	tests/pro/Integrations/KnowledgeBaseSupportLiveTest.php
+live-activity-log	live-activity-log	free	default	-	activity-log-live	-	tests/free/Integrations/ActivityLogLiveTest.php
+live-action-scheduler	live-action-scheduler	free	default	-	action-scheduler-live	-	tests/free/Integrations/ActionSchedulerLiveTest.php
+live-site-gate	live-site-gate	free	default	-	site-gate-live	-	tests/free/Integrations/SiteGateLiveTest.php
+live-email-log	live-email-log	free	default	-	email-log-live	-	tests/free/Integrations/EmailLogLiveTest.php
+live-amelia	live-amelia	free	default	-	amelia-live	-	tests/pro/Integrations/AmeliaLiveTest.php
+live-funnelkit	live-funnelkit	free	default	-	funnelkit-live	-	tests/pro/Integrations/FunnelKitLiveTest.php
+live-polylang	live-polylang	free	default	-	polylang-live	-	tests/pro/Integrations/I18nPolylangLiveTest.php
+live-wp-mail-smtp	live-wp-mail-smtp	free	default	-	wp-mail-smtp-live	-	tests/free/Integrations/WpMailSmtpLiveTest.php
+live-fluent-smtp	live-fluent-smtp	free	default	-	fluent-smtp-live	-	tests/free/Integrations/FluentSmtpLiveTest.php
+live-post-smtp	live-post-smtp	free	default	-	post-smtp-live	-	tests/free/Integrations/PostSmtpLiveTest.php
+live-breakdance	live-breakdance	licensed	default	-	breakdance-live	WPMCP_BREAKDANCE_SRC	tests/pro/Builders/BreakdanceLiveTest.php
+live-avada	live-avada	licensed	default	-	avada-live	WPMCP_AVADA_SRC	tests/pro/Builders/AvadaLiveTest.php
+live-wpbakery	live-wpbakery	licensed	default	-	wpbakery-live	WPMCP_WPBAKERY_SRC	tests/pro/Builders/WPBakeryLiveTest.php
+live-thrive	live-thrive	licensed	default	-	thrive-live	WPMCP_THRIVE_ARCHITECT_SRC	tests/pro/Builders/ThriveLiveTest.php
+live-cornerstone	live-cornerstone	licensed	default	-	cornerstone-live	WPMCP_CORNERSTONE_SRC	tests/pro/Builders/CornerstoneLiveTest.php
+live-oxygen	live-oxygen	licensed	default	-	oxygen-live	WPMCP_OXYGEN_SRC	tests/pro/Builders/OxygenLiveTest.php
+live-divi	live-divi	licensed	default	-	divi-live	WPMCP_DIVI_SRC	tests/pro/Builders/Divi5LiveTest.php
+live-betheme	live-betheme	licensed	default	-	betheme-live	WPMCP_BETHEME_SRC	tests/pro/Builders/BeThemeLiveTest.php
+live-bricks	live-bricks	licensed	default	-	bricks-live	WPMCP_BRICKS_SRC	tests/pro/Builders/BricksLiveTest.php
+live-memberpress	live-memberpress	licensed	default	-	memberpress-live	WPMCP_MEMBERPRESS_SRC	tests/pro/Integrations/MemberPressLiveTest.php
+live-wc-subscriptions	live-wc-subscriptions	licensed	default	-	wc-subscriptions-live	WPMCP_WC_SUBSCRIPTIONS_SRC	tests/pro/WooCommerce/WooSubscriptionsLiveTest.php
+live-theme-pro	live-theme-pro	licensed	default	-	astra-pro-live,kadence-pro-live,generatepress-pro-live	WPMCP_ASTRA_PRO_SRC,WPMCP_KADENCE_PRO_SRC,WPMCP_GP_PREMIUM_SRC	tests/pro/Integrations/ThemeLayoutsLiveTest.php
+live-wc-bookings	live-wc-bookings	licensed	default	-	wc-bookings-live	WPMCP_WC_BOOKINGS_SRC	tests/pro/WooCommerce/WooBookingsLiveTest.php
+live-elementor-pro	live-elementor-pro	licensed	default	-	elementor-pro-live	WPMCP_ELEMENTOR_PRO_SRC	tests/pro/Integrations/ElementorProFormsLiveTest.php
+live-cache-settings	live-cache-settings	licensed	default	-	cache-wp-rocket-live,cache-perfmatters-live,cache-flyingpress-live	WPMCP_WP_ROCKET_SRC,WPMCP_PERFMATTERS_SRC,WPMCP_FLYING_PRESS_SRC	tests/pro/Integrations/CacheSettingsLiveTest.php
+live-jet-elements	live-jet-elements	licensed	default	-	jet-elements-live	WPMCP_JET_ELEMENTS_SRC	tests/pro/Integrations/JetElementsLiveTest.php
+live-ws-form	live-ws-form	licensed	default	-	ws-form-live	WPMCP_WS_FORM_SRC	tests/free/Integrations/WSFormLiveTest.php
+live-adapter	live-adapter	extra	default	-	adapter-live	-	tests/free/MCP/AdapterPluginLiveTest.php
