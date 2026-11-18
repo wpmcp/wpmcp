@@ -93,6 +93,15 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // Post SMTP's settings, whose from address and name the
             // set-post-smtp-from op changes (issue #696).
             'postman_options',
+            // GTranslate's settings, whose language lists the
+            // gtranslate-set-languages op changes (issue #690).
+            'GTranslate',
+            // FiboSearch's settings, changed by update-fibosearch-settings
+            // on the theme pair (issue #700).
+            'dgwt_wcas_settings',
+            // Relevanssi's own settings, one option per name, changed by
+            // update-relevanssi-settings on the theme pair (issue #700).
+            'relevanssi_*',
         ],
         'transient'      => [
             'scrape_key_*',
@@ -145,6 +154,7 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
         'src/Safety/Wc_Shipping_Zone_Snapshot.php'           => 'puts back recorded WooCommerce options',
         'src/Safety/BbPress_Posts_Snapshot.php'              => 'puts back the recorded bbPress super sticky list (_bbp_super_sticky_topics)',
         'src/Integrations/Theme_Settings_Pack.php'           => 'theme settings options',
+        'src/Integrations/Block_Suite_Settings.php'          => 'Kadence Blocks and Spectra settings options from its allowlist (issue #648)',
         'src/Integrations/Elementor_Addon_Packs.php'         => 'Elementor add-on settings',
         'src/Integrations/LMS_LearnDash.php'                 => 'LearnDash\'s own enrollment user meta (course_<id>_access_from)',
         'src/Integrations/Cache_Settings_Adapter.php'        => 'the cache plugin\'s own settings option (wp_rocket_settings, perfmatters_options, FLYING_PRESS_CONFIG)',
