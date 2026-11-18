@@ -218,6 +218,9 @@ class FunnelKitLiveTest extends \WP_UnitTestCase
         // capability FunnelKit's default funnel access goes by.
         $manager = self::factory()->user->create([ 'role' => 'editor' ]);
         get_userdata($manager)->add_cap('manage_woocommerce');
+        // WooCommerce's Shop manager role has edit_theme_options, the theme
+        // pair's floor for its ops (issue #952), so the refusal tested is FunnelKit's.
+        get_userdata($manager)->add_cap('edit_theme_options');
         wp_set_current_user($manager);
         $this->assertTrue(current_user_can('manage_woocommerce'));
         $this->assertFalse(current_user_can('manage_options'));
@@ -247,6 +250,8 @@ class FunnelKitLiveTest extends \WP_UnitTestCase
 
         $manager = self::factory()->user->create([ 'role' => 'editor' ]);
         get_userdata($manager)->add_cap('manage_woocommerce');
+        // The theme pair's floor (issue #952), as a Shop manager has it.
+        get_userdata($manager)->add_cap('edit_theme_options');
         wp_set_current_user($manager);
         $denied = $this->write('delete-funnelkit-funnel', [ 'id' => $id ], [ 'confirm' => true ]);
         $this->assertSame('funnelkit_access_denied', $denied['error']['code'] ?? '', (string) wp_json_encode($denied));

@@ -5,7 +5,12 @@ namespace WPMCP\Tests\Free\Safety;
 use WPMCP\Safety\{File_Backup, Snapshot_Store, Snapshot};
 
 class SnapshotStoreCrudTest extends \WP_UnitTestCase {
-    protected function setUp(): void { parent::setUp(); Snapshot_Store::install(); }
+    protected function setUp(): void {
+        parent::setUp();
+        Snapshot_Store::install();
+        // Start from an empty undo history, whatever an earlier test left (issue #963).
+        $GLOBALS['wpdb']->query('DELETE FROM ' . Snapshot_Store::table_name());
+    }
     public function test_save_and_get_roundtrip(): void {
         $snap = [ 'object_type'=>'post','object_id'=>7,'data'=>['post'=>['post_content'=>'A'],'meta'=>[]] ];
         Snapshot_Store::save( 'op-1', 'sess-1', $snap, 'update-blocks', str_repeat('a',64) );

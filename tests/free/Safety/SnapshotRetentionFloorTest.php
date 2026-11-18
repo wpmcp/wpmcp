@@ -19,6 +19,9 @@ class SnapshotRetentionFloorTest extends \WP_UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Start from an empty undo history, whatever an earlier test left
+        // (issue #963), before install() measures it for the floor.
+        $GLOBALS['wpdb']->query('DELETE FROM ' . Snapshot_Store::table_name());
         delete_option(Snapshot_Store::HISTORY_FLOOR_OPTION);
         Snapshot_Store::install();
     }

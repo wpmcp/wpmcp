@@ -15,6 +15,10 @@
  *
  * The plan job runs this once and hands the configs to every shard job, so
  * all shards of a run split the same way.
+ *
+ * With SHARD_ONLY=<file> in the environment (one test file per line, written
+ * by .github/ci/impact.php), only those files are sharded: the impact run of
+ * a pull request.
  */
 
 if ( $argc < 4 ) {
@@ -36,6 +40,15 @@ foreach ( array( 'tests/free', 'tests/pro' ) as $dir ) {
 	}
 }
 sort( $files );
+$only = getenv( 'SHARD_ONLY' );
+if ( $only ) {
+	$want  = array_filter( array_map( 'trim', (array) file( $only ) ) );
+	$files = array_values( array_intersect( $files, $want ) );
+	if ( count( $files ) !== count( array_unique( $want ) ) ) {
+		fwrite( STDERR, "shard: SHARD_ONLY names files that are not test files: " . implode( ' ', array_diff( $want, $files ) ) . "\n" );
+		exit( 1 );
+	}
+}
 if ( ! $files ) {
 	fwrite( STDERR, "shard: no test files found\n" );
 	exit( 1 );
@@ -47,7 +60,7 @@ if ( '-' !== $argv[2] && is_readable( $argv[2] ) ) {
 }
 $known  = array_values( array_filter( array_map( fn( $f ) => $timings[ $f ] ?? null, $files ), 'is_numeric' ) );
 $weight = array();
-if ( count( $known ) >= count( $files ) / 2 ) {
+if ( $known && count( $known ) >= count( $files ) / 2 ) {
 	sort( $known );
 	$median = $known[ intdiv( count( $known ), 2 ) ];
 	foreach ( $files as $f ) {

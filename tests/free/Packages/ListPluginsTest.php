@@ -6,6 +6,26 @@ use WPMCP\Tools\Packages\List_Plugins;
 
 class ListPluginsTest extends \WP_UnitTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->mock_akismet_api();
+    }
+
+    /**
+     * Deactivating Akismet tells its API the key is no longer in use (issue
+     * #963). Answer that call here so the test never reaches the network.
+     */
+    private function mock_akismet_api(): void
+    {
+        add_filter('pre_http_request', static function ($pre, $args, $url) {
+            if (false === $pre && false !== strpos((string) $url, 'rest.akismet.com/')) {
+                return ['headers' => [], 'body' => 'deactivated', 'response' => ['code' => 200, 'message' => 'OK'], 'cookies' => [], 'filename' => null];
+            }
+            return $pre;
+        }, 10, 3);
+    }
+
     public function test_lists_plugins_with_active_and_protected_flags(): void
     {
         $out = (new List_Plugins())->handle([]);
