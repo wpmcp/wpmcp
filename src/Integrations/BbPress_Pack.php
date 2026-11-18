@@ -56,6 +56,15 @@ final class BbPress_Pack
     public static function requirement(bool $write = false)
     {
         if (! self::active() || ($write && ! function_exists('bbp_insert_topic'))) {
+            if (! self::active() && BuddyPress_Pack::is_buddyboss()) {
+                // BuddyBoss Platform bundles the forums; they load only while its Forums component is on (issue #670).
+                $components = admin_url('admin.php?page=bp-components');
+                return [
+                    'code'    => 'bbpress_inactive',
+                    'message' => sprintf('The BuddyBoss Platform Forums component is not active. Turn it on under BuddyBoss, Settings, Components (%s), then try again.', $components),
+                    'data'    => [ 'plugin_name' => 'BuddyBoss Platform', 'component' => 'forums', 'settings_url' => $components ],
+                ];
+            }
             return Plugin_Refusal::make('bbpress_inactive', 'bbPress');
         }
         return true;
