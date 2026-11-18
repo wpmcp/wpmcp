@@ -488,10 +488,25 @@ SH);
             sleep(1);
         } finally {
             proc_terminate($process, 15);
-            $status = proc_close($process);
+            // Wait for the run to finish its exit trap before looking at what
+            // it left.
+            $status = -1;
+            for ($i = 0; $i < 300; $i++) {
+                $info = proc_get_status($process);
+                if (! $info['running']) {
+                    $status = $info['exitcode'];
+                    break;
+                }
+                usleep(100000);
+            }
+            proc_close($process);
         }
 
         $out = (string) file_get_contents($this->tmp . '/out.log');
+        // The loop above asked is_dir() about this slot while it existed, and
+        // PHP 8.1 answers from its stat cache until told to forget (it failed
+        // on CI's PHP 8.1 shard while the slot was long gone).
+        clearstatcache();
         $this->assertNotSame(0, $status, $out);
         $this->assertDirectoryDoesNotExist($this->cache . '/locks/run-2', 'the slot is released on TERM: ' . $out);
         $this->assertDirectoryExists($this->cache . '/locks/run-1', 'another run\'s slot is left alone');

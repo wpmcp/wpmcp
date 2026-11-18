@@ -1378,7 +1378,6 @@ acquire_slot() {
 			lock="$CACHE/locks/$kind-$n"
 			if mkdir_lock "$lock"; then
 				echo $$ >"$lock/pid"
-				HELD_SLOTS+=("$lock")
 				return 0
 			fi
 			holder=$(cat "$lock/pid" 2>/dev/null || true)
@@ -1386,7 +1385,6 @@ acquire_slot() {
 				rm -rf "$lock"
 				if mkdir_lock "$lock"; then
 					echo $$ >"$lock/pid"
-					HELD_SLOTS+=("$lock")
 					return 0
 				fi
 			fi
@@ -2426,7 +2424,6 @@ fi
 
 RUN_CORES=()
 RUN_CONFIGS=()
-HELD_SLOTS=()
 cleanup_run() {
 	local c db
 	for c in "${RUN_CORES[@]+"${RUN_CORES[@]}"}"; do
@@ -2453,11 +2450,6 @@ finish_run() {
 	[ -z "${LEG_NOTE:-}" ] || rm -f "$LEG_NOTE"
 	rm -rf "$CACHE/cores/"*-$$ 2>/dev/null || true
 	rm -f "$CACHE"/wp-*/.users/$$ 2>/dev/null || true
-	# The slots this run took go by name: on Ubuntu 26.04 (uutils) a run
-	# stopped with TERM kept its slot when only the pid files were compared.
-	for lock in "${HELD_SLOTS[@]+"${HELD_SLOTS[@]}"}"; do
-		rm -rf "$lock"
-	done
 	for lock in "$CACHE/locks/"*/; do
 		[ "$(cat "${lock}pid" 2>/dev/null || true)" != $$ ] || rm -rf "$lock"
 	done
