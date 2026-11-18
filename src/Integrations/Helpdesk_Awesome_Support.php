@@ -265,7 +265,6 @@ class Helpdesk_Awesome_Support extends Helpdesk_Adapter
             'posts_per_page'   => -1,
             'orderby'          => 'ID',
             'order'            => 'ASC',
-            'suppress_filters' => true,
             'no_found_rows'    => true,
         ]);
         $names = (array) get_option('wpas_original_files', []);
