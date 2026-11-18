@@ -10,5 +10,5 @@ cd "$(dirname "$0")/../.."
 echo "php -l with $(php -r 'echo PHP_VERSION;')"
 # shellcheck disable=SC2016 # $1 is expanded by the inner sh.
 find src wpmcp.php uninstall.php -name '*.php' -print0 \
-	| xargs -0 -n 1 -P 8 sh -c 'out=$(php -d display_errors=stdout -l "$1" 2>&1) || { echo "::error file=$1::does not parse on PHP $(php -r "echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;"): $(printf "%s" "$out" | grep -m1 -i error)"; exit 1; }' _
+	| xargs -0 -n 1 -P 8 sh -c 'out=$(php -d display_errors=stdout -l "$1" 2>&1) || { printf "::error file=%s::does not parse on PHP %s: %s\n" "$1" "$(php -r "echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;")" "$(printf "%s" "$out" | grep -m1 -i error)"; exit 1; }' _
 echo "All files parse."
