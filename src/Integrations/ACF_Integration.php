@@ -130,9 +130,12 @@ class ACF_Integration extends Integration_Dispatcher
             'capability'         => $cap,
             'enabled_by_default' => $writes_on,
             'opt_in_filter'      => 'wpmcp_enable_acf_write',
+            // Every other ACF setting passes through to ACF (ACF_Schema::settings()),
+            // so these writes take keys beyond the listed ones (issue #956).
             'input_schema'       => [
-                'type'       => 'object',
-                'properties' => [ 'key' => $key ] + $properties,
+                'type'                 => 'object',
+                'properties'           => [ 'key' => $key ] + $properties,
+                'additionalProperties' => true,
             ],
             'validate'           => fn (array $args) => 'field_group' === $kind
                 ? ACF_Schema::validate_field_group($args)

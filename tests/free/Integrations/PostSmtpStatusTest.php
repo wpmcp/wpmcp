@@ -462,6 +462,22 @@ class PostSmtpStatusTest extends \WP_UnitTestCase
         $this->assertLeaksNothing($out);
     }
 
+    public function test_set_from_refuses_another_plugins_name_for_the_sender_and_records_nothing(): void
+    {
+        // Issue #956: sender_name is the FluentSMTP op's key; this op takes from_name.
+        $this->enable_writes();
+        $before = get_option('postman_options');
+        $rows   = Snapshot_Store::row_count();
+
+        $out = $this->write('set-post-smtp-from', [ 'from_email' => 'admin@example.com', 'sender_name' => 'WP MCP Test Mailer' ]);
+
+        $this->assertSame('invalid_args', $out['error']['code'] ?? null, (string) wp_json_encode($out));
+        $this->assertSame([ 'sender_name' ], $out['error']['data']['unknown']);
+        $this->assertSame([ 'from_email', 'from_name' ], $out['error']['data']['allowed']);
+        $this->assertSame($before, get_option('postman_options'));
+        $this->assertSame($rows, Snapshot_Store::row_count());
+    }
+
     public function test_set_from_name_only_leaves_the_address(): void
     {
         $this->enable_writes();
