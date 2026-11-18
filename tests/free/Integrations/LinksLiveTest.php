@@ -76,6 +76,11 @@ class LinksLiveTest extends \WP_UnitTestCase
         $this->assertSame('slug_in_use', ((new Plugin_Data_Integration())->handle_write([ 'operation' => 'prettylinks-create-link', 'args' => [ 'url' => 'https://example.com/x', 'slug' => 'op-made' ] ]))['error']['code'] ?? null);
         $this->assertNotNull($repo->findBySlug('op-made'));
 
+        // A slug the plugin would rewrite is refused and nothing is stored (#950).
+        $this->assertSame('invalid_slug', ((new Plugin_Data_Integration())->handle_write([ 'operation' => 'prettylinks-create-link', 'args' => [ 'url' => 'https://example.com/offer', 'slug' => 'bad slug!' ] ]))['error']['code'] ?? null);
+        $this->assertNull($repo->findBySlug('bad-slug!'));
+        $this->assertNull($repo->findBySlug('bad slug!'));
+
         // Update, trash, and each undone.
         $up = $this->call('write', 'prettylinks-update-link', [ 'link_id' => $id, 'name' => 'Renamed' ]);
         $this->assertSame('Renamed', $repo->find($id)['name']);

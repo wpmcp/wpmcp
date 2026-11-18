@@ -194,7 +194,7 @@ final class Pretty_Links_Pack
             ],
             'prettylinks-create-link'     => $write + [
                 'mode'         => 'write',
-                'description'  => 'Create a Pretty Links link: url (http or https, required), slug (generated when empty), name, description, redirect_type (301, 302 or 307), nofollow, sponsored, track_me, new_window, param_forwarding. A slug another link holds is refused. Undo: rollback-operation removes it',
+                'description'  => 'Create a Pretty Links link: url (http or https, required), slug (generated when empty), name, description, redirect_type (301, 302 or 307), nofollow, sponsored, track_me, new_window, param_forwarding. A slug another link holds, or with characters beyond letters, digits, - _ / ., is refused. Undo: rollback-operation removes it',
                 'input_schema' => [ 'type' => 'object', 'properties' => $fields, 'required' => [ 'url' ] ],
                 'validate'     => static fn (array $args): ?array => self::create_refusal($args),
                 'snapshot'     => static fn (array $args): array => [
@@ -415,6 +415,28 @@ final class Pretty_Links_Pack
         return trim($slug, '-/ ');
     }
 
+    /**
+     * Refusal for a slug Pretty Links would rewrite, or one outside letters,
+     * digits, "-", "_", "/" and "." (#950): the op refuses instead of storing
+     * a changed slug. A link may keep the slug it already holds.
+     */
+    private static function slug_shape_refusal(string $given, string $clean, int $except): ?array
+    {
+        if ($except > 0 && $given === (string) ( self::row($except)['slug'] ?? '' )) {
+            return null;
+        }
+        if ($clean === $given && 1 === preg_match('#^[\p{L}\p{N}\p{M}_\-/.]+$#u', $given)) {
+            return null;
+        }
+        $suggest = (string) preg_replace('#[^\p{L}\p{N}\p{M}_\-/.]#u', '', $clean);
+        $suggest = trim((string) preg_replace([ '#/+#', '/-+/' ], [ '/', '-' ], $suggest), '-/');
+        return self::refusal(
+            'invalid_slug',
+            sprintf('The slug "%s" is not allowed: use only letters, digits, "-", "_", "/" and ".", with no leading, trailing or repeated "-" or "/". Nothing was written.', $given),
+            [ 'slug' => $given ] + ( '' !== $suggest ? [ 'suggested_slug' => $suggest ] : [] )
+        );
+    }
+
     private static function slug_taken(string $slug, int $except = 0): bool
     {
         global $wpdb;
@@ -443,6 +465,10 @@ final class Pretty_Links_Pack
             $slug = self::clean_slug((string) $args['slug']);
             if (null === $slug || '' === $slug) {
                 return self::refusal('invalid_slug', 'The slug has no usable characters, or starts with a slash.', [ 'slug' => (string) $args['slug'] ]);
+            }
+            $bad = self::slug_shape_refusal(trim((string) $args['slug']), $slug, $except);
+            if (null !== $bad) {
+                return $bad;
             }
             if (self::slug_taken($slug, $except)) {
                 return self::refusal('slug_in_use', sprintf('Another Pretty Links link already uses the slug "%s".', $slug), [ 'slug' => $slug ]);
@@ -594,6 +620,9 @@ final class Pretty_Links_Pack
         global $wpdb;
         $id  = (int) $args['link_id'];
         $set = self::columns_from($args);
+        if (isset($args['slug']) && trim((string) $args['slug']) === (string) ( self::row($id)['slug'] ?? '' )) {
+            unset($set['slug']); // The slug it already holds stays byte for byte, legacy characters included.
+        }
         if ([] === $set) {
             return [ 'link' => self::view((array) self::row($id)) ];
         }
