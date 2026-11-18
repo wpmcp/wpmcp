@@ -228,6 +228,61 @@ class IncidentResponseTest extends \WP_UnitTestCase
         return count(\WP_Session_Tokens::get_instance($user_id)->get_all());
     }
 
+    public function test_list_sessions_for_one_user_masks_personal_data_and_never_returns_tokens(): void
+    {
+        $user = self::factory()->user->create(['role' => 'author']);
+        $_SERVER['REMOTE_ADDR']     = '198.51.100.23';
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (Macintosh) Firefox/140.0';
+        $token = \WP_Session_Tokens::get_instance($user)->create(time() + HOUR_IN_SECONDS);
+        \WP_Session_Tokens::get_instance($user)->create(time() + DAY_IN_SECONDS);
+
+        $result = $this->tool()->handle(['action' => 'list-sessions', 'user_id' => $user]);
+
+        $this->assertSame($user, $result['user_id']);
+        $this->assertSame(2, $result['count']);
+        $this->assertTrue($result['masked']);
+        $row = $result['sessions'][0];
+        $this->assertSame(['login', 'expiration', 'ip', 'user_agent', 'current'], array_keys($row));
+        $this->assertSame('198.51.100.0', $row['ip']);
+        $this->assertSame('M***', $row['user_agent']);
+        $this->assertFalse($row['current']);
+        $this->assertGreaterThan(0, $row['login']);
+
+        $json = (string) wp_json_encode($result);
+        $this->assertStringNotContainsString($token, $json);
+        $this->assertStringNotContainsString(hash('sha256', $token), $json);
+        $this->assertStringNotContainsString('198.51.100.23', $json);
+        $this->assertStringNotContainsString('Firefox', $json);
+        $this->assertSame(2, $this->sessions($user), 'listing ends nothing');
+    }
+
+    public function test_list_sessions_marks_the_callers_current_session(): void
+    {
+        $this->sign_in_as_caller();
+        \WP_Session_Tokens::get_instance($this->admin)->create(time() + DAY_IN_SECONDS);
+
+        $result = $this->tool()->handle(['action' => 'list-sessions']);
+
+        $this->assertSame($this->admin, $result['user_id']);
+        $this->assertSame(2, $result['count']);
+        $this->assertSame(1, count(array_filter(array_column($result['sessions'], 'current'))));
+    }
+
+    public function test_listing_another_users_sessions_needs_edit_users(): void
+    {
+        $user = self::factory()->user->create(['role' => 'author']);
+        \WP_Session_Tokens::get_instance($user)->create(time() + HOUR_IN_SECONDS);
+
+        add_role('wpmcp_ir_ops', 'IR ops', ['read' => true, 'manage_options' => true]);
+        wp_set_current_user(self::factory()->user->create(['role' => 'wpmcp_ir_ops']));
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->tool()->handle(['action' => 'list-sessions', 'user_id' => $user]);
+        } finally {
+            remove_role('wpmcp_ir_ops');
+        }
+    }
+
     public function test_end_sessions_needs_confirm(): void
     {
         $user = self::factory()->user->create(['role' => 'author']);

@@ -177,11 +177,13 @@ class PluginDataIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('pods_inactive', $this->error_code($this->read('pods-list-fields', [ 'post_type' => 'post' ])));
         $this->assertArrayNotHasKey('error', $this->read('translatepress-list-languages'));
 
-        // With none of the three loaded the whole pair is unavailable (WooCommerce bundles Action Scheduler, so it is off too).
+        // With none of the three loaded the whole pair is unavailable (WooCommerce
+        // bundles Action Scheduler, so it is off too); an op still names the
+        // plugin it needs rather than the generic integration_unavailable (#980).
         add_filter('wpmcp_action_scheduler_active', '__return_false');
         remove_all_filters('wpmcp_translatepress_active');
         add_filter('wpmcp_translatepress_active', '__return_false');
-        $this->assertSame('integration_unavailable', $this->error_code($this->read('translatepress-list-languages')));
+        $this->assertSame('translatepress_inactive', $this->error_code($this->read('translatepress-list-languages')));
     }
 
     // JetEngine.
