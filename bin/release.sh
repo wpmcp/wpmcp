@@ -29,6 +29,13 @@
 #   --dry-run      print what would change or run; push, merge and tag nothing
 #   --skip-gate    preflight without the local gate (CI checks still required);
 #                  for an emergency only
+#   --allow-red=<regex>
+#                  accept failing GitHub checks whose name matches the
+#                  extended regex (known failures with an open issue); they
+#                  are listed, any other red check still stops the release,
+#                  and the pr phase then merges with --admin
+#   --wait=<min>   preflight and pr wait up to <min> minutes (default 30) for
+#                  running checks instead of stopping
 #
 # The gate in preflight, after the TableCrafter tools/release.sh preflight:
 #   1. the fast tier: `bin/test-local.sh --unit` when the local runner has it
@@ -45,11 +52,15 @@ cd "$(dirname "$0")/.."
 REPO=wpmcp/wpmcp
 DRYRUN=0
 SKIP_GATE=0
+ALLOW_RED=""
+WAIT_MIN=30
 ARGS=()
 for arg in "$@"; do
 	case "$arg" in
 		--dry-run) DRYRUN=1 ;;
 		--skip-gate) SKIP_GATE=1 ;;
+		--allow-red=*) ALLOW_RED=${arg#--allow-red=} ;;
+		--wait=*) WAIT_MIN=${arg#--wait=} ;;
 		-h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
 		*) ARGS+=("$arg") ;;
 	esac
@@ -77,6 +88,38 @@ no_dashes() {
 	fi
 }
 
+# Reads "<status> <conclusion> <name>" check lines on stdin and prints the
+# completed ones that are red and not excused by --allow-red.
+red_filter() {
+	local line name
+	while IFS= read -r line; do
+		[[ "$line" == completed\ * ]] || continue
+		[[ "$line" =~ ^completed\ (success|skipped|neutral)\  ]] && continue
+		name=${line#completed }
+		name=${name#* }
+		if [ -n "$ALLOW_RED" ] && grep -qE -- "$ALLOW_RED" <<<"$name"; then
+			continue
+		fi
+		echo "$line"
+	done
+	return 0
+}
+
+# Check lines for a commit, waiting up to WAIT_MIN minutes while any runs.
+commit_checks() {
+	local sha=$1 runs deadline
+	deadline=$(($(date +%s) + WAIT_MIN * 60))
+	while :; do
+		runs=$(gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" --jq '.check_runs[] | "\(.status) \(.conclusion) \(.name)"')
+		if [ -n "$runs" ] && ! grep -qv '^completed ' <<<"$runs"; then
+			break
+		fi
+		[ "$(date +%s)" -lt "$deadline" ] || { echo "$runs"; return 1; }
+		sleep 30
+	done
+	echo "$runs"
+}
+
 phase_preflight() {
 	require_ver
 	local cur sha free_gb
@@ -96,14 +139,16 @@ phase_preflight() {
 
 	sha=$(git rev-parse HEAD)
 	info "GitHub checks on $sha ..."
-	local runs bad pending
-	runs=$(gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" --jq '.check_runs[] | "\(.status) \(.conclusion) \(.name)"')
+	local runs bad pending excused
+	runs=$(commit_checks "$sha") || true
 	[ -n "$runs" ] || die "no GitHub checks on $sha yet"
 	pending=$(grep -v '^completed ' <<<"$runs" || true)
-	bad=$(grep '^completed ' <<<"$runs" | grep -vE '^completed (success|skipped|neutral) ' || true)
-	[ -z "$pending" ] || die "checks still running on $sha:"$'\n'"$pending"
+	[ -z "$pending" ] || die "checks still running on $sha after $WAIT_MIN minutes:"$'\n'"$pending"
+	bad=$(red_filter <<<"$runs")
 	[ -z "$bad" ] || die "checks not green on $sha:"$'\n'"$bad"
-	info "all $(wc -l <<<"$runs" | tr -d ' ') checks green"
+	excused=$(grep '^completed ' <<<"$runs" | grep -vE '^completed (success|skipped|neutral) ' || true)
+	[ -z "$excused" ] || warn "red checks accepted by --allow-red:"$'\n'"$excused"
+	info "$(wc -l <<<"$runs" | tr -d ' ') checks, none red outside --allow-red"
 
 	local licensed
 	licensed=$(gh api "repos/$REPO/commits/$sha/statuses" --jq '[.[] | select(.context == "licensed-live")][0].state // ""')
@@ -192,8 +237,21 @@ phase_pr() {
 		n=$(gh pr list --repo "$REPO" --head "$branch" --state open --json number --jq '.[0].number')
 	fi
 	info "waiting for the checks of #$n ..."
-	run gh pr checks "$n" --repo "$REPO" --watch --fail-fast
-	run gh pr merge "$n" --repo "$REPO" --merge
+	local head runs bad admin=()
+	if [ "$DRYRUN" = 1 ]; then
+		echo "  DRY: wait for the checks of #$n, then gh pr merge $n --merge"
+		return 0
+	fi
+	head=$(gh pr view "$n" --repo "$REPO" --json headRefOid --jq .headRefOid)
+	runs=$(commit_checks "$head") || die "checks of #$n still running after $WAIT_MIN minutes"
+	bad=$(red_filter <<<"$runs")
+	[ -z "$bad" ] || die "checks of #$n not green:"$'\n'"$bad"
+	if grep '^completed ' <<<"$runs" | grep -qvE '^completed (success|skipped|neutral) '; then
+		warn "merging #$n with --admin over red checks accepted by --allow-red"
+		gh pr comment "$n" --repo "$REPO" --body "Merged with --admin: the red checks match --allow-red ($ALLOW_RED), known failures with open issues." >/dev/null
+		admin=(--admin)
+	fi
+	gh pr merge "$n" --repo "$REPO" --merge ${admin[@]+"${admin[@]}"}
 	run git checkout main
 	run git pull -q --ff-only origin main
 	info "pr OK (#$n merged)"
@@ -223,6 +281,7 @@ EOF
 }
 
 case "$PHASE" in
+	red-filter) red_filter ;;
 	preflight) phase_preflight ;;
 	bump) phase_bump ;;
 	pr) phase_pr ;;
