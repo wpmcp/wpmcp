@@ -179,6 +179,10 @@ return [
         'src/Integrations/Theme_Layouts_Astra.php',
         'src/Integrations/Theme_Layouts_Kadence.php',
         'src/Integrations/Theme_Layouts_GeneratePress.php',
+        // The Blocksy Companion extension ops (issue #650), paid-tier.
+        // strip.php takes out the merge and the rollback refresh in
+        // Theme_Framework_Pack.
+        'src/Integrations/Theme_Blocksy_Extensions.php',
         // The Elementor addon suite packs (issue #286): widget catalog and
         // module toggle ops for three addon suites, all paid-tier. strip.php
         // takes out the line in Theme_Integration that merges them and the
