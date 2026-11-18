@@ -190,6 +190,10 @@ return [
         // And its funnel, step and checkout product writes (issue #500),
         // merged only by FunnelKit_Pack.
         'src/Integrations/FunnelKit_Writes.php',
+        // Thrive Theme Builder templates, sections and theme settings (issue
+        // #824), paid-tier. strip.php takes out the line in Theme_Integration
+        // that merges them.
+        'src/Integrations/Thrive_Theme_Pack.php',
         // LMS course structure and enrollments (issue #394), paid-tier.
         // strip.php takes out the lines in Plugin_Data_Integration that merge
         // the ops, count the pack towards availability and name it in the

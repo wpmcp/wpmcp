@@ -102,6 +102,11 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // Relevanssi's own settings, one option per name, changed by
             // update-relevanssi-settings on the theme pair (issue #700).
             'relevanssi_*',
+            // Thrive Theme Builder's logo link, favicon and default featured
+            // image, changed by update-thrive-theme-settings (issue #824).
+            'thrive-theme-logo-url',
+            'thrive-theme-favicon',
+            'thrive-theme-default-featured-image',
         ],
         'transient'      => [
             'scrape_key_*',
