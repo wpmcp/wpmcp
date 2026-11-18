@@ -187,7 +187,7 @@ class AddContainerTest extends Structural_Harness
 
     public function test_works_on_a_page_with_no_elementor_data_yet(): void
     {
-        $post_id = self::factory()->post->create(['post_type' => 'page']);
+        $post_id = self::factory()->post->create(['post_type' => 'page', 'post_content' => '']);
 
         $out = (new Add_Container())->handle([
             'post_id'       => $post_id,

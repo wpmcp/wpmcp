@@ -34,7 +34,7 @@ class GenerateWidgetTest extends \WP_UnitTestCase
 
     private function make_page(array $elements = []): int
     {
-        $post_id = self::factory()->post->create(['post_type' => 'page']);
+        $post_id = self::factory()->post->create(['post_type' => 'page', 'meta_input' => ['_elementor_edit_mode' => 'builder']]);
         update_post_meta($post_id, '_elementor_data', wp_json_encode($elements));
         return $post_id;
     }

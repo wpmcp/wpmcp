@@ -52,6 +52,11 @@ class Move_Element
             return new \WP_Error('invalid_move', 'An element cannot be moved into itself or one of its own children.');
         }
 
+        $refusal = Elementor_Page_Data::builder_mode_refusal($post_id);
+        if ($refusal) {
+            return $refusal;
+        }
+
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'post',
@@ -65,6 +70,7 @@ class Move_Element
                 Elementor_Page_Data::remove($elements, $element_id);
                 Elementor_Page_Data::insert($elements, $parent_id, $element);
                 Elementor_Page_Data::save($post_id, $elements);
+                Elementor_Page_Data::mark_built_with_elementor($post_id);
                 return true;
             }
         );

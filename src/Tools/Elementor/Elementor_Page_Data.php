@@ -48,6 +48,58 @@ class Elementor_Page_Data
         Elementor_Cache::invalidate_document($post_id);
     }
 
+    /** Whether Elementor treats the page as built with it (it renders `_elementor_data` only then). */
+    public static function is_built_with_elementor(int $post_id): bool
+    {
+        return (bool) get_post_meta($post_id, '_elementor_edit_mode', true);
+    }
+
+    /**
+     * Refusal for a page-tree write that would change what the page shows
+     * beyond the edit itself (issue #868). Elementor renders `_elementor_data`
+     * only once `_elementor_edit_mode` is set, and setting it hides the
+     * page's WordPress editor content. A page with no flag and no such
+     * content is safe to initialise; one that has content (never opened in
+     * Elementor, or switched back to the WordPress editor) is refused, with
+     * nothing written, rather than having that content silently replaced.
+     */
+    public static function builder_mode_refusal(int $post_id): ?\WP_Error
+    {
+        if (self::is_built_with_elementor($post_id)) {
+            return null;
+        }
+
+        $post = get_post($post_id);
+        if (! $post || '' === trim((string) $post->post_content)) {
+            return null;
+        }
+
+        return new \WP_Error(
+            'not_an_elementor_page',
+            "Page {$post_id} is not built with Elementor and has WordPress editor content, which Elementor would hide once the page becomes an Elementor page. Nothing was written. "
+            . 'To keep that content, open the page once in the Elementor editor (Elementor converts it into a Text Editor widget), then re-read it with get-elementor-data and retry. '
+            . 'To replace it, clear the content with update-post first, or build a new page with build-page.'
+        );
+    }
+
+    /**
+     * Mark the page as built with Elementor, as Elementor's editor does when
+     * a page is first opened in it, so the stored tree renders (issue #868).
+     * Called inside the snapshotted mutation, so rollback removes the meta it
+     * adds. Leaves a page that already has the flag and version untouched.
+     */
+    public static function mark_built_with_elementor(int $post_id): void
+    {
+        if (! self::is_built_with_elementor($post_id)) {
+            // The string, not a boolean, matching Elementor's own write.
+            update_post_meta($post_id, '_elementor_edit_mode', 'builder');
+        }
+
+        if (defined('ELEMENTOR_VERSION') && '' === (string) get_post_meta($post_id, '_elementor_version', true)) {
+            update_post_meta($post_id, '_elementor_version', (string) ELEMENTOR_VERSION);
+        }
+    }
+
     /**
      * Recursively find an element by id within a tree, returning a reference
      * to its containing array's entry so callers can mutate it in place.

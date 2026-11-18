@@ -404,7 +404,7 @@ class AtomicPropRepairTest extends Structural_Harness
 
     public function test_update_atomic_widget_repairs_a_patch(): void
     {
-        $post_id = self::factory()->post->create(['post_type' => 'page']);
+        $post_id = self::factory()->post->create(['post_type' => 'page', 'meta_input' => ['_elementor_edit_mode' => 'builder']]);
         update_post_meta($post_id, '_elementor_data', wp_json_encode([[
             'id'         => 'head001',
             'elType'     => 'widget',
@@ -427,7 +427,7 @@ class AtomicPropRepairTest extends Structural_Harness
 
     public function test_update_atomic_widget_refuses_a_patch_that_maps_to_nothing(): void
     {
-        $post_id = self::factory()->post->create(['post_type' => 'page']);
+        $post_id = self::factory()->post->create(['post_type' => 'page', 'meta_input' => ['_elementor_edit_mode' => 'builder']]);
         update_post_meta($post_id, '_elementor_data', wp_json_encode([[
             'id'         => 'head001',
             'elType'     => 'widget',

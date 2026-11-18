@@ -153,6 +153,11 @@ class Element_Tree
      */
     public static function write(int $post_id, array $elements, string $tool_name, array $args)
     {
+        $refusal = Elementor_Page_Data::builder_mode_refusal($post_id);
+        if ($refusal) {
+            return $refusal;
+        }
+
         $operation_id = wp_generate_uuid4();
         $intended     = self::normalize($elements);
 
@@ -168,6 +173,7 @@ class Element_Tree
                 ],
                 function () use ($post_id, $elements) {
                     self::persist($post_id, $elements);
+                    Elementor_Page_Data::mark_built_with_elementor($post_id);
                     return true;
                 },
                 function () use ($post_id, $intended) {
