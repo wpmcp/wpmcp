@@ -37,7 +37,7 @@ class Delete_Theme
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \WPMCP\MCP\Confirmation_Required('Deleting a theme is permanent. Pass confirm:true to proceed.');
+            throw \WPMCP\MCP\Confirmation_Required::in_arguments('Deleting a theme is permanent. Pass confirm:true to proceed.');
         }
 
         $theme = wp_get_theme($stylesheet);

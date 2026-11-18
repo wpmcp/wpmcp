@@ -152,6 +152,27 @@ class Fixture_Integration extends Integration_Dispatcher
                     throw new Operation_Error('scope_unresolved', 'Refusing to answer unscoped.', [ 'form_id' => 7 ]);
                 },
             ],
+            'erase-content'  => [
+                'mode'            => 'destructive',
+                'description'     => 'Empty a post\'s content, snapshotted first',
+                'input_schema'    => [
+                    'type'       => 'object',
+                    'properties' => [ 'post_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
+                    'required'   => [ 'post_id' ],
+                ],
+                'confirm_preview' => static fn (array $args): array => [
+                    'message' => sprintf('Empty post %d.', (int) $args['post_id']),
+                    'data'    => [ 'post_id' => (int) $args['post_id'] ],
+                ],
+                'snapshot'        => fn (array $args) => [
+                    'object_type' => 'post',
+                    'object_id'   => (int) $args['post_id'],
+                ],
+                'handler'         => function (array $args) {
+                    self::$calls[] = [ 'erase-content', $args ];
+                    return [ 'post_id' => (int) $args['post_id'] ];
+                },
+            ],
             'nuke'           => [
                 'mode'         => 'destructive',
                 'description'  => 'Destroy something irreversibly',

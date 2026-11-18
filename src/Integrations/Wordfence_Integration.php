@@ -111,8 +111,9 @@ final class Wordfence_Integration
                 ], 'required' => [ 'ip' ] ],
                 'requires'        => $requires,
                 'validate'        => static fn (array $args): ?array => self::validate_block($args),
+                'confirm_in_arguments' => true,
                 'confirm_preview' => static fn (array $args): array => [
-                    'message' => sprintf('Block %s in Wordfence.', $args['ip']),
+                    'message' => self::block_preview((string) $args['ip'], (int) ($args['duration'] ?? 0)),
                     'data'    => [ 'ip' => $args['ip'], 'duration' => (int) ($args['duration'] ?? 0) ],
                 ],
                 'snapshot'        => static fn (array $args): array => self::blocks_target((string) $args['ip']),
@@ -124,10 +125,14 @@ final class Wordfence_Integration
                 'input_schema'    => [ 'type' => 'object', 'properties' => $ip, 'required' => [ 'ip' ] ],
                 'requires'        => $requires,
                 'validate'        => static fn (array $args): ?array => self::validate_unblock($args),
-                'confirm_preview' => static fn (array $args): array => [
-                    'message' => sprintf('Unblock %s in Wordfence.', $args['ip']),
-                    'data'    => [ 'ip' => $args['ip'], 'blocks' => count(self::ip_rows((string) $args['ip'])) ],
-                ],
+                'confirm_in_arguments' => true,
+                'confirm_preview' => static function (array $args): array {
+                    $blocks = count(self::ip_rows((string) $args['ip']));
+                    return [
+                        'message' => sprintf('Remove %s on %s, so Wordfence lets it reach the site again. Undo: rollback-operation.', 1 === $blocks ? 'the 1 Wordfence block' : sprintf('all %d Wordfence blocks', $blocks), $args['ip']),
+                        'data'    => [ 'ip' => $args['ip'], 'blocks' => $blocks ],
+                    ];
+                },
                 'snapshot'        => static fn (array $args): array => self::blocks_target((string) $args['ip']),
                 'handler'         => static fn (array $args): array => self::unblock_ip($args),
             ],
@@ -140,8 +145,13 @@ final class Wordfence_Integration
                 ], 'required' => [ 'issue_id' ] ],
                 'requires'        => $requires,
                 'validate'        => static fn (array $args): ?array => self::validate_issue($args),
+                'confirm_in_arguments' => true,
                 'confirm_preview' => static fn (array $args): array => [
-                    'message' => sprintf('Ignore Wordfence scan issue %d.', (int) $args['issue_id']),
+                    'message' => sprintf(
+                        'Mark Wordfence scan issue %d as ignored %s, so it leaves the open scan results. Undo: rollback-operation.',
+                        (int) $args['issue_id'],
+                        'ignoreP' === ($args['how'] ?? 'ignoreC') ? 'always (ignoreP)' : 'until the issue changes (ignoreC)'
+                    ),
                     'data'    => [ 'issue_id' => (int) $args['issue_id'], 'how' => $args['how'] ?? 'ignoreC' ],
                 ],
                 'snapshot'        => static fn (array $args): array => [
@@ -151,6 +161,16 @@ final class Wordfence_Integration
                 'handler'         => static fn (array $args): array => self::ignore_issue($args),
             ],
         ];
+    }
+
+    /** What block-wordfence-ip will do, for its confirmation refusal (issue #886). */
+    private static function block_preview(string $ip, int $duration): string
+    {
+        return sprintf(
+            'Block %s in Wordfence %s: Wordfence refuses every request from that IP, including logins. Undo: rollback-operation or unblock-wordfence-ip.',
+            $ip,
+            0 === $duration ? 'permanently, until it is unblocked' : sprintf('for %d seconds', $duration)
+        );
     }
 
     /** Whether Wordfence is loaded, filterable through wpmcp_wordfence_active. */

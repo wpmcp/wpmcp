@@ -107,6 +107,10 @@ The Model Context Protocol is an open standard that lets AI assistants use tools
 
 Every mutating tool snapshots the affected data first, and destructive escape hatches (WP-CLI, PHP execution) ship disabled by default and only run in development environments. You can restore any snapshot, or roll back an entire agent session.
 
+= What if my AI client skips permission prompts? =
+
+WP MCP asks before destructive actions: through your MCP client's confirmation prompt when the client supports one, otherwise by refusing until the agent passes confirm:true. A client set to skip its own permission prompts (for example Claude Code started with --dangerously-skip-permissions, or any auto-approve mode) also skips those WP MCP confirmations, because it answers them itself without asking you. Actions that cannot be undone, and the Wordfence IP block, unblock and scan issue ignore operations, are never confirmed through the client: they run only when the agent's own call carries confirm:true, and the refusal says exactly what that will do. Keep permission prompts on when an agent can reach those tools.
+
 = Does this replace my backup plugin? =
 
 No. Snapshots are fine-grained, per-operation undo, not full-site backups. Keep your backup solution.

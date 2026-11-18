@@ -6,6 +6,7 @@ use WPMCP\Governance\Governance;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
 use WPMCP\MCP\Ability;
+use WPMCP\MCP\Elicitation;
 use WPMCP\MCP\Opt_In_Required;
 use WPMCP\MCP\Registrar;
 use WPMCP\Safety\Safe_Mutation;
@@ -51,6 +52,13 @@ if (! defined('ABSPATH')) {
  *                           answers confirmation_required with the preview
  *                           (a send reports its recipient count), so the
  *                           person confirms exactly that
+ *      'confirm_in_arguments' destructive ops only: true when only confirm:true
+ *                           in the call's own arguments satisfies the gate,
+ *                           never a client's elicitation answer (issue #886).
+ *                           Defaults to true for an op whose effect cannot be
+ *                           undone (undoable:false or no snapshot); the
+ *                           refusal and the catalog row then carry
+ *                           confirm_in_arguments:true
  *      'undoable'           false for a write that snapshots its target but
  *                           whose effect cannot be undone (mail sent): the
  *                           response says recoverable:false
@@ -319,6 +327,9 @@ abstract class Integration_Dispatcher
                 'dependency_met'   => true === self::op_requirement($def),
                 'input_schema'     => $def['input_schema'] ?? [ 'type' => 'object' ],
             ];
+            if (self::confirm_in_arguments($def)) {
+                $ops[ count($ops) - 1 ][ Elicitation::IN_ARGUMENTS_KEY ] = true;
+            }
         }
 
         return [
@@ -326,6 +337,29 @@ abstract class Integration_Dispatcher
             'available'   => $this->is_available(),
             'operations'  => $ops,
         ];
+    }
+
+    /**
+     * Whether a destructive op takes confirm:true only from the call's own
+     * arguments, never from a client's elicitation answer (issue #886). A
+     * client set to skip permission prompts can accept that question by
+     * itself. True when the op says so ('confirm_in_arguments'), and by
+     * default for every destructive op whose effect cannot be undone: one
+     * declared 'undoable' => false or one with no snapshot (recoverable:false).
+     *
+     * @param array<string,mixed> $def
+     */
+    private static function confirm_in_arguments(array $def): bool
+    {
+        if ('destructive' !== ($def['mode'] ?? '')) {
+            return false;
+        }
+        if (isset($def['confirm_in_arguments'])) {
+            return (bool) $def['confirm_in_arguments'];
+        }
+
+        return false === ($def['undoable'] ?? true)
+            || (! isset($def['snapshot']) && empty($def['self_snapshotting']));
     }
 
     /**
@@ -490,8 +524,15 @@ abstract class Integration_Dispatcher
             );
         }
 
-        $unconfirmed = 'destructive' === $def['mode'] && true !== ($args['confirm'] ?? false);
+        $unconfirmed  = 'destructive' === $def['mode'] && true !== ($args['confirm'] ?? false);
+        $in_arguments = self::confirm_in_arguments($def);
         if ($unconfirmed && ! isset($def['confirm_preview'])) {
+            if ($in_arguments) {
+                return $this->error('confirmation_required', sprintf(
+                    'Operation "%s" is destructive and cannot be undone, so it requires confirm:true in the call\'s own arguments; a confirmation answered through the client does not count.',
+                    $op
+                ), [ Elicitation::IN_ARGUMENTS_KEY => true ]);
+            }
             return $this->error('confirmation_required', sprintf(
                 'Operation "%s" is destructive and requires confirm:true.',
                 $op
@@ -532,6 +573,15 @@ abstract class Integration_Dispatcher
                 // A previewed op is asked about only once its args pass, with
                 // what it would do in the question.
                 $preview = (array) ($def['confirm_preview'])($op_args);
+                if ($in_arguments) {
+                    // Issue #886: the refusal is the whole question, so it
+                    // says exactly what confirm:true will do.
+                    return $this->error('confirmation_required', sprintf(
+                        'Operation "%s" requires confirm:true in the call\'s own arguments; a confirmation answered through the client does not count. With confirm:true: %s',
+                        $op,
+                        (string) ($preview['message'] ?? '')
+                    ), (array) ($preview['data'] ?? []) + [ Elicitation::IN_ARGUMENTS_KEY => true ]);
+                }
                 return $this->error('confirmation_required', sprintf(
                     'Operation "%s" requires confirm:true. %s',
                     $op,

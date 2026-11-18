@@ -868,7 +868,11 @@ class CrmPackTest extends \WP_UnitTestCase
         add_filter('wpmcp_enable_crm_send', '__return_true');
         $ask = $this->write('fluentcrm-send-campaign', [ 'id' => $id ]);
         $this->assertSame('confirmation_required', $this->code($ask));
-        $this->assertTrue(Elicitation::is_confirmation_refusal($ask), 'the person is asked through the confirmation path');
+        // Mail cannot be unsent, so only confirm:true in the call itself
+        // counts, never a client's elicitation answer (issue #886).
+        $this->assertSame('confirmation_required', $ask['error']['code']);
+        $this->assertTrue($ask['error']['data']['confirm_in_arguments']);
+        $this->assertFalse(Elicitation::is_confirmation_refusal($ask), 'not answerable by a client that skips permission prompts');
         $this->assertSame(1, $ask['error']['data']['recipients']);
         $this->assertStringContainsString('1 subscribed contact', $ask['error']['message']);
         $this->assertSame([], $this->calls(Fake_FluentCRM::$calls, 'send_campaign'), 'nothing is sent before the person confirms');

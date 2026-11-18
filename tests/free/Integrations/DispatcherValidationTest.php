@@ -2,6 +2,8 @@
 
 namespace WPMCP\Tests\Free\Integrations;
 
+use WPMCP\MCP\Elicitation;
+
 /**
  * Dispatch-level validation: unknown/disabled operations and malformed args
  * must produce structured errors WITHOUT the op handler ever running (no
@@ -123,6 +125,34 @@ class DispatcherValidationTest extends \WP_UnitTestCase
 
         $this->assertSame('confirmation_required', $out['error']['code']);
         $this->assertSame([], Fixture_Integration::$calls);
+    }
+
+    /**
+     * Issue #886: a destructive op with no undo point takes confirm:true
+     * only from the call's arguments, so its refusal is never turned into
+     * an elicitation a client could answer by itself. A snapshotted one
+     * keeps asking the person.
+     */
+    public function test_an_irreversible_op_needs_confirm_in_its_arguments(): void
+    {
+        $out = $this->integration->handle_write([ 'operation' => 'nuke' ]);
+
+        $this->assertSame('confirmation_required', $out['error']['code']);
+        $this->assertTrue($out['error']['data']['confirm_in_arguments'] ?? null);
+        $this->assertStringContainsString("confirm:true in the call's own arguments", $out['error']['message']);
+        $this->assertFalse(Elicitation::is_confirmation_refusal($out));
+
+        $post = self::factory()->post->create();
+        $out  = $this->integration->handle_write([ 'operation' => 'erase-content', 'args' => [ 'post_id' => $post ] ]);
+        $this->assertSame('confirmation_required', $out['error']['code']);
+        $this->assertArrayNotHasKey('confirm_in_arguments', $out['error']['data']);
+        $this->assertTrue(Elicitation::is_confirmation_refusal($out));
+        $this->assertSame([], Fixture_Integration::$calls);
+
+        $ops = array_column($this->integration->catalog()['operations'], null, 'name');
+        $this->assertTrue($ops['nuke']['confirm_in_arguments'] ?? null);
+        $this->assertArrayNotHasKey('confirm_in_arguments', $ops['erase-content']);
+        $this->assertArrayNotHasKey('confirm_in_arguments', $ops['set-content'], 'only destructive ops carry the flag');
     }
 
     public function test_destructive_op_with_confirm_true_runs(): void

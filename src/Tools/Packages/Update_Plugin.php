@@ -36,7 +36,7 @@ class Update_Plugin
         }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw new \WPMCP\MCP\Confirmation_Required('Updating a plugin modifies files on disk. Pass confirm:true to proceed.');
+            throw \WPMCP\MCP\Confirmation_Required::in_arguments('Updating a plugin modifies files on disk. Pass confirm:true to proceed.');
         }
 
         if (Package_Guard::is_protected_plugin($plugin)) {

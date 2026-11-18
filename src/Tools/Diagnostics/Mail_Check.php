@@ -164,7 +164,7 @@ class Mail_Check
         }
 
         if (! $confirm) {
-            throw new Confirmation_Required('Sending a test email requires confirm:true.');
+            throw Confirmation_Required::in_arguments('Sending a test email requires confirm:true.');
         }
 
         $stamps[] = $now;
