@@ -263,6 +263,11 @@ return [
         // only. strip.php takes out the lines in Plugin_Data_Integration that
         // merge the ops and count the pack towards availability.
         'src/Integrations/Offload_Media_Pack.php',
+        // Thrive Ovation testimonials (issue #829), paid-tier. strip.php takes
+        // out the lines in Plugin_Data_Integration that merge the ops and
+        // count the pack towards availability. Its writes are post snapshots,
+        // which need no Ovation class.
+        'src/Integrations/Thrive_Ovation_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

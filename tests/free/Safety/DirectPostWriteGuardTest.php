@@ -113,6 +113,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new BetterDocs doc post.',
         ],
+        'Integrations/Thrive_Ovation_Pack.php'        => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new Thrive Ovation testimonial post (issue #829); every field is new. Updates go through Save_Filters.',
+        ],
         'Integrations/Thirsty_Affiliates_Pack.php'    => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new ThirstyAffiliates link post.',

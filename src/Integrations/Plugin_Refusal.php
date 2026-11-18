@@ -40,6 +40,7 @@ final class Plugin_Refusal
         'Fluent Support'   => [ 'file' => 'fluent-support/fluent-support.php', 'slug' => 'fluent-support' ],
         'Awesome Support'  => [ 'file' => 'awesome-support/awesome-support.php', 'slug' => 'awesome-support' ],
         'BetterDocs'       => [ 'file' => 'betterdocs/betterdocs.php', 'slug' => 'betterdocs' ],
+        'Thrive Ovation'   => [ 'file' => 'thrive-ovation/thrive-ovation.php', 'url' => 'https://thrivethemes.com/ovation/' ],
         'Wordfence'        => [ 'file' => 'wordfence/wordfence.php', 'slug' => 'wordfence' ],
         'MonsterInsights'  => [ 'file' => 'google-analytics-for-wordpress/googleanalytics.php', 'slug' => 'google-analytics-for-wordpress' ],
         'W3 Total Cache'   => [ 'file' => 'w3-total-cache/w3-total-cache.php', 'slug' => 'w3-total-cache' ],
