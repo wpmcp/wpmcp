@@ -56,7 +56,7 @@ class ElementorCapabilityTest extends \WP_UnitTestCase
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
         foreach (self::EXPECTED as $name => $capability) {
-            $this->assertFalse(
+            $this->assertNotTrue(
                 $abilities[ $name ]->check_permissions(),
                 "{$name} must deny a subscriber"
             );

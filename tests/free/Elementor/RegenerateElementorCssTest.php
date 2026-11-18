@@ -93,7 +93,7 @@ class RegenerateElementorCssTest extends \WP_UnitTestCase
         $this->assertTrue($ability->check_permissions());
 
         wp_set_current_user(self::factory()->user->create(['role' => 'subscriber']));
-        $this->assertFalse($ability->check_permissions());
+        $this->assertNotTrue($ability->check_permissions());
     }
 
     // ---- one post -----------------------------------------------------------

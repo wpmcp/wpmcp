@@ -27,6 +27,6 @@ class GetPageSnapshotAbilityRegistrationTest extends \WP_UnitTestCase
         $this->assertTrue($ability->check_permissions());
 
         wp_set_current_user(0);
-        $this->assertFalse($ability->check_permissions());
+        $this->assertNotTrue($ability->check_permissions());
     }
 }

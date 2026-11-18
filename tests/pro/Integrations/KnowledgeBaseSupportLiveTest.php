@@ -178,7 +178,6 @@ class KnowledgeBaseSupportLiveTest extends \WP_UnitTestCase
         $this->assertSame([ 'debug.log' ], array_column($got['thread'][0]['attachments'], 'name'));
 
         $helper = new \ReflectionMethod('\\FluentSupport\\App\\Services\\Helper', 'getAttachmentReferenceUrl');
-        $helper->setAccessible(true);
         $this->assertSame($helper->invoke(null, $opened), $got['attachments'][0]['url'], 'the reference link Fluent Support itself puts in content');
 
         wp_set_current_user(0);

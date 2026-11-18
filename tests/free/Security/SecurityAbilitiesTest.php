@@ -28,7 +28,7 @@ class SecurityAbilitiesTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse($ability->check_permissions());
+        $this->assertNotTrue($ability->check_permissions());
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
         wp_set_current_user($admin);

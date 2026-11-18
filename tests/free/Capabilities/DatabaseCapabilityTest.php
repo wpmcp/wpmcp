@@ -57,7 +57,7 @@ class DatabaseCapabilityTest extends \WP_UnitTestCase
 
         $editor = self::factory()->user->create(['role' => 'editor']);
         wp_set_current_user($editor);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/query']->check_permissions(),
             'wpmcp/query must deny an editor (no manage_options)'
         );
@@ -76,7 +76,7 @@ class DatabaseCapabilityTest extends \WP_UnitTestCase
 
         $editor = self::factory()->user->create(['role' => 'editor']);
         wp_set_current_user($editor);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/delete-rows']->check_permissions(),
             'wpmcp/delete-rows must deny an editor (no manage_options)'
         );

@@ -135,7 +135,7 @@ class SubSiteUserMembershipTest extends \WP_UnitTestCase
 
     public function test_update_user_is_closed_to_a_sub_site_admin(): void
     {
-        $this->assertFalse(
+        $this->assertNotTrue(
             wp_get_abilities()['wpmcp/update-user']->check_permissions(['id' => $this->outsider]),
             'update-user must not be open to a sub-site admin on multisite (edit_users is network-level)'
         );

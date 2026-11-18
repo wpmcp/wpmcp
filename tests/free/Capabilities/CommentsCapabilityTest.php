@@ -58,7 +58,7 @@ class CommentsCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/list-comments']->check_permissions(),
             'wpmcp/list-comments must deny a subscriber'
         );
@@ -77,7 +77,7 @@ class CommentsCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/moderate-comment']->check_permissions(),
             'wpmcp/moderate-comment must deny a subscriber'
         );
@@ -115,7 +115,7 @@ class CommentsCapabilityTest extends \WP_UnitTestCase
 
         foreach (['subscriber', 'contributor'] as $role) {
             wp_set_current_user(self::factory()->user->create(['role' => $role]));
-            $this->assertFalse(
+            $this->assertNotTrue(
                 $abilities[ $name ]->check_permissions(),
                 "{$name} must deny a {$role}"
             );

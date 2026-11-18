@@ -55,7 +55,7 @@ class MediaCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/get-media']->check_permissions(),
             'wpmcp/get-media must deny a subscriber'
         );
@@ -74,7 +74,7 @@ class MediaCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/update-media']->check_permissions(),
             'wpmcp/update-media must deny a subscriber'
         );

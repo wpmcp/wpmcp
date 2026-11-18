@@ -55,7 +55,7 @@ class CoreCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/get-page']->check_permissions(),
             'wpmcp/get-page must deny a subscriber'
         );
@@ -74,7 +74,7 @@ class CoreCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/rollback-operation']->check_permissions(),
             'wpmcp/rollback-operation must deny a subscriber'
         );

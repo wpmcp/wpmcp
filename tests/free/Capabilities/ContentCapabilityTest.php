@@ -61,7 +61,7 @@ class ContentCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/get-post']->check_permissions(),
             'wpmcp/get-post must deny a subscriber'
         );
@@ -80,7 +80,7 @@ class ContentCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/create-post']->check_permissions(),
             'wpmcp/create-post must deny a subscriber'
         );

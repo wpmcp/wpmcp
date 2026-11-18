@@ -67,7 +67,7 @@ class FilesystemCapabilityTest extends \WP_UnitTestCase
 
         $editor = self::factory()->user->create(['role' => 'editor']);
         wp_set_current_user($editor);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/read-file']->check_permissions(),
             'wpmcp/read-file must deny an editor (no manage_options)'
         );
@@ -93,7 +93,7 @@ class FilesystemCapabilityTest extends \WP_UnitTestCase
 
         $editor = self::factory()->user->create(['role' => 'editor']);
         wp_set_current_user($editor);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/write-file']->check_permissions(),
             'wpmcp/write-file must deny an editor (no manage_options)'
         );

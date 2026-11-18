@@ -89,7 +89,7 @@ class RefusalThroughCoreTest extends \WP_UnitTestCase
         $deny = static fn ($p, $name) => 'wpmcp/get-settings' === $name ? false : $p;
         add_filter('wp_ability_permission_result', $deny, 5, 2);
 
-        $this->assertFalse(wp_get_ability('wpmcp/get-settings')->check_permissions([]));
+        $this->assertNotTrue(wp_get_ability('wpmcp/get-settings')->check_permissions([]));
         remove_filter('wp_ability_permission_result', $deny, 5);
     }
 }

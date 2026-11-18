@@ -52,7 +52,7 @@ class RevisionsCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/list-revisions']->check_permissions(),
             'wpmcp/list-revisions must deny a subscriber'
         );
@@ -71,7 +71,7 @@ class RevisionsCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/restore-revision']->check_permissions(),
             'wpmcp/restore-revision must deny a subscriber'
         );

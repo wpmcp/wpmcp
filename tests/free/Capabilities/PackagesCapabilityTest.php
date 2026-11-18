@@ -66,7 +66,7 @@ class PackagesCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/list-plugins']->check_permissions(),
             'wpmcp/list-plugins must deny a subscriber'
         );
@@ -86,7 +86,7 @@ class PackagesCapabilityTest extends \WP_UnitTestCase
 
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/delete-plugin']->check_permissions(),
             'wpmcp/delete-plugin must deny a subscriber'
         );

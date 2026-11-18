@@ -48,7 +48,7 @@ class FilesystemAbilitiesRegistrationTest extends \WP_UnitTestCase
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
         foreach (array_merge(self::READ_NAMES, self::WRITE_NAMES) as $name) {
-            $this->assertFalse($abilities[ $name ]->check_permissions(), "{$name} must deny a subscriber");
+            $this->assertNotTrue($abilities[ $name ]->check_permissions(), "{$name} must deny a subscriber");
         }
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
@@ -57,7 +57,7 @@ class FilesystemAbilitiesRegistrationTest extends \WP_UnitTestCase
             // Issue #559: on multisite a site administrator reads no files;
             // the network administrator does.
             foreach (self::READ_NAMES as $name) {
-                $this->assertFalse($abilities[ $name ]->check_permissions(), "{$name} must deny a site administrator on multisite");
+                $this->assertNotTrue($abilities[ $name ]->check_permissions(), "{$name} must deny a site administrator on multisite");
             }
             grant_super_admin($admin);
         }

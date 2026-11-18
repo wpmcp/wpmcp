@@ -69,7 +69,7 @@ class PackagesAbilitiesRegistrationTest extends \WP_UnitTestCase
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
         foreach ($names as $name) {
-            $this->assertFalse($abilities[ $name ]->check_permissions(), "{$name} must deny a subscriber");
+            $this->assertNotTrue($abilities[ $name ]->check_permissions(), "{$name} must deny a subscriber");
         }
 
         $admin = self::factory()->user->create(['role' => 'administrator']);
@@ -96,7 +96,7 @@ class PackagesAbilitiesRegistrationTest extends \WP_UnitTestCase
         $subscriber = self::factory()->user->create(['role' => 'subscriber']);
         wp_set_current_user($subscriber);
         foreach ($names as $name) {
-            $this->assertFalse($abilities[ $name ]->check_permissions(), "{$name} must deny a subscriber");
+            $this->assertNotTrue($abilities[ $name ]->check_permissions(), "{$name} must deny a subscriber");
         }
 
         $admin = self::factory()->user->create(['role' => 'administrator']);

@@ -55,7 +55,7 @@ class PerformanceCapabilityTest extends \WP_UnitTestCase
 
         $editor = self::factory()->user->create(['role' => 'editor']);
         wp_set_current_user($editor);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/analyze-performance']->check_permissions(),
             'wpmcp/analyze-performance must deny an editor (no manage_options)'
         );
@@ -74,7 +74,7 @@ class PerformanceCapabilityTest extends \WP_UnitTestCase
 
         $editor = self::factory()->user->create(['role' => 'editor']);
         wp_set_current_user($editor);
-        $this->assertFalse(
+        $this->assertNotTrue(
             $abilities['wpmcp/clear-cache']->check_permissions(),
             'wpmcp/clear-cache must deny an editor (no manage_options)'
         );

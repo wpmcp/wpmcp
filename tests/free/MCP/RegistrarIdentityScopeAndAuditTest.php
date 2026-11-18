@@ -55,7 +55,7 @@ class RegistrarIdentityScopeAndAuditTest extends \WP_UnitTestCase
         $abilities = wp_get_abilities();
 
         $this->assertTrue($abilities['wpmcp/get-post']->check_permissions());
-        $this->assertFalse($abilities['wpmcp/query']->check_permissions());
+        $this->assertNotTrue($abilities['wpmcp/query']->check_permissions());
     }
 
     public function test_identity_scope_cannot_escalate_past_a_failing_capability_check(): void

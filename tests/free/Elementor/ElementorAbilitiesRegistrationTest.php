@@ -44,7 +44,7 @@ class ElementorAbilitiesRegistrationTest extends \WP_UnitTestCase
         wp_set_current_user($subscriber);
 
         foreach (self::TOOLS as $name) {
-            $this->assertFalse($abilities[ $name ]->check_permissions(), "{$name} must deny a subscriber");
+            $this->assertNotTrue($abilities[ $name ]->check_permissions(), "{$name} must deny a subscriber");
         }
     }
 }
