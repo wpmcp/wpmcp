@@ -36,6 +36,8 @@ class SessionOwnershipTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Snapshot_Store::install();
+        // Start from an empty undo history, whatever an earlier test left (issue #963).
+        $GLOBALS['wpdb']->query('DELETE FROM ' . Snapshot_Store::table_name());
         foreach (['contributor', 'author', 'editor', 'administrator'] as $role) {
             $this->users[ $role ] = self::factory()->user->create(['role' => $role]);
         }

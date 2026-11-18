@@ -87,7 +87,7 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
 
         $result = self::call('wpmcp/plugin-data-read', ['operation' => 'memberpress-list-memberships', 'args' => []]);
         $this->assertSame(
-            'MemberPress is not active on this site, so op "memberpress-list-memberships" of wpmcp/plugin-data-read cannot run. Install and activate MemberPress (' . admin_url('plugins.php') . '), then try again.',
+            'MemberPress is not active on this site, so op "memberpress-list-memberships" of wpmcp/plugin-data-read cannot run. Install and activate MemberPress (' . admin_url('plugins.php') . '), then reconnect the MCP client so it reloads its tool list.',
             $result->get_error_message()
         );
         $this->assertSame(
@@ -108,7 +108,7 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
 
         $i18n = self::call('wpmcp/plugin-data-write', ['operation' => 'create-translation']);
         $this->assertSame(
-            'Op "create-translation" of wpmcp/plugin-data-write works with Polylang, WPML, and none of them is active on this site, so it cannot run. Install and activate one of them (' . admin_url('plugins.php') . '), then try again.',
+            'Op "create-translation" of wpmcp/plugin-data-write works with Polylang, WPML, and none of them is active on this site, so it cannot run. Install and activate one of them (' . admin_url('plugins.php') . '), then reconnect the MCP client so it reloads its tool list.',
             $i18n->get_error_message()
         );
     }
