@@ -19,7 +19,9 @@ if (! defined('ABSPATH')) {
  *    manager has them registered (so only modules the suite switched on),
  *    recognized by the suite's widget category or class namespace. The
  *    list carries no controls. Named widgets (one, or up to five) come with
- *    a summary per control (type, label, default, option keys). One
+ *    a summary per control (type, label, default, option keys), with what
+ *    the widgets share given once per answer: Elementor's common Advanced
+ *    tab controls and the fields of group controls (issues #878, #862). One
  *    widget's control stack runs to hundreds of KB on a real request and
  *    the whole suite's to megabytes, so controls for the whole list are
  *    refused and the complete definitions (detail:"full") come for exactly
@@ -130,7 +132,7 @@ final class Elementor_Addon_Packs
             $ops[ "list-{$suite}-widgets" ] = [
                 'mode'         => 'read',
                 'tier'         => 'pro',
-                'description'  => sprintf('List the %1$s widgets registered in Elementor (name, title, categories, control count; no controls). Name one widget (widget) or up to %2$d (widgets) to get just those with a control summary each (type, label, default, option keys of select-like controls). detail:"full" with exactly one named widget returns its complete control definitions (conditions, selectors, repeater fields). Controls for the whole list are refused', $label, self::MAX_NAMED_WIDGETS),
+                'description'  => sprintf('List the %1$s widgets registered in Elementor (name, title, categories, control count; no controls). Name one widget (widget) or up to %2$d (widgets) to get just those with a control summary each (type, label, default, option keys of select-like controls; shared and group controls once per answer). detail:"full" with exactly one named widget returns its complete control definitions (conditions, selectors, repeater fields). Controls for the whole list are refused', $label, self::MAX_NAMED_WIDGETS),
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -269,8 +271,10 @@ final class Elementor_Addon_Packs
         }
 
         $include = [] !== $named;
+        $manager = \Elementor\Plugin::instance()->widgets_manager;
         $rows    = [];
-        foreach ((array) \Elementor\Plugin::instance()->widgets_manager->get_widget_types() as $widget) {
+        $objects = [];
+        foreach ((array) $manager->get_widget_types() as $widget) {
             if (! $widget instanceof \Elementor\Widget_Base || ! self::owns($suite, $widget)) {
                 continue;
             }
@@ -285,10 +289,13 @@ final class Elementor_Addon_Packs
                 'icon'          => (string) $widget->get_icon(),
                 'control_count' => count((array) $widget->get_controls()),
             ];
-            if ($include) {
-                $row['controls'] = 'full' === $detail ? Widget_View::control_definitions($widget) : Widget_View::control_summary($widget);
+            if ('full' === $detail) {
+                $row['controls'] = Widget_View::control_definitions($widget);
             }
             $rows[ $name ] = $row;
+            if ($include) {
+                $objects[ $name ] = $widget;
+            }
         }
 
         $missing = array_values(array_diff($named, array_keys($rows)));
@@ -297,12 +304,31 @@ final class Elementor_Addon_Packs
             throw new Operation_Refused('unknown_widget', sprintf('No %s widget is registered as "%s".', $label, implode('", "', $missing)), [ 'widget' => $missing[0], 'widgets' => $missing ]);
         }
         ksort($rows);
+        ksort($objects);
+
+        // A summary gives what the widgets share (Elementor's common
+        // controls, group control fields) once per answer (#878, #862).
+        $shared = [];
+        if ($include && 'summary' === $detail) {
+            $common = [];
+            foreach ([ 'common', 'common-optimized' ] as $common_name) {
+                $common_widget = $manager->get_widget_types($common_name);
+                if ($common_widget instanceof \Elementor\Widget_Base) {
+                    $common[] = (array) $common_widget->get_controls();
+                }
+            }
+            $shared = Widget_View::shared_summary($objects, $common);
+            foreach ($shared['widgets'] as $name => $part) {
+                $rows[ $name ] += $part;
+            }
+            unset($shared['widgets']);
+        }
 
         $out = [ 'suite' => $suite, 'count' => count($rows), 'widgets' => array_values($rows) ];
         if ($include) {
             $out['detail'] = $detail;
         }
-        return $out;
+        return $out + $shared;
     }
 
     /**
