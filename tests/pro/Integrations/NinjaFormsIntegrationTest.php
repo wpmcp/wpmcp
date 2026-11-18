@@ -7,6 +7,7 @@ use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Operation;
 
 require_once __DIR__ . '/../../support/ninjaforms-stubs.php';
+require_once __DIR__ . '/../../support/forms-delete-preview.php';
 
 /**
  * The Ninja Forms dispatcher (forms adapter pack, pro tier), exercised against
@@ -16,6 +17,8 @@ require_once __DIR__ . '/../../support/ninjaforms-stubs.php';
  */
 class NinjaFormsIntegrationTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Support\Forms_Delete_Preview_Assertions;
+
     private int $old;
     private int $new;
 
@@ -211,6 +214,7 @@ class NinjaFormsIntegrationTest extends \WP_UnitTestCase
         $preview = $this->delete($this->old, false);
         $this->assertSame('confirmation_required', $preview['error']['code']);
         $this->assertSame(8, $preview['error']['data']['form_id']);
+        $this->assert_delete_entry_preview($preview, sprintf('Ninja Forms submission %d of form 8', $this->old), $this->old, count(get_post_meta($this->old)));
         $this->assertStringNotContainsString('old@example.test', wp_json_encode($preview));
         $this->assertNotNull(get_post($this->old));
         remove_all_filters('wpmcp_enable_forms_write');

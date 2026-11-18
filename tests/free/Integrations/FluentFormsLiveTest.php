@@ -80,6 +80,7 @@ class FluentFormsLiveTest extends \WP_UnitTestCase
         $preview = $integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->entry ] ]);
         $this->assertSame('confirmation_required', $preview['error']['code']);
         $this->assertSame(2, $preview['error']['data']['values']);
+        $this->assertStringContainsString('This is not an erasure', $preview['error']['message'], 'Issue #946');
         $this->assertStringNotContainsString('ada@example.test', wp_json_encode($preview));
 
         $out = $integration->handle_write([ 'operation' => 'delete-entry', 'confirm' => true, 'args' => [ 'entry_id' => $this->entry ] ]);
@@ -99,5 +100,22 @@ class FluentFormsLiveTest extends \WP_UnitTestCase
         $this->assertSame(1, $this->rows('fluentform_logs', 'source_id', $this->entry));
         $this->assertSame(2, $this->rows('fluentform_entry_details', 'submission_id', $this->entry));
         $this->assertSame('{"email":"ada@example.test"}', wpFluent()->table('fluentform_submissions')->where('id', $this->entry)->first()->response, 'The entry comes back with its response');
+    }
+
+    /** Issue #945: list-entries reads the real query builder's collection, not its properties. */
+    public function test_list_entries_returns_the_real_submissions_columns(): void
+    {
+        $out = ( new Fluent_Forms_Integration() )->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => $this->form_id ] ]);
+        $this->assertArrayNotHasKey('error', $out, wp_json_encode($out));
+
+        $this->assertSame(2, $out['result']['total']);
+        $this->assertSame([ $this->other, $this->entry ], array_column($out['result']['entries'], 'id'), 'Newest first');
+        $this->assertSame([ $this->form_id ], array_values(array_unique(array_column($out['result']['entries'], 'form_id'))));
+        $this->assertSame([ 2, 1 ], array_column($out['result']['entries'], 'serial_number'));
+        $this->assertSame('unread', $out['result']['entries'][0]['status']);
+        $this->assertNotSame('', $out['result']['entries'][0]['created_at']);
+
+        $forms = ( new Fluent_Forms_Integration() )->handle_read([ 'operation' => 'list-forms' ])['result']['forms'];
+        $this->assertContains($this->form_id, array_column($forms, 'id'), 'list-forms iterates the collection too');
     }
 }

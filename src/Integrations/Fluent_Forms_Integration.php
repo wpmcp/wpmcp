@@ -87,6 +87,23 @@ class Fluent_Forms_Integration extends Forms_Integration
         return wpFluent()->table('fluentform_submissions')->where('id', $entry_id)->first();
     }
 
+    /**
+     * The rows of a wpFluent() result. Its get() returns a collection object
+     * (FluentForm\Framework\Support\Collection, rows in a protected
+     * property), not an array, so an (array) cast yields the object's
+     * properties instead of its rows (issue #945). Iterate it instead.
+     *
+     * @param mixed $result
+     * @return array<int, mixed>
+     */
+    private static function rows($result): array
+    {
+        if ($result instanceof \Traversable) {
+            return iterator_to_array($result, false);
+        }
+        return is_array($result) ? array_values($result) : [];
+    }
+
     private static function shape_entry($row, bool $with_response): array
     {
         $out = [
@@ -123,7 +140,7 @@ class Fluent_Forms_Integration extends Forms_Integration
                 'handler'      => function (): array {
                     $rows = wpFluent()->table('fluentform_forms')->get();
                     $out  = [];
-                    foreach ((array) $rows as $row) {
+                    foreach (self::rows($rows) as $row) {
                         $out[] = [
                             'id'    => (int) self::col($row, 'id'),
                             'title' => (string) self::col($row, 'title'),
@@ -171,7 +188,7 @@ class Fluent_Forms_Integration extends Forms_Integration
                         ->where('meta_key', 'notifications')
                         ->get();
                     $out = [];
-                    foreach ((array) $rows as $row) {
+                    foreach (self::rows($rows) as $row) {
                         $value   = json_decode((string) self::col($row, 'value'), true);
                         $value   = is_array($value) ? $value : [];
                         $send_to = (array) ($value['sendTo'] ?? []);
@@ -214,7 +231,7 @@ class Fluent_Forms_Integration extends Forms_Integration
                     };
                     $rows = $scoped()->orderBy('id', 'DESC')->offset($offset)->limit($page_size)->get();
                     $out  = [];
-                    foreach ((array) $rows as $row) {
+                    foreach (self::rows($rows) as $row) {
                         $out[] = self::shape_entry($row, false);
                     }
                     return [ 'form_id' => $form_id, 'entries' => $out, 'total' => (int) $scoped()->count() ];
@@ -291,10 +308,14 @@ class Fluent_Forms_Integration extends Forms_Integration
                     $entry_id = (int) $args['entry_id'];
                     $row      = self::submission($entry_id);
                     $values   = self::count_rows('fluentform_entry_details', 'submission_id', $entry_id);
-                    return [
-                        'message' => sprintf('It permanently deletes Fluent Forms entry %d of form %d (%d stored values). Uploaded files stay on disk. Undo: rollback-session.', $entry_id, (int) self::col($row, 'form_id'), $values),
-                        'data'    => [ 'entry_id' => $entry_id, 'form_id' => (int) self::col($row, 'form_id'), 'date' => (string) self::col($row, 'created_at'), 'values' => $values, 'files_stay_on_disk' => true ],
-                    ];
+                    $form_id  = (int) self::col($row, 'form_id');
+                    return self::delete_entry_preview(
+                        sprintf('Fluent Forms entry %d of form %d', $entry_id, $form_id),
+                        $entry_id,
+                        $values,
+                        'rollback-session',
+                        [ 'form_id' => $form_id, 'date' => (string) self::col($row, 'created_at') ]
+                    );
                 },
                 'handler'           => static function (array $args, array $context): array {
                     $entry_id = (int) $args['entry_id'];

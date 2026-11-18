@@ -18,7 +18,7 @@ if (! defined('ABSPATH')) {
  * in post_content, and submissions live in SureForms' own `srfm_entries`
  * table. Field definitions are read by parsing the block tree with core's
  * parse_blocks(); entries are read exclusively through SureForms' own
- * SRFM\Inc\Database\Tables\Entries accessor (get(), get_all(),
+ * SRFM\Inc\Database\Tables\Entries accessor (get(), get_all(), get_total_count(),
  * get_total_entries_by_status(), delete()) rather than raw $wpdb queries, so
  * the integration survives SureForms schema changes.
  *
@@ -202,20 +202,30 @@ class SureForms_Integration extends Forms_Integration
                     $form_id   = (int) $args['form_id'];
                     $page_size = (int) ($args['page_size'] ?? 20);
                     $offset    = (int) ($args['offset'] ?? 0);
-                    $rows      = (array) ($entries::get_all([
-                        'where' => [
+                    // SureForms reads 'where' as a list of GROUPS, each a list
+                    // of conditions, and silently drops a condition placed one
+                    // level higher (issue #944), so the form_id test is
+                    // wrapped twice. The page is fetched with SureForms' own
+                    // LIMIT and the total counted with the same WHERE.
+                    $where = [
+                        [
                             [ 'key' => 'form_id', 'value' => $form_id, 'compare' => '=' ],
                         ],
+                    ];
+                    $rows  = (array) ($entries::get_all([
+                        'where'  => $where,
+                        'limit'  => $page_size,
+                        'offset' => $offset,
                     ]) ?: []);
-                    $out = [];
-                    foreach (array_slice(array_values($rows), $offset, $page_size) as $row) {
+                    $out   = [];
+                    foreach (array_values($rows) as $row) {
                         $out[] = self::entry_row($row, true);
                     }
                     return [
                         'form_id' => $form_id,
                         'entries' => $out,
                         'masked'  => true,
-                        'total'   => count($rows),
+                        'total'   => (int) $entries::get_instance()->get_total_count($where),
                         'paging'  => [ 'offset' => $offset, 'page_size' => $page_size ],
                     ];
                 },
@@ -254,10 +264,14 @@ class SureForms_Integration extends Forms_Integration
                     if (empty($row) || ! self::column($row, 'ID')) {
                         return [ 'message' => 'No SureForms entry has that id, so nothing would be deleted.', 'data' => [ 'entry_id' => (int) $args['entry_id'] ] ];
                     }
-                    return [
-                        'message' => sprintf('It permanently deletes SureForms entry %d of form %d (%d stored values). Uploaded files stay on disk. Undo: rollback-operation.', (int) $args['entry_id'], (int) self::column($row, 'form_id'), count(self::values($row))),
-                        'data'    => [ 'entry_id' => (int) $args['entry_id'], 'form_id' => (int) self::column($row, 'form_id'), 'date' => (string) self::column($row, 'created_at'), 'values' => count(self::values($row)), 'files_stay_on_disk' => true ],
-                    ];
+                    $form_id = (int) self::column($row, 'form_id');
+                    return self::delete_entry_preview(
+                        sprintf('SureForms entry %d of form %d', (int) $args['entry_id'], $form_id),
+                        (int) $args['entry_id'],
+                        count(self::values($row)),
+                        'rollback-operation',
+                        [ 'form_id' => $form_id, 'date' => (string) self::column($row, 'created_at') ]
+                    );
                 },
                 'handler'         => function (array $args) use ($entries): array {
                     $entry_id = (int) $args['entry_id'];

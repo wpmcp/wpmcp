@@ -264,10 +264,13 @@ class Forminator_Integration extends Forms_Integration
                 'confirm_preview'   => static function (array $args): array {
                     $entry = \Forminator_API::get_entry((int) $args['form_id'], (int) $args['entry_id']);
                     $meta  = self::count_rows('frmt_form_entry_meta', 'entry_id', (int) $args['entry_id']);
-                    return [
-                        'message' => sprintf('It permanently deletes Forminator submission %d of form %d (%d stored values). Uploaded files stay on disk. Undo: rollback-session.', (int) $args['entry_id'], (int) $args['form_id'], $meta),
-                        'data'    => [ 'entry_id' => (int) $args['entry_id'], 'form_id' => (int) $args['form_id'], 'date' => (string) ($entry->date_created_sql ?? ''), 'values' => $meta, 'files_stay_on_disk' => true ],
-                    ];
+                    return self::delete_entry_preview(
+                        sprintf('Forminator submission %d of form %d', (int) $args['entry_id'], (int) $args['form_id']),
+                        (int) $args['entry_id'],
+                        $meta,
+                        'rollback-session',
+                        [ 'form_id' => (int) $args['form_id'], 'date' => (string) ($entry->date_created_sql ?? '') ]
+                    );
                 },
                 'handler'           => static function (array $args, array $context): array {
                     $form_id  = (int) $args['form_id'];

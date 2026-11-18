@@ -8,6 +8,7 @@ use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Operation;
 
 require_once __DIR__ . '/../../support/sureforms-stubs.php';
+require_once __DIR__ . '/../../support/forms-delete-preview.php';
 
 /**
  * The SureForms dispatcher pair. Forms run against a real sureforms_form CPT
@@ -18,6 +19,8 @@ require_once __DIR__ . '/../../support/sureforms-stubs.php';
  */
 class SureFormsIntegrationTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Support\Forms_Delete_Preview_Assertions;
+
     private const BLOCKS = '<!-- wp:srfm/input {"slug":"name","label":"Your name","required":true} /-->'
         . '<!-- wp:srfm/group -->'
         . '<!-- wp:srfm/email {"slug":"email","label":"Email"} /-->'
@@ -147,6 +150,30 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertSame(202, $paged['result']['entries'][0]['id']);
     }
 
+    /**
+     * Issue #944: the form_id condition must reach SureForms as a group (a
+     * list of conditions inside the where list), or its builder drops it and
+     * every form's entries come back. Entries on two forms, and more than
+     * SureForms' default page of 10, so the total counts only this form.
+     */
+    public function test_list_entries_returns_only_that_forms_entries_and_counts_only_them(): void
+    {
+        $other = $this->form_id + 1000;
+        for ($i = 0; $i < 11; $i++) {
+            Entries::seed(300 + $i, $this->form_id, 'read', [ 'name' => 'Extra ' . $i ]);
+        }
+
+        $out = $this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => $this->form_id, 'page_size' => 100 ] ])['result'];
+        $this->assertSame(13, $out['total']);
+        $this->assertCount(13, $out['entries']);
+        $this->assertSame([ $this->form_id ], array_values(array_unique(array_column($out['entries'], 'form_id'))));
+        $this->assertNotContains(203, array_column($out['entries'], 'id'), 'Entry 203 belongs to another form');
+
+        $theirs = $this->integration->handle_read([ 'operation' => 'list-entries', 'args' => [ 'form_id' => $other ] ])['result'];
+        $this->assertSame(1, $theirs['total']);
+        $this->assertSame([ 203 ], array_column($theirs['entries'], 'id'));
+    }
+
     public function test_list_entries_masks_personal_values_but_get_entry_stays_full(): void
     {
         $list = $this->integration->handle_read([
@@ -198,6 +225,7 @@ class SureFormsIntegrationTest extends \WP_UnitTestCase
         $this->assertSame('confirmation_required', $out['error']['code']);
         $this->assertSame(2, $out['error']['data']['values']);
         $this->assertStringNotContainsString('ada@example.test', wp_json_encode($out));
+        $this->assert_delete_entry_preview($out, sprintf('SureForms entry 201 of form %d', $this->form_id), 201, 2);
     }
 
     public function test_delete_entry_snapshots_the_row_and_rollback_restores_it(): void
