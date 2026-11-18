@@ -59,6 +59,7 @@ final class Opt_In_Settings
         return [
             'wpmcp_woo_op_enabled'                 => [ 'owner' => 'src/Tools/WooCommerce/Catalog/Woo_Write.php', 'destructive' => true ],
             'wpmcp_enable_memberpress_write'       => [ 'owner' => $i . 'MemberPress_Pack.php', 'destructive' => false ],
+            'wpmcp_enable_thrive_optimize_write'   => [ 'owner' => $i . 'Thrive_Optimize_Pack.php', 'destructive' => true ],
             'wpmcp_enable_forms_write'             => [ 'owner' => $i . 'Forms_Integration.php', 'destructive' => false ],
             'wpmcp_enable_ws_form_write'           => [ 'owner' => $i . 'WS_Form_Pack.php', 'destructive' => true ],
             'wpmcp_enable_elementor_pro_write'     => [ 'owner' => $i . 'Elementor_Pro_Forms_Pack.php', 'destructive' => true ],
@@ -100,6 +101,7 @@ final class Opt_In_Settings
         return [
             'wpmcp_woo_op_enabled'                 => __('WooCommerce: destructive operations (delete, cancel, refund)', 'wpmcp'),
             'wpmcp_enable_memberpress_write'       => __('MemberPress: writes', 'wpmcp'),
+            'wpmcp_enable_thrive_optimize_write'   => __('Thrive Optimize: traffic splits, stopping tests and picking winners', 'wpmcp'),
             'wpmcp_enable_forms_write'             => __('Form plugins: writes', 'wpmcp'),
             'wpmcp_enable_ws_form_write'           => __('WS Form: writes', 'wpmcp'),
             'wpmcp_enable_elementor_pro_write'     => __('Elementor Pro forms: writes', 'wpmcp'),

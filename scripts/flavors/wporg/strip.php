@@ -1469,6 +1469,22 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Thrive Optimize ops (issue #827) are the paid add-on's, removed
+    // by policy.php. Their lines go first, so every edit below matches the
+    // file as it was before them.
+    [
+        " *  - Issue #827 adds the paid-tier Thrive Optimize ops\n"
+            . " *    (Thrive_Optimize_Pack): A/B tests read with their variations' results,\n"
+            . " *    and traffic split changes and stopping a test (undoable) or picking a\n"
+            . " *    winner (not undoable, confirm:true), off until\n"
+            . " *    wpmcp_enable_thrive_optimize_write.\n",
+        '',
+        1,
+    ],
+    [ "            || Thrive_Optimize_Pack::active()\n", '', 1 ],
+    [ "            . ', Thrive Optimize A/B tests'\n", '', 1 ],
+    [ "        \$groups[] = [ 'Thrive Optimize', false, Thrive_Optimize_Pack::operations() ];\n", '', 1 ],
+    [ "            Thrive_Optimize_Pack::operations(),\n", '', 1 ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.
