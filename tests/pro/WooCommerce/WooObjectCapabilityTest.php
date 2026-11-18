@@ -79,6 +79,8 @@ class WooObjectCapabilityTest extends \WP_UnitTestCase
         'orders.update' => [ 'customer_id', 'line_items.*.product_id', 'line_items.*.variation_id', 'line_items.*.id' ],
         'reviews.reply' => [ 'id' ],
         'reviews.list'  => [ 'product_id' ],
+        'cart.add-upsell'    => [ 'product_ids.*' ],
+        'cart.remove-upsell' => [ 'product_ids.*' ],
     ];
 
     private string $granted = '';

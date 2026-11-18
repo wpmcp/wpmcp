@@ -136,7 +136,9 @@ class OptInRequiredCatalogTest extends \WP_UnitTestCase
                 continue;
             }
             $out = $this->woo_refusal($op, $def);
-            if ('destructive' === $def['mode']) {
+            // Destructive ops, and writes a row marks opt_in (the FunnelKit
+            // Cart writes, issue #832), ship off.
+            if ('destructive' === $def['mode'] || ! empty($def['opt_in'])) {
                 $this->assertSame(Opt_In_Required::CODE, $out['error']['code'], $op);
                 $this->assertSame(Woo_Write::ENABLE_FILTER, $out['error']['data']['filter'], $op);
                 $this->assertStringContainsString("'{$op}' === \$op", $out['error']['message'], $op);

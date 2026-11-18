@@ -49,6 +49,7 @@ final class Op_Guard
         'woocommerce-subscriptions' => [ 'name' => 'WooCommerce Subscriptions', 'file' => 'woocommerce-subscriptions/woocommerce-subscriptions.php' ],
         'woocommerce-bookings'      => [ 'name' => 'WooCommerce Bookings', 'file' => 'woocommerce-bookings/woocommerce-bookings.php' ],
         'woocommerce-memberships'   => [ 'name' => 'WooCommerce Memberships', 'file' => 'woocommerce-memberships/woocommerce-memberships.php' ],
+        'cart-for-woocommerce'      => [ 'name' => 'FunnelKit Cart for WooCommerce', 'file' => 'cart-for-woocommerce/plugin.php' ],
         // Any one of three gateway plugins (issue #661), detected by its gateway id.
         'payment-gateway-plugins'   => [
             'name'  => 'WooCommerce Stripe, WooPayments or WooCommerce PayPal Payments',
@@ -97,6 +98,9 @@ final class Op_Guard
         }
         if ('woocommerce-memberships' === $plugin) {
             return Wc_User_Membership_Snapshot::is_active();
+        }
+        if ('cart-for-woocommerce' === $plugin) {
+            return Cart_Ops::is_active();
         }
         if ('payment-gateway-plugins' === $plugin) {
             return Gateway_Health::is_available();
