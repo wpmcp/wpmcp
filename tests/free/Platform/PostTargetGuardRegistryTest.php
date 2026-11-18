@@ -3,6 +3,7 @@
 namespace WPMCP\Tests\Free\Platform;
 
 use WPMCP\MCP\Ability;
+use WPMCP\Tests\Free\Content\Hidden_Post_Type_Names;
 use WPMCP\Tests\Free\Content\Hidden_Post_Types;
 use WPMCP\Tools\Content\Content_Guard;
 
@@ -21,7 +22,7 @@ use WPMCP\Tools\Content\Content_Guard;
  *    administrator level. An administrator, and any caller aimed at an
  *    ordinary post, is never refused.
  */
-class PostTargetGuardRegistryTest extends \WP_UnitTestCase
+class PostTargetGuardRegistryTest extends \WP_UnitTestCase implements Hidden_Post_Type_Names
 {
     use Hidden_Post_Types;
 
