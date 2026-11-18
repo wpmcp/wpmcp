@@ -346,7 +346,7 @@ foreach ( $unresolved as $path => $status ) {
 }
 
 require_once __DIR__ . '/src-scanners.php';
-$scanners = array_flip( ci_src_scanning_tests( $all_tests ) );
+$scanners = array_flip( source_tree_scanning_tests( $all_tests ) );
 foreach ( $all_tests as $t ) {
 	$name = basename( $t, '.php' );
 	$why  = in_array( $name, GUARDS, true ) ? 'guard set' : null;

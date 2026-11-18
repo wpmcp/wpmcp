@@ -14,7 +14,7 @@
  * @param string[] $test_files Paths of test files, relative to the repo root.
  * @return string[] The ones that scan src/.
  */
-function ci_src_scanning_tests( array $test_files ): array {
+function source_tree_scanning_tests( array $test_files ): array {
 	$out = array();
 	foreach ( $test_files as $file ) {
 		$src = (string) @file_get_contents( $file );
