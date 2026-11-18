@@ -90,11 +90,15 @@ class AmeliaPackTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Snapshot_Store::install();
+        // Start from an empty undo history, whatever an earlier test left (issue #963).
+        $GLOBALS['wpdb']->query('DELETE FROM ' . Snapshot_Store::table_name());
         Gate::set_pro_for_tests(true);
         Amelia_Pack::use_api_for_tests(new Fake_Amelia_Api());
         Fake_Amelia_Api::$calls     = [];
         Fake_Amelia_Api::$delivered = [];
         Fake_Amelia_Api::$edition   = 'Lite';
+        Fake_Amelia_Api::$queues_new_appointments = false;
+        Fake_Amelia_Api::$queued                  = [];
         update_option('timezone_string', 'America/New_York');
         update_option('amelia_settings', wp_json_encode([
             'general'       => [ 'timeSlotLength' => 1800 ],
@@ -527,6 +531,33 @@ class AmeliaPackTest extends \WP_UnitTestCase
         $this->assertSame([], $loud['notifications']['held']);
         $this->assertSame([ 'tom@example.com', 'sarah@example.com' ], array_column(Fake_Amelia_Api::$delivered, 'to'));
         $this->assertFalse(has_filter('amelia_manipulate_email_data'), 'The hold is lifted after the write.');
+    }
+
+    /**
+     * Issue #962: Amelia 2.4.15 queues a new appointment's messages through
+     * Action Scheduler and sends them from a loopback request, where the
+     * hold is not in place. The write has Amelia send them inline instead,
+     * so the customer's message is still held and the answer still says
+     * what was sent; other plugins' async actions are left to queue.
+     */
+    public function test_a_booking_on_amelia_2_4_15_still_holds_the_customer_message_instead_of_queueing_it(): void
+    {
+        Fake_Amelia_Api::$queues_new_appointments = true;
+        $day = $this->future_day();
+        $out = $this->ok($this->book($day . ' 10:00'));
+        $this->assertSame([], Fake_Amelia_Api::$queued, 'Nothing was left for a later request to send.');
+        $this->assertSame([ 'tom@example.com' ], array_column($out['notifications']['sent'], 'to'));
+        $this->assertSame([ 'sarah@example.com' ], array_column($out['notifications']['held'], 'to'));
+        $this->assertSame([ 'tom@example.com' ], array_column(Fake_Amelia_Api::$delivered, 'to'), 'The customer email never left.');
+
+        Fake_Amelia_Api::$delivered = [];
+        $loud = $this->ok($this->book($day . ' 14:00', [ 'notify' => true ]));
+        $this->assertSame([], Fake_Amelia_Api::$queued);
+        $this->assertSame([ 'tom@example.com', 'sarah@example.com' ], array_column($loud['notifications']['sent'], 'to'));
+        $this->assertSame([ 'tom@example.com', 'sarah@example.com' ], array_column(Fake_Amelia_Api::$delivered, 'to'));
+
+        $this->assertFalse(has_filter('pre_as_enqueue_async_action'), 'Action Scheduler is left alone after the write.');
+        $this->assertNull(apply_filters('pre_as_enqueue_async_action', null, 'amelia_process_appointment_added', [], 'amelia', 10, false));
     }
 
     public function test_a_taken_slot_or_a_time_outside_working_hours_is_refused_with_ameliass_reason_and_no_undo_point(): void

@@ -23,6 +23,8 @@ class ListOperationsFiltersTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Snapshot_Store::install();
+        // Start from an empty undo history, whatever an earlier test left (issue #963).
+        $GLOBALS['wpdb']->query('DELETE FROM ' . Snapshot_Store::table_name());
     }
 
     private function snapshot(int $objectId = 1): array

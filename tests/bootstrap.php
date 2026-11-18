@@ -789,6 +789,21 @@ tests_add_filter( 'init', function () {
     remove_all_actions( 'update_option_blogdescription' );
 }, 999 );
 
+// Elementor's event tracker creates its wp_e_events table the first time
+// its common app boots in a process (on the first rest_api_init, for one),
+// and adds an index with ALTER TABLE straight after. Inside a test the
+// CREATE becomes a temporary table, but the ALTER still commits the test's
+// isolation transaction, so every row the test wrote before it (a snapshot,
+// an audit entry) leaked into every later test (issue #963). Create the real
+// table here, before any test transaction starts, so the tracker finds it and
+// runs no DDL. A no-op when Elementor is absent.
+tests_add_filter( 'init', function () {
+    $tracker_db = 'Elementor\\Core\\Common\\Modules\\EventTracker\\DB';
+    if ( wpmcp_elementor_active() && class_exists( $tracker_db ) ) {
+        new $tracker_db();
+    }
+}, 999 );
+
 // Elementor fetches its remote info feed (https://my.elementor.com/api/v2/info/)
 // the first time widgets register in a process, so whichever Elementor test
 // happens to run first would reach the network (issue #323). Mock it for the
