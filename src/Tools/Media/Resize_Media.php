@@ -56,7 +56,20 @@ class Resize_Media
         // Back up the current physical files BEFORE regeneration overwrites
         // any of them, mirroring Delete_Media's pre-mutation backup.
         $operation_id = wp_generate_uuid4();
-        $manifest     = File_Backup::backup($operation_id, File_Backup::collect_attachment_files($media_id));
+        $files        = File_Backup::collect_attachment_files($media_id);
+        $manifest     = File_Backup::backup($operation_id, $files);
+
+        // A file the backup could not copy cannot be put back by rollback
+        // once regeneration overwrites it. Refuse unless the caller accepts
+        // that explicitly, and never report such a resize as recoverable.
+        $unrecoverable = array_values(array_map('wp_basename', array_diff($files, array_keys($manifest))));
+        if ($unrecoverable && true !== ($args['allow_unrecoverable_files'] ?? null)) {
+            File_Backup::delete_backup_dir($operation_id);
+            throw new \RuntimeException(sprintf(
+                'Nothing was resized: these files could not be backed up, so rollback could not restore them: %s. Pass allow_unrecoverable_files:true to resize anyway.',
+                esc_html(implode(', ', $unrecoverable))
+            ));
+        }
 
         $out = Safe_Mutation::run(
             [
@@ -97,10 +110,16 @@ class Resize_Media
             }
         );
 
-        return [
-            'operation_id' => $out['operation_id'],
-            'media_id'     => $media_id,
-            'sizes'        => $out['result'],
+        $result = [
+            'operation_id'      => $out['operation_id'],
+            'media_id'          => $media_id,
+            'sizes'             => $out['result'],
+            'files_recoverable' => ! $unrecoverable,
         ];
+        if ($unrecoverable) {
+            $result['unrecoverable_files'] = $unrecoverable;
+            $result['warning']             = 'Rollback restores the attachment metadata, but not the files listed in unrecoverable_files.';
+        }
+        return $result;
     }
 }
