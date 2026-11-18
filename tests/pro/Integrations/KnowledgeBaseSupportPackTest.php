@@ -211,6 +211,32 @@ class KnowledgeBaseSupportPackTest extends \WP_UnitTestCase
         $this->assertSame('doc_not_found', $this->read('betterdocs-get-doc', [ 'id' => $post ])['error']['code'] ?? null);
     }
 
+    public function test_trashed_doc_is_refused_as_trashed_on_read_and_update_and_other_ids_stay_not_found(): void
+    {
+        $doc = self::factory()->post->create([ 'post_type' => 'docs', 'post_title' => 'Gone', 'post_status' => 'publish' ]);
+        wp_trash_post($doc);
+        $this->assertSame('trash', get_post_status($doc));
+
+        $read = $this->read('betterdocs-get-doc', [ 'id' => $doc ])['error'] ?? [];
+        $this->assertSame('doc_trashed', $read['code'] ?? null);
+        $this->assertStringContainsString('trash', (string) ($read['message'] ?? ''));
+        $this->assertStringContainsString('Restore', (string) ($read['message'] ?? ''));
+        $this->assertSame('trash', $read['data']['status'] ?? null);
+        $this->assertSame('publish', $read['data']['previous_status'] ?? null);
+
+        $write = $this->write('betterdocs-update-doc', [ 'id' => $doc, 'title' => 'Changed' ])['error'] ?? [];
+        $this->assertSame('doc_trashed', $write['code'] ?? null);
+        $this->assertSame('Gone', get_post($doc)->post_title, 'a trashed doc is not written');
+
+        $this->assertSame('doc_not_found', $this->read('betterdocs-get-doc', [ 'id' => 999999 ])['error']['code'] ?? null);
+        $this->assertSame('doc_not_found', $this->read('betterdocs-get-doc', [ 'id' => self::factory()->post->create() ])['error']['code'] ?? null);
+        $this->assertSame('doc_not_found', $this->write('betterdocs-update-doc', [ 'id' => 999999, 'title' => 'X' ])['error']['code'] ?? null);
+
+        $reader = self::factory()->user->create([ 'role' => 'subscriber' ]);
+        wp_set_current_user($reader);
+        $this->assertSame('operation_denied', $this->read('betterdocs-get-doc', [ 'id' => $doc ])['error']['code'] ?? null, 'a caller who cannot read it is not told it is in the trash');
+    }
+
     public function test_list_categories_orders_by_betterdocs_order(): void
     {
         $b = self::factory()->term->create([ 'taxonomy' => 'doc_category', 'name' => 'B' ]);
