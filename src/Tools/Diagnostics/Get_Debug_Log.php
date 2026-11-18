@@ -23,6 +23,9 @@ if (! defined('ABSPATH')) {
  * bytes from the end of the file, then trims that chunk down to at most
  * MAX_LINES lines, so a multi-gigabyte log cannot exhaust memory and a
  * request cannot be used to exfiltrate more than a small tail.
+ *
+ * source=access (issue #848) searches the web server access log instead,
+ * opt-in only; see Access_Log_Search.
  */
 class Get_Debug_Log
 {
@@ -33,6 +36,14 @@ class Get_Debug_Log
     {
         // On multisite the log is shared by every site (issue #559).
         Filesystem_Guard::assert_reads_allowed();
+
+        $source = isset($args['source']) ? (string) $args['source'] : 'debug';
+        if ('access' === $source) {
+            return (new Access_Log_Search())->handle($args);
+        }
+        if ('debug' !== $source) {
+            throw new \InvalidArgumentException('source must be debug (the default) or access.');
+        }
 
         $requested = isset($args['path']) ? (string) $args['path'] : null;
         $default   = Debug_Log_Path::resolve() ?? (WP_CONTENT_DIR . '/debug.log');
