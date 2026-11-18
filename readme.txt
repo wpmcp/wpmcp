@@ -34,7 +34,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * Elementor: widgets, templates, theme builder, popups, global styles, custom widget building
 * Bricks and Divi structural editing
 * WooCommerce, ACF, Meta Box, JetEngine, Pods, TranslatePress, Yoast, Rank Math, SEOPress, The SEO Framework, SureRank, Slim SEO, Redirection; with Pro, All in One SEO
-* Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm, WS Form (forms, fields, actions and notifications, submissions listed with values masked and read one at a time, undoable status changes and deletes off until the site turns them on); with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
+* Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm, WS Form (forms, fields, actions and notifications, submissions listed with values masked and read one at a time, undoable status changes and deletes off until the site turns them on), Everest Forms (forms, fields and notifications, entries listed masked and read one at a time, undoable spam, star and read changes and deletes off until the site turns them on); with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
 * Events, donations, memberships (read)
 * BuddyPress: groups, group members, activity moderation and extended profile fields
 * Activity logs (read): WP Activity Log and Simple History events listed with IP addresses and emails masked and read one at a time in full

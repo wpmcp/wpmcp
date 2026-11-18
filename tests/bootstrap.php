@@ -95,6 +95,8 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'fluentform/fluentform.php' );
         wpmcp_maybe_require_plugin( 'forminator/forminator.php' );
         wpmcp_maybe_require_plugin( 'sureforms/sureforms.php' );
+        // Issue #676: the Everest Forms ops on the plugin-data pair.
+        wpmcp_maybe_require_plugin( 'everest-forms/everest-forms.php' );
     }
 
     // The live blocks job (issue #287, WPMCP_LIVE_BLOCKS=1) renders blocks

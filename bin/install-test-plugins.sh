@@ -130,6 +130,8 @@ if [ "${WPMCP_LIVE_FORMS:-}" = "1" ]; then
 		"fluentform:fluentform.php"
 		"forminator:forminator.php"
 		"sureforms:sureforms.php"
+		# Issue #676: the Everest Forms ops on the plugin-data pair.
+		"everest-forms:everest-forms.php"
 	)
 fi
 
