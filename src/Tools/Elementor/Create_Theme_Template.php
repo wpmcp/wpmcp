@@ -46,11 +46,18 @@ class Create_Theme_Template
             Template_Conditions::save($template_id, $conditions);
         }
 
-        return [
+        $out = [
             'template_id'   => $template_id,
             'title'         => sanitize_text_field($title),
             'template_type' => sanitize_key($type),
             'conditions'    => $conditions,
         ];
+
+        $warnings = Theme_Header_Builder_Clash::warnings($type, Theme_Header_Builder_Clash::is_site_wide($conditions));
+        if ([] !== $warnings) {
+            $out['warnings'] = $warnings;
+        }
+
+        return $out;
     }
 }
