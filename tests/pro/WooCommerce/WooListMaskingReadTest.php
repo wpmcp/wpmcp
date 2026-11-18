@@ -82,6 +82,36 @@ class WooListMaskingReadTest extends \WP_UnitTestCase
         $this->assertSame('2 Side St', $one['body']['shipping']['address_1']);
     }
 
+    /** Issue #943: a refund's reason inside orders.list is masked like refunds.list; the single reads stay full. */
+    public function test_orders_list_masks_refund_reasons_and_the_single_reads_stay_full(): void
+    {
+        $reason = 'Customer phoned from +1 555 0177, mug chipped';
+        $order  = $this->order();
+        $order->set_total('20.00');
+        $order->save();
+        $refund = wc_create_refund(['order_id' => $order->get_id(), 'amount' => '5.00', 'reason' => $reason]);
+        $this->assertInstanceOf(\WC_Order_Refund::class, $refund);
+
+        $list = $this->read('orders.list', ['per_page' => 5]);
+        $this->assertSame(200, $list['status'], wp_json_encode($list));
+        $this->assertTrue($list['masked']);
+        $row = array_column($list['body'], null, 'id')[ $order->get_id() ];
+        $this->assertCount(1, $row['refunds']);
+        $this->assertSame($refund->get_id(), $row['refunds'][0]['id']);
+        $this->assertSame('-5.00', (string) $row['refunds'][0]['total']);
+        $this->assertSame('C***', $row['refunds'][0]['reason']);
+        $this->assertStringNotContainsString('555 0177', wp_json_encode($list));
+
+        $one = $this->read('orders.get', ['id' => $order->get_id()]);
+        $this->assertArrayNotHasKey('masked', $one);
+        $this->assertSame($reason, $one['body']['refunds'][0]['reason']);
+
+        $single = $this->read('refunds.get', ['order_id' => $order->get_id(), 'id' => $refund->get_id()]);
+        $this->assertSame(200, $single['status'], wp_json_encode($single));
+        $this->assertArrayNotHasKey('masked', $single);
+        $this->assertSame($reason, $single['body']['reason']);
+    }
+
     public function test_order_notes_are_masked(): void
     {
         $order = $this->order();

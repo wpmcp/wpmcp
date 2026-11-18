@@ -89,6 +89,16 @@ class WooListMaskingTest extends \WP_UnitTestCase
         $this->assertSame('S***', $refunds[0]['meta_data'][0]['value']);
     }
 
+    public function test_an_order_list_masks_the_reason_of_each_refund_it_carries(): void
+    {
+        $orders = List_Masking::apply('orders.list', [
+            ['id' => 7, 'refunds' => [['id' => 591, 'reason' => 'Customer phoned from +1 555 0177', 'total' => '-5'], ['id' => 592, 'reason' => '', 'total' => '-1']]],
+            ['id' => 8, 'refunds' => []],
+        ]);
+        $this->assertSame([['id' => 591, 'reason' => 'C***', 'total' => '-5'], ['id' => 592, 'reason' => '', 'total' => '-1']], $orders[0]['refunds']);
+        $this->assertSame([], $orders[1]['refunds']);
+    }
+
     public function test_a_customer_list_masks_identity_and_the_gravatar_hash(): void
     {
         $out = List_Masking::apply('customers.list', [[

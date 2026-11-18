@@ -12,9 +12,10 @@ if (! defined('ABSPATH')) {
  * Hides personal data in the raw wc/v3 LIST reads before the body reaches the
  * model: orders.list, orders.notes, refunds.list and customers.list. A list
  * carries many people at once, so names, emails, phones, addresses, IPs,
- * free text and custom meta values keep only their first character (the shared
- * Privacy\Masking rule). Ids, order numbers, statuses, totals, dates, currency,
- * countries and line items stay readable. The single-record reads (orders.get,
+ * free text (a refund's reason inside an order too) and custom meta values keep
+ * only their first character (the shared Privacy\Masking rule). Ids, order
+ * numbers, statuses, totals, dates, currency, countries and line items stay
+ * readable. The single-record reads (orders.get,
  * customers.get, refunds.get) are not touched: an administrator gets full values
  * there, and an agent that must ship one order reads its address from orders.get.
  */
@@ -35,6 +36,15 @@ final class List_Masking
     private const ADDRESSES = [
         'orders.list'    => ['billing', 'shipping'],
         'customers.list' => ['billing', 'shipping'],
+    ];
+
+    /**
+     * Lists nested in a record whose entries have keys masked, per op: an
+     * order in orders.list carries its refunds with their reason, which
+     * refunds.list masks too (issue #943).
+     */
+    private const NESTED = [
+        'orders.list' => ['refunds' => ['reason']],
     ];
 
     /** Ops whose records carry plugin meta_data (values are masked, keys stay). */
@@ -74,6 +84,14 @@ final class List_Masking
                 if (null !== $country) {
                     $record[ $block ]['country'] = $country;
                 }
+            }
+        }
+        foreach (self::NESTED[ $op ] ?? [] as $list => $keys) {
+            if (isset($record[ $list ]) && is_array($record[ $list ])) {
+                $record[ $list ] = array_map(
+                    static fn ($entry) => is_array($entry) ? Masking::keys($entry, $keys) : $entry,
+                    $record[ $list ]
+                );
             }
         }
         if (in_array($op, self::META, true) && isset($record['meta_data']) && is_array($record['meta_data'])) {
