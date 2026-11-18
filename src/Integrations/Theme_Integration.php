@@ -259,7 +259,7 @@ class Theme_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'the active theme (context, mods), site identity, permalinks, Redirection, Rank Math redirects and 404 log, backup, security, analytics, cache, mail status, site gates';
+        return 'the active theme (context, mods), site identity, permalinks, Redirection, Rank Math redirects and 404 log, backup, security, analytics, cache, mail status, site gates, Redux options panels';
     }
 
     protected function operations(): array
@@ -293,6 +293,9 @@ class Theme_Integration extends Integration_Dispatcher
      * its plugin is not loaded.
      * Issue #903 adds the site gate status read and the SeedProd and Under
      * Construction toggles (Site_Gate_Pack).
+     * Issue #897 adds the Redux Framework options panels (Redux_Pack): panels
+     * and fields read, and one field written through Redux's own save,
+     * snapshotted and off until the site opts in.
      * Issues #713 and #717 add WordPress core's own site identity, homepage
      * and permalink settings (Core_Site_Pack): logo, icon, front page and
      * posts page, the permalink structure with its bases, a URL resolver
@@ -313,6 +316,7 @@ class Theme_Integration extends Integration_Dispatcher
             Core_Patterns_Pack::operations(),
             Ops_Status_Packs::operations(),
             Site_Gate_Pack::operations(),
+            Redux_Pack::operations(),
             Cache_Settings_Pack::operations(),
             Redirection_Pack::operations(),
             Rank_Math_Redirects_Pack::operations(),
