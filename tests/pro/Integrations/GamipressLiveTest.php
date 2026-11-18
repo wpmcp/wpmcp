@@ -20,9 +20,11 @@ use WPMCP\Tools\Rollback_Session;
  * Points, achievement and rank writes go through GamiPress's own functions,
  * so its logs, achievement points and rank earnings all fire; each write
  * must then roll back to the user's state before it. Everywhere else the
- * plugin is absent and the test is skipped.
+ * plugin is absent and the test is skipped. It has no leg in bin/legs.tsv
+ * yet (a leg needs a runner in bin/test-local.sh), so its group does not
+ * carry the -live suffix the leg table checks.
  *
- * @group gamipress-live
+ * @group gamipress-src
  */
 class GamipressLiveTest extends \WP_UnitTestCase
 {
