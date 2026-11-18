@@ -241,7 +241,7 @@ final class WPFunnels_Pack
             return $refused;
         }
         $type = (string) get_post_meta($id, '_step_type', true);
-        return 'checkout' === $type ? null : self::refusal('not_a_checkout_step', sprintf('Step %d is a %s step; only a checkout step has products.', $id, '' === $type ? 'untyped' : $type), [ 'id' => $id, 'type' => $type ]);
+        return 'checkout' === $type ? null : self::refusal('not_a_checkout_step', sprintf('Step %d has type "%s"; only a checkout step has products.', $id, $type), [ 'id' => $id, 'type' => $type ]);
     }
 
     private static function products_refusal(array $products): ?array
