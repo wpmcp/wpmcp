@@ -803,8 +803,9 @@ final class Plugin
             add_action('woocommerce_delete_shipping_zone', ['\\WPMCP\\Safety\\Wc_Shipping_Zone_Snapshot', 'forget_creation']);
             // The WP-Cron executor for trigger-backup's scheduled events: runs
             // the queued job (producing a backup artifact) and flips its
-            // status to completed/failed. See Run_Backup_Job's docblock.
-            add_action(Run_Backup_Job::HOOK, [new Run_Backup_Job(), 'handle']);
+            // status to completed/failed, in steps under a PHP time limit
+            // (issue #783). See Run_Backup_Job's docblock.
+            add_action(Run_Backup_Job::HOOK, [new Run_Backup_Job(), 'handle_scheduled']);
             // The executor for a restore queued by restore-site-backup
             // (issue #727). See Run_Restore_Job's docblock.
             add_action(Run_Restore_Job::HOOK, [new Run_Restore_Job(), 'handle']);

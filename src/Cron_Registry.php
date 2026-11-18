@@ -129,6 +129,7 @@ final class Cron_Registry
             }
 
             $changed = false;
+            $discard = [];
             foreach (array_keys($ids) as $id) {
                 $record = $stored[ $collection ][ $id ] ?? null;
                 if (! is_array($record) || ! in_array($record['status'] ?? '', self::ACTIVE, true)) {
@@ -137,12 +138,21 @@ final class Cron_Registry
                 $record['status']     = 'canceled';
                 $record['error']      = self::CANCELED_ERROR;
                 $record['updated_at'] = time();
+                // A backup built in steps (issue #783) has no request left
+                // to clean up after it once its events are gone.
+                if (is_array($record['progress'] ?? null) && isset($record['progress']['partial_file'])) {
+                    $discard[] = $record['progress'];
+                }
+                unset($record['build']);
                 $stored[ $collection ][ $id ] = $record;
                 $changed = true;
             }
 
             if ($changed) {
                 update_option($option, $stored);
+            }
+            foreach ($discard as $progress) {
+                \WPMCP\Tools\Backup\Site_Archive_Builder::discard_partial($progress);
             }
         }
     }

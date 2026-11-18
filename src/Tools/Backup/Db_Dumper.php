@@ -88,6 +88,23 @@ class Db_Dumper
      */
     public function dump(callable $write, ?array $tables = null): array
     {
+        $state = $this->begin($tables);
+        $state = $this->step($state, $write, static fn(): bool => false);
+
+        return self::result($state);
+    }
+
+    /**
+     * Start a dump that can be continued in later requests (issue #783):
+     * the returned state is plain data, saved on the backup job between
+     * steps, and step() carries it forward. dump() is begin() plus one
+     * step() that never yields, so both write the same SQL.
+     *
+     * @param string[]|null $tables
+     * @return array<string,mixed>
+     */
+    public function begin(?array $tables = null): array
+    {
         // Before the header is written: a refused dump emits nothing.
         Network_Scope::assert_caller('A database dump');
 
@@ -97,40 +114,110 @@ class Db_Dumper
         // query below on our own prefix (the names are then bound with %i).
         $targets = null === $tables ? $all : array_values(array_intersect($tables, $all));
 
-        $counts      = [];
-        $blob_tables = [];
-        $bytes       = 0;
-
-        $emit = static function (string $sql) use ($write, &$bytes): void {
-            $bytes += strlen($sql);
-            $write($sql);
-        };
-
-        $emit($this->header());
-
-        foreach ($targets as $table) {
-            if ($this->has_blob_column($table)) {
-                $blob_tables[] = $table;
-            }
-            $counts[ $table ] = $this->dump_table($table, $emit);
-        }
-
-        $emit($this->footer());
-
         return [
-            'tables'      => $counts,
-            'blob_tables' => $blob_tables,
-            'bytes'       => $bytes,
+            'tables'      => $targets,
+            'index'       => 0,
+            'started'     => false,
+            'header'      => false,
+            'cursor'      => null,
+            'offset'      => 0,
+            'counts'      => [],
+            'blob_tables' => [],
+            'bytes'       => 0,
+            'done'        => false,
         ];
     }
 
     /**
-     * Dump one table: structure, then its rows in batches. Returns the row
-     * count written.
+     * Continue a dump from $state, writing through $write, until it is done
+     * or $yield returns true. $yield is asked after every batch of rows, so
+     * one call always makes progress. A yield ends the open INSERT at a row
+     * boundary, which keeps every statement in the file whole wherever the
+     * request that wrote it stopped.
+     *
+     * @param callable(string):void $write
+     * @param callable():bool       $yield
+     * @return array<string,mixed> the state to pass to the next call
+     */
+    public function step(array $state, callable $write, callable $yield, int $batch = self::BATCH): array
+    {
+        Network_Scope::assert_caller('A database dump');
+
+        $batch = max(1, $batch);
+        $emit  = static function (string $sql) use ($write, &$state): void {
+            $state['bytes'] += strlen($sql);
+            $write($sql);
+        };
+
+        if (empty($state['header'])) {
+            $emit($this->header());
+            $state['header'] = true;
+        }
+
+        $tables = array_values((array) $state['tables']);
+        while ((int) $state['index'] < count($tables)) {
+            $table = (string) $tables[ (int) $state['index'] ];
+
+            if (empty($state['started'])) {
+                $state['started']          = true;
+                $state['cursor']           = null;
+                $state['offset']           = 0;
+                $state['counts'][ $table ] = 0;
+                if (! $this->start_table($table, $emit)) {
+                    // A table that vanished between enumeration and dump (a
+                    // plugin uninstall mid-backup) is skipped rather than
+                    // aborting the whole archive: a backup missing one
+                    // dropped table beats no backup.
+                    $state['index']++;
+                    $state['started'] = false;
+                    continue;
+                }
+                if ($this->has_blob_column($table)) {
+                    $state['blob_tables'][] = $table;
+                }
+            }
+
+            $finished = $this->dump_rows($table, $state, $emit, $yield, $batch);
+            if ($finished) {
+                if ((int) $state['counts'][ $table ] > 0) {
+                    $emit("\n");
+                }
+                $state['index']++;
+                $state['started'] = false;
+            }
+            if ($yield()) {
+                break;
+            }
+        }
+
+        if ((int) $state['index'] >= count($tables)) {
+            $emit($this->footer());
+            $state['done'] = true;
+        }
+
+        return $state;
+    }
+
+    /**
+     * What dump() returns, from a finished state.
+     *
+     * @return array{tables: array<string,int>, blob_tables: string[], bytes: int}
+     */
+    public static function result(array $state): array
+    {
+        return [
+            'tables'      => array_map('intval', (array) ($state['counts'] ?? [])),
+            'blob_tables' => array_values((array) ($state['blob_tables'] ?? [])),
+            'bytes'       => (int) ($state['bytes'] ?? 0),
+        ];
+    }
+
+    /**
+     * A table's structure. False when the table is gone.
      *
      * @param callable(string):void $emit
      */
-    private function dump_table(string $table, callable $emit): int
+    private function start_table(string $table, callable $emit): bool
     {
         global $wpdb;
 
@@ -138,10 +225,7 @@ class Db_Dumper
         $create = $wpdb->get_row($wpdb->prepare('SHOW CREATE TABLE %i', $table), ARRAY_N);
 
         if (! is_array($create) || ! isset($create[1])) {
-            // A table that vanished between enumeration and dump (a plugin
-            // uninstall mid-backup) is skipped rather than aborting the whole
-            // archive: a backup missing one dropped table beats no backup.
-            return 0;
+            return false;
         }
 
         $quoted = '`' . str_replace('`', '``', $table) . '`';
@@ -150,14 +234,30 @@ class Db_Dumper
         $emit("DROP TABLE IF EXISTS {$quoted};\n");
         $emit($create[1] . ";\n\n");
 
+        return true;
+    }
+
+    /**
+     * A table's rows, in batches, from the cursor in $state. Returns true
+     * when the table is done, false when $yield stopped it part-way (the
+     * cursor and offset in $state then say where to go on from).
+     *
+     * @param callable(string):void $emit
+     * @param callable():bool       $yield
+     */
+    private function dump_rows(string $table, array &$state, callable $emit, callable $yield, int $batch): bool
+    {
+        global $wpdb;
+
+        $quoted = '`' . str_replace('`', '``', $table) . '`';
         $key    = $this->primary_key($table);
         $order  = null !== $key ? '`' . str_replace('`', '``', $key) . '`' : $this->column_order($table);
-        $offset = 0;
-        $cursor = null;
-        $total  = 0;
         $buffer = '';
+        $done   = false;
 
         while (true) {
+            $cursor = $state['cursor'];
+            $offset = (int) $state['offset'];
             if (null !== $key) {
                 // Keyset pagination. LIMIT/OFFSET reads a shifting window:
                 // an INSERT or DELETE by ordinary site traffic while the dump
@@ -167,26 +267,27 @@ class Db_Dumper
                 // key read is stable under concurrent writes, and it also
                 // avoids the O(n^2) scan OFFSET costs on a large postmeta.
                 $sql = null === $cursor
-                    ? $wpdb->prepare('SELECT * FROM %i ORDER BY %i ASC LIMIT %d', $table, $key, self::BATCH)
-                    : $wpdb->prepare('SELECT * FROM %i WHERE %i > %s ORDER BY %i ASC LIMIT %d', $table, $key, $cursor, $key, self::BATCH);
+                    ? $wpdb->prepare('SELECT * FROM %i ORDER BY %i ASC LIMIT %d', $table, $key, $batch)
+                    : $wpdb->prepare('SELECT * FROM %i WHERE %i > %s ORDER BY %i ASC LIMIT %d', $table, $key, (string) $cursor, $key, $batch);
             } else {
                 // No single-column primary key to seek on, so OFFSET is the
                 // only option, but ordered, so at least the sequence is
                 // deterministic rather than whatever the optimiser returns.
                 // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $order is a backtick-quoted column list built by Db_Dumper::column_order() (src/Tools/Backup/Db_Dumper.php) from SHOW COLUMNS %i on this validated table; %i binds one identifier, and an ORDER BY over every column is a list of them.
-                $sql = $wpdb->prepare("SELECT * FROM %i ORDER BY {$order} LIMIT %d OFFSET %d", $table, self::BATCH, $offset);
+                $sql = $wpdb->prepare("SELECT * FROM %i ORDER BY {$order} LIMIT %d OFFSET %d", $table, $batch, $offset);
             }
 
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Identifiers come from the validated table list and from SHOW KEYS/SHOW COLUMNS on that table; every value is bound. Not cached: a backup must capture the live rows, each read once.
             $rows = $wpdb->get_results($sql, ARRAY_A);
 
             if (! is_array($rows) || [] === $rows) {
+                $done = true;
                 break;
             }
 
             if (null !== $key) {
-                $last   = $rows[ count($rows) - 1 ];
-                $cursor = (string) ($last[ $key ] ?? '');
+                $last            = $rows[ count($rows) - 1 ];
+                $state['cursor'] = (string) ($last[ $key ] ?? '');
             }
 
             foreach ($rows as $row) {
@@ -204,24 +305,24 @@ class Db_Dumper
                 }
             }
 
-            $total += count($rows);
+            $state['counts'][ $table ] = (int) ($state['counts'][ $table ] ?? 0) + count($rows);
+            $state['offset']           = $offset + count($rows);
 
-            if (count($rows) < self::BATCH) {
+            if (count($rows) < $batch) {
+                $done = true;
                 break;
             }
 
-            $offset += self::BATCH;
+            if ($yield()) {
+                break;
+            }
         }
 
         if ('' !== $buffer) {
             $emit($buffer . ";\n");
         }
 
-        if ($total > 0) {
-            $emit("\n");
-        }
-
-        return $total;
+        return $done;
     }
 
     /**

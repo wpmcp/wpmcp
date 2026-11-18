@@ -36,6 +36,10 @@ class Get_Backup_Status
             return new \WP_Error('wpmcp_backup_job_not_found', "No backup job found with id \"{$job_id}\".");
         }
 
+        // A chunked build's step cursor (issue #783) is internal; its
+        // progress record says how far the build got.
+        unset($job['build']);
+
         return $job;
     }
 
