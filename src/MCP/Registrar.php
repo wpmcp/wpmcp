@@ -4,7 +4,6 @@ namespace WPMCP\MCP;
 
 use WPMCP\Auth\Client_Access;
 use WPMCP\Governance\Governance;
-use WPMCP\Integrations\Plugin_Refusal;
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\Identity\Identity_Context;
 use WPMCP\Memory\Memory_Guard;
@@ -42,6 +41,14 @@ class Registrar
 
     /** @var array<string, true> abilities whose execute() has begun but not yet checked permission. */
     private static array $invoked = [];
+
+    /**
+     * The refusal behind the last denied permission callback, per ability,
+     * and whether that check ran inside execute(). See permission_callback().
+     *
+     * @var array<string, array{error: \WP_Error, in_execute: bool}>
+     */
+    private static array $refusals = [];
 
     /** The last decision recorded by a check made outside execute(). */
     private static ?string $standalone = null;
@@ -115,7 +122,11 @@ class Registrar
                 // or post type be decided here rather than inside each tool.
                 // permission() rather than is_permitted() so a read-only
                 // OAuth connection is told which scope it lacks (issue #454).
-                'permission_callback' => fn ($input = null) => $this->permission($a, is_array($input) ? $input : []),
+                // permission_callback() returns a bool, never a WP_Error:
+                // execute() flags a WP_Error there as incorrect usage and
+                // swaps it for a generic error. The refusal reaches the
+                // client through permission_result() (issue #875).
+                'permission_callback' => fn ($input = null) => $this->permission_callback($a, is_array($input) ? $input : []),
             ]);
         }
     }
@@ -189,6 +200,112 @@ class Registrar
         // An input naming an agent memory entry is told to use the memory
         // tools (issue #517) rather than handed a bare permission denial.
         return Client_Access::denial($a) ?? self::plugin_missing($a) ?? Content_Guard::input_refusal($a, $input) ?? self::capability_refusal($a, $input) ?? false;
+    }
+
+    /**
+     * The registered permission callback: permission() as a bool. A denial
+     * with a refusal (scope, plugin missing, memory entry, capability) keeps
+     * the refusal aside for permission_result(), which hands it back from
+     * check_permissions() when the check runs on its own (the MCP adapter,
+     * stdio, core's REST run route). Inside execute() the callback's false
+     * stands, so core answers ability_invalid_permissions without the
+     * incorrect-usage notice a WP_Error there raises; call-tool then asks
+     * explain_denial() for the message.
+     *
+     * On a core without wp_ability_permission_result (6.9) a check outside
+     * execute() gets the refusal from the callback itself, the only way
+     * out there; inside execute() it is false on every version.
+     *
+     * @param array<string, mixed> $input As for is_permitted().
+     */
+    public function permission_callback(Ability $a, array $input = []): bool|\WP_Error
+    {
+        unset(self::$refusals[ $a->name ]);
+
+        $result = $this->permission($a, $input);
+        if (! $result instanceof \WP_Error) {
+            return $result;
+        }
+        $in_execute                 = self::inside_execute();
+        self::$refusals[ $a->name ] = [ 'error' => $result, 'in_execute' => $in_execute ];
+        if ($in_execute) {
+            return false;
+        }
+
+        // Outside execute() core raises no notice, but on 7.1 the filter
+        // hands the refusal back, so the callback itself stays a bool. 6.9
+        // has no such filter, so there the callback returns it.
+        return self::core_filters_permission() ? false : $result;
+    }
+
+    /**
+     * Whether this permission check was made by WP_Ability::execute(). Read
+     * from the call stack rather than the wp_ability_invoked mark, which a
+     * call that fails validation before its check leaves set. Only a denial
+     * asks, so the cost stays off the allowed path.
+     */
+    private static function inside_execute(): bool
+    {
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- frame names only, no arguments.
+        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 12) as $frame) {
+            if ('execute' === ($frame['function'] ?? '') && is_a($frame['class'] ?? '', 'WP_Ability', true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether core runs wp_ability_permission_result (WordPress 7.1). */
+    private static function core_filters_permission(): bool
+    {
+        return class_exists('WP_Filter_Sentinel', false);
+    }
+
+    /**
+     * wp_ability_permission_result: a denial of one of our abilities by a
+     * check made outside execute() becomes the refusal permission_callback()
+     * kept, so the caller learns what is missing. Anything else (a grant, a
+     * denial another filter made, a check inside execute()) is left alone.
+     *
+     * @param mixed $permission The permission result so far.
+     * @param mixed $name       The ability name.
+     * @return mixed
+     */
+    public static function permission_result($permission, $name = '')
+    {
+        $kept = self::$refusals[ (string) $name ] ?? null;
+        if (false !== $permission || null === $kept || $kept['in_execute']) {
+            return $permission;
+        }
+
+        return $kept['error'];
+    }
+
+    /**
+     * For a caller holding execute()'s ability_invalid_permissions answer:
+     * the same code, with the message and data of the refusal the check
+     * inside that execute() found, when it found one. Anything else is
+     * returned unchanged.
+     *
+     * @param mixed $result What execute() returned.
+     * @return mixed
+     */
+    public static function explain_denial(string $name, $result)
+    {
+        if (! $result instanceof \WP_Error || 'ability_invalid_permissions' !== $result->get_error_code()) {
+            return $result;
+        }
+        $kept = self::$refusals[ $name ] ?? null;
+        if (null === $kept || ! $kept['in_execute']) {
+            return $result;
+        }
+        $data = $kept['error']->get_error_data();
+
+        return new \WP_Error(
+            'ability_invalid_permissions',
+            $kept['error']->get_error_message(),
+            [ 'refusal' => $kept['error']->get_error_code() ] + (is_array($data) ? $data : [])
+        );
     }
 
     /**
@@ -552,7 +669,7 @@ class Registrar
                     $plugins_url
                 );
 
-            return new \WP_Error('plugin_missing', $message, [ 'plugin' => $host['name'], 'operation' => $operation, 'plugins_url' => $plugins_url ] + self::install_data($host));
+            return new \WP_Error('plugin_missing', $message, [ 'plugin' => $host['name'], 'operation' => $operation, 'plugins_url' => $plugins_url ]);
         }
 
         $message = $held['several']
@@ -569,23 +686,7 @@ class Registrar
                 $plugins_url
             );
 
-        return new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'], 'plugins_url' => $plugins_url ] + self::install_data($held + [ 'name' => $held['plugin'] ]));
-    }
-
-    /**
-     * Where to get a single named plugin, for a refusal's data: its
-     * install_url, or nothing for a plugin of several or an unknown one.
-     *
-     * @param array{name?: string, several?: bool} $host
-     * @return array<string, string>
-     */
-    private static function install_data(array $host): array
-    {
-        if (! empty($host['several']) || ! isset($host['name']) || ! class_exists(Plugin_Refusal::class)) {
-            return [];
-        }
-        $url = Plugin_Refusal::install_url((string) $host['name']);
-        return null === $url ? [] : [ 'install_url' => $url ];
+        return new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'], 'plugins_url' => $plugins_url ]);
     }
 
     /**

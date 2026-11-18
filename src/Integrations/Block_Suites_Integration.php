@@ -207,11 +207,16 @@ final class Block_Suites_Integration extends Integration_Dispatcher
             return null;
         }
         $spec = Block_Suite::spec($suite);
-        return [
-            'code'    => 'suite_unavailable',
-            'message' => sprintf('%s is not active on this site.', null === $spec ? $suite : $spec['label']),
-            'data'    => [ 'suite' => $suite ],
-        ];
+        if (null === $spec) {
+            return [
+                'code'    => 'suite_unavailable',
+                'message' => sprintf('%s is not active on this site.', $suite),
+                'data'    => [ 'suite' => $suite ],
+            ];
+        }
+        $refusal          = Plugin_Refusal::make('suite_unavailable', $spec['label']);
+        $refusal['data'] += [ 'suite' => $suite ];
+        return $refusal;
     }
 
     public static function list_suites(): array

@@ -111,8 +111,6 @@ class BearerAuthEnforcementTest extends \WP_UnitTestCase
         $id = self::factory()->post->create(['post_type' => 'page', 'post_title' => 'Hi']);
         self::reset_current_user_resolution();
 
-        // Core flags a WP_Error permission refusal (the one naming the capability, issue #875) as incorrect usage.
-        $this->setExpectedIncorrectUsage('WP_Ability::execute');
         $result = $this->get_page_ability()->execute(['id' => $id]);
 
         $this->assertInstanceOf(\WP_Error::class, $result);
@@ -131,8 +129,6 @@ class BearerAuthEnforcementTest extends \WP_UnitTestCase
         $id = self::factory()->post->create(['post_type' => 'page', 'post_title' => 'Hi']);
         self::reset_current_user_resolution();
 
-        // Core flags a WP_Error permission refusal (the one naming the capability, issue #875) as incorrect usage.
-        $this->setExpectedIncorrectUsage('WP_Ability::execute');
         $result = $this->get_page_ability()->execute(['id' => $id]);
 
         $this->assertInstanceOf(\WP_Error::class, $result, 'A Bearer token must grant nothing while the OAuth subsystem is disabled.');

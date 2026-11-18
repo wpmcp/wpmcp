@@ -182,8 +182,6 @@ class RegistrarRequestLogTest extends \WP_UnitTestCase
         wp_set_current_user($subscriber);
 
         $id     = self::factory()->post->create(['post_type' => 'page']);
-        // Core flags a WP_Error permission refusal (the one naming the capability, issue #875) as incorrect usage.
-        $this->setExpectedIncorrectUsage('WP_Ability::execute');
         $result = $this->ability('wpmcp/get-page')->execute(['id' => $id]);
 
         $this->assertInstanceOf(\WP_Error::class, $result);

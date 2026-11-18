@@ -917,6 +917,11 @@ final class Plugin
             \WPMCP\Governance\Call_Source::register();
             \WPMCP\Governance\Site_Wide_Governance::register();
             add_action('wp_ability_invoked', [Registrar::class, 'note_invoked'], PHP_INT_MIN, 1);
+            // A denial of our own ability reaches a standalone permission
+            // check (adapter, stdio, REST run route) as the refusal naming
+            // what is missing (issue #875), while the callback itself only
+            // ever returns a bool. Just before Site_Wide_Governance (MAX).
+            add_filter('wp_ability_permission_result', [Registrar::class, 'permission_result'], PHP_INT_MAX - 1, 2);
             // Handshake context injection (issue #80): swap the MCP
             // Adapter's initialize `instructions` for the admin-authored
             // text plus the permission-gated site summary. A no-op unless

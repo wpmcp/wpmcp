@@ -89,7 +89,7 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
             $result->get_error_message()
         );
         $this->assertSame(
-            [ 'plugin' => 'MemberPress', 'operation' => 'memberpress-list-memberships', 'plugins_url' => admin_url('plugins.php'), 'install_url' => 'https://memberpress.com/' ],
+            [ 'plugin' => 'MemberPress', 'operation' => 'memberpress-list-memberships', 'plugins_url' => admin_url('plugins.php') ],
             $result->get_error_data()
         );
     }

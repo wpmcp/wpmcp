@@ -227,10 +227,7 @@ final class Elementor_Addon_Packs
     {
         $label = self::SUITES[ $suite ]['label'];
         if (! self::active($suite)) {
-            return [
-                'code'    => 'addon_suite_inactive',
-                'message' => sprintf('%s for Elementor is not active on this site.', $label),
-            ];
+            return Plugin_Refusal::make('addon_suite_inactive', sprintf('%s for Elementor', $label));
         }
         if ($widgets && ! class_exists('\\Elementor\\Plugin')) {
             return [

@@ -53,6 +53,10 @@ final class Plugin_Refusal
         'TranslatePress'   => [ 'file' => 'translatepress-multilingual/index.php', 'slug' => 'translatepress-multilingual' ],
         'Rank Math SEO'    => [ 'file' => 'seo-by-rank-math/rank-math.php', 'slug' => 'seo-by-rank-math' ],
         'Redirection'      => [ 'file' => 'redirection/redirection.php', 'slug' => 'redirection' ],
+        'Flamingo'         => [ 'file' => 'flamingo/flamingo.php', 'slug' => 'flamingo' ],
+        'ACF Pro'          => [ 'file' => 'advanced-custom-fields-pro/acf.php', 'url' => 'https://www.advancedcustomfields.com/pro/' ],
+        'SeedProd'         => [ 'file' => 'coming-soon/coming-soon.php', 'slug' => 'coming-soon' ],
+        'Under Construction' => [ 'file' => 'under-construction-page/under-construction.php', 'slug' => 'under-construction-page' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
@@ -66,7 +70,44 @@ final class Plugin_Refusal
     }
 
     /**
-     * The refusal payload for an op whose plugin is not loaded.
+     * The refusal payload when any one of several plugins would do: the
+     * message gains the next step and the plugins screen, the data the
+     * plugins_url.
+     *
+     * @param array<string, mixed> $data
+     * @return array{code: string, message: string, data: array<string, mixed>}
+     */
+    public static function any_of(string $code, string $message, array $data = []): array
+    {
+        $plugins_url = admin_url('plugins.php');
+
+        return [
+            'code'    => $code,
+            'message' => sprintf('%s Install and activate one of them (%s), then try again.', $message, $plugins_url),
+            'data'    => $data + [ 'plugins_url' => $plugins_url ],
+        ];
+    }
+
+    /**
+     * Other directories the same plugin can live in (a premium build), so
+     * one installed there is not reported as missing.
+     *
+     * @var array<string, string[]>
+     */
+    private const ALT_FILES = [
+        'WP Mail SMTP'    => [ 'wp-mail-smtp-pro/wp_mail_smtp.php' ],
+        'Code Snippets'   => [ 'code-snippets-pro/code-snippets.php' ],
+        'Solid Security'  => [ 'ithemes-security-pro/ithemes-security-pro.php' ],
+        'Tutor LMS'       => [ 'tutor-pro/tutor-pro.php' ],
+    ];
+
+    /**
+     * The refusal payload for an op whose plugin is not loaded: the next
+     * step ("Install and activate X (plugins screen), then try again.") in
+     * the message, the same shape WS Form and the activity log ops use, and
+     * in 'data' the plugin, whether it is installed, the plugins screen,
+     * the main plugin file when known (required_plugin, what activate-plugin
+     * takes, issue #823) and where to get it.
      *
      * @param string      $code   The pack's own error code.
      * @param string      $plugin The plugin's display name.
@@ -75,31 +116,34 @@ final class Plugin_Refusal
      */
     public static function make(string $code, string $plugin, ?string $file = null): array
     {
-        $known       = self::PLUGINS[ $plugin ] ?? null;
-        $file        = $file ?? ($known['file'] ?? '');
-        $installed   = '' !== $file && defined('WP_PLUGIN_DIR') && file_exists(WP_PLUGIN_DIR . '/' . $file);
-        $plugins_url = admin_url('plugins.php');
-        $install_url = '';
-        if (isset($known['slug'])) {
-            $install_url = 'https://wordpress.org/plugins/' . $known['slug'] . '/';
-        } elseif (isset($known['url'])) {
-            $install_url = $known['url'];
+        $known     = self::PLUGINS[ $plugin ] ?? null;
+        $file      = $file ?? ($known['file'] ?? '');
+        $installed = '';
+        foreach (array_merge([ $file ], self::ALT_FILES[ $plugin ] ?? []) as $candidate) {
+            if ('' === $installed && '' !== $candidate && defined('WP_PLUGIN_DIR') && file_exists(WP_PLUGIN_DIR . '/' . $candidate)) {
+                $installed = $candidate;
+            }
         }
+        $plugins_url = admin_url('plugins.php');
+        $install_url = self::install_url($plugin) ?? '';
 
         $data = [
             'plugin'      => $known['slug'] ?? sanitize_title($plugin),
             'plugin_name' => $plugin,
-            'state'       => $installed ? 'inactive' : 'missing',
+            'state'       => '' !== $installed ? 'inactive' : 'missing',
             'plugins_url' => $plugins_url,
         ];
+        if ('' !== $installed || '' !== $file) {
+            $data['required_plugin'] = '' !== $installed ? $installed : $file;
+        }
         if ('' !== $install_url) {
             $data['install_url'] = $install_url;
         }
 
-        if ($installed) {
-            $message = sprintf('%1$s is installed but not active on this site. Activate %1$s (%2$s), then try again.', $plugin, $plugins_url);
+        if ('' !== $installed) {
+            $message = sprintf('%1$s is installed but not active on this site. Install and activate %1$s (%2$s), then try again.', $plugin, $plugins_url);
         } elseif ('' !== $install_url) {
-            $message = sprintf('%1$s is not installed on this site. Install it from %2$s and activate it (%3$s), then try again.', $plugin, $install_url, $plugins_url);
+            $message = sprintf('%1$s is not installed on this site. Install and activate %1$s (%2$s), then try again. It is available from %3$s.', $plugin, $plugins_url, $install_url);
         } else {
             $message = sprintf('%1$s is not installed on this site. Install and activate %1$s (%2$s), then try again.', $plugin, $plugins_url);
         }

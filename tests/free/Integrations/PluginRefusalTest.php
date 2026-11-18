@@ -27,7 +27,8 @@ class PluginRefusalTest extends \WP_UnitTestCase
         $r = Ops_Status_Packs::presence(false, 'betterdocs_inactive', 'BetterDocs');
 
         $this->assertSame('betterdocs_inactive', $r['code']);
-        $this->assertStringContainsString('BetterDocs is not installed on this site', $r['message']);
+        $this->assertStringContainsString('BetterDocs is not installed on this site. Install and activate BetterDocs (' . admin_url('plugins.php'), $r['message']);
+        $this->assertSame('betterdocs/betterdocs.php', $r['data']['required_plugin']);
         $this->assertStringContainsString('https://wordpress.org/plugins/betterdocs/', $r['message']);
         $this->assertStringContainsString(admin_url('plugins.php'), $r['message']);
         $this->assertSame('missing', $r['data']['state']);
@@ -74,7 +75,8 @@ class PluginRefusalTest extends \WP_UnitTestCase
 
         $this->assertSame('fixture_inactive', $r['code']);
         $this->assertSame('inactive', $r['data']['state']);
-        $this->assertStringContainsString('BetterDocs is installed but not active on this site. Activate BetterDocs', $r['message']);
+        $this->assertSame('BetterDocs is installed but not active on this site. Install and activate BetterDocs (' . admin_url('plugins.php') . '), then try again.', $r['message']);
+        $this->assertSame('wpmcp-refusal-fixture/fixture.php', $r['data']['required_plugin']);
     }
 
     public function test_betterdocs_and_code_snippets_ops_refuse_through_the_shared_shape(): void
@@ -91,5 +93,37 @@ class PluginRefusalTest extends \WP_UnitTestCase
         $c = Code_Snippets_Pack::requirement();
         $this->assertSame('code_snippets_inactive', $c['code']);
         $this->assertSame('https://wordpress.org/plugins/code-snippets/', $c['data']['install_url']);
+    }
+
+    /** Issue #951: Rank Math ops carry the next step and the plugins link. */
+    public function test_rank_math_inactive_names_the_next_step(): void
+    {
+        $r = Plugin_Refusal::make('rank_math_inactive', 'Rank Math SEO');
+
+        $this->assertSame('rank_math_inactive', $r['code']);
+        $this->assertStringContainsString('Install and activate Rank Math SEO (' . admin_url('plugins.php') . ')', $r['message']);
+        $this->assertStringContainsString('then try again.', $r['message']);
+        $this->assertSame(admin_url('plugins.php'), $r['data']['plugins_url']);
+        $this->assertSame('seo-by-rank-math/rank-math.php', $r['data']['required_plugin']);
+    }
+
+    /** A premium build in its own directory counts as installed, not missing. */
+    public function test_a_premium_build_directory_counts_as_installed(): void
+    {
+        $dir = WP_PLUGIN_DIR . '/wp-mail-smtp-pro';
+        $made = ! is_dir($dir);
+        wp_mkdir_p($dir);
+        file_put_contents($dir . '/wp_mail_smtp.php', "<?php\n");
+        try {
+            $r = Plugin_Refusal::make('wp_mail_smtp_inactive', 'WP Mail SMTP');
+        } finally {
+            unlink($dir . '/wp_mail_smtp.php');
+            if ($made) {
+                rmdir($dir);
+            }
+        }
+
+        $this->assertSame('inactive', $r['data']['state']);
+        $this->assertSame('wp-mail-smtp-pro/wp_mail_smtp.php', $r['data']['required_plugin']);
     }
 }

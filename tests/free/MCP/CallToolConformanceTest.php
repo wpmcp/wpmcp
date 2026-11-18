@@ -103,8 +103,6 @@ class CallToolConformanceTest extends \WP_UnitTestCase
         $target = wp_get_ability('wpmcp/get-settings');
         $this->assertNotTrue($target->check_permissions([]), 'Precondition: editor must be denied directly.');
 
-        // Core flags a WP_Error permission refusal (the one naming the capability, issue #875) as incorrect usage.
-        $this->setExpectedIncorrectUsage('WP_Ability::execute');
         $direct     = $target->execute([]);
         $dispatched = $this->dispatch('wpmcp/get-settings');
 
@@ -328,8 +326,6 @@ class CallToolConformanceTest extends \WP_UnitTestCase
         $this->as_user('editor');
 
         delete_option(Governance_Audit_Log::OPTION);
-        // Core flags a WP_Error permission refusal (the one naming the capability, issue #875) as incorrect usage.
-        $this->setExpectedIncorrectUsage('WP_Ability::execute');
         $this->dispatch('wpmcp/get-settings');
 
         $denied = array_filter(
@@ -351,8 +347,6 @@ class CallToolConformanceTest extends \WP_UnitTestCase
     public function test_full_surface_conformance_sweep_in_both_modes(): void
     {
         $this->as_user('administrator');
-        // A tool whose capability the administrator lacks (WooCommerce's) names it, which core flags (issue #875).
-        $this->setExpectedIncorrectUsage('WP_Ability::execute');
 
         Identity_Store::create('meta-only-bot', ['domains' => ['dispatch']]);
         Identity_Context::set_current_for_tests('meta-only-bot');

@@ -109,10 +109,9 @@ class Contact_Form_7_Integration extends Forms_Integration
         if (self::has_flamingo()) {
             return true;
         }
-        return [
-            'code'    => 'flamingo_unavailable',
-            'message' => 'Contact Form 7 does not store submissions itself; entry operations need the Flamingo plugin, which is not active on this site.',
-        ];
+        $refusal            = Plugin_Refusal::make('flamingo_unavailable', 'Flamingo');
+        $refusal['message'] = 'Contact Form 7 does not store submissions itself; entry operations need the Flamingo plugin. ' . $refusal['message'];
+        return $refusal;
     }
 
     /** Flamingo's inbound-message post type, guarded by has_flamingo(). */

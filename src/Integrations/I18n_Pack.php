@@ -59,10 +59,7 @@ final class I18n_Pack
     /** @return true|array{code: string, message: string} */
     public static function requirement()
     {
-        return self::active() ? true : [
-            'code'    => 'multilingual_inactive',
-            'message' => 'Neither Polylang nor WPML is active on this site.',
-        ];
+        return self::active() ? true : Plugin_Refusal::any_of('multilingual_inactive', 'Neither Polylang nor WPML is active on this site.');
     }
 
     /** @return array<string, array<string, mixed>> */
