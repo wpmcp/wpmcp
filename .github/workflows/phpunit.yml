@@ -33,6 +33,11 @@ concurrency:
 permissions:
   contents: read
 
+# pipefail: a failing command before a pipe (check-coverage | tee) fails the step.
+defaults:
+  run:
+    shell: bash
+
 env:
   # Absolute, normalised paths: a ".." in ABSPATH breaks the test library.
   WP_ROOT: ${{ github.workspace }}/../wp
@@ -252,7 +257,8 @@ jobs:
             exit 1
           fi
           # Each shard's coverage is a few hundred MB unserialised; the runner has 16 GB.
-          php -d memory_limit=-1 .github/ci/merge-coverage.php clover.xml "${covs[@]}"
+          php -d memory_limit=-1 -d display_errors=stderr -d error_reporting=-1 .github/ci/merge-coverage.php clover.xml "${covs[@]}"
+          ls -la clover.xml
           php bin/check-coverage.php clover.xml "$floor" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Baseline entries that pass now

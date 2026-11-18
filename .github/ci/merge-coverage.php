@@ -34,5 +34,10 @@ foreach ( array_slice( $argv, 2 ) as $file ) {
 	}
 	echo "merged $file\n";
 }
-( new Clover() )->process( $merged, $argv[1] );
-echo "wrote {$argv[1]}\n";
+fwrite( STDERR, "writing {$argv[1]}\n" );
+$xml = ( new Clover() )->process( $merged, $argv[1] );
+if ( ! is_file( $argv[1] ) || filesize( $argv[1] ) < 1000 ) {
+	fwrite( STDERR, "merge-coverage: the clover report is missing or empty (" . strlen( $xml ) . " bytes built)\n" );
+	exit( 1 );
+}
+echo "wrote {$argv[1]} (" . filesize( $argv[1] ) . " bytes)\n";
