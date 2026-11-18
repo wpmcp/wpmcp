@@ -143,7 +143,7 @@ final class WPGraphQL_Pack
         }
         return [
             'code'    => 'mutation_refused',
-            'message' => sprintf('wpgraphql-query runs queries only; this document holds a %s. Use the matching WP MCP write tools, which are snapshotted and undoable.', implode(' and a ', $writes)),
+            'message' => sprintf('wpgraphql-query runs queries only; this document holds an operation of type "%s". Use the matching WP MCP write tools, which are snapshotted and undoable.', implode('" and "', $writes)),
             'data'    => [ 'operations' => $writes ],
         ];
     }
