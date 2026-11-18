@@ -243,6 +243,58 @@ class BbPressPackTest extends \WP_UnitTestCase
         $this->assertSame('not_a_topic', $this->read('bbpress-get-topic', [ 'topic_id' => $this->forum ])['error']['code'] ?? '');
     }
 
+    public function test_get_topic_and_list_topics_return_the_topic_tags(): void
+    {
+        $want = [];
+        foreach ([ 'intro', 'welcome' ] as $slug) {
+            $term   = get_term_by('slug', $slug, 'topic-tag');
+            $want[] = [ 'id' => (int) $term->term_id, 'name' => (string) $term->name, 'slug' => $slug ];
+        }
+        $bare = self::factory()->post->create([ 'post_type' => 'topic', 'post_title' => 'Untagged', 'post_parent' => $this->forum, 'post_date' => '2020-01-01 00:00:00' ]);
+
+        $topic = $this->read('bbpress-get-topic', [ 'topic_id' => $this->topic ])['result']['topic'];
+        $this->assertSame($want, $topic['tags']);
+
+        $rows = array_column($this->read('bbpress-list-topics', [ 'forum_id' => $this->forum ])['result']['topics'], null, 'id');
+        $this->assertSame($want, $rows[ $this->topic ]['tags']);
+        $this->assertSame([], $rows[ $bare ]['tags']);
+    }
+
+    public function test_list_topics_filters_by_tag_slug(): void
+    {
+        self::factory()->post->create([ 'post_type' => 'topic', 'post_title' => 'Untagged', 'post_parent' => $this->forum ]);
+
+        $out = $this->read('bbpress-list-topics', [ 'forum_id' => $this->forum, 'tag' => 'welcome' ]);
+        $this->assertSame([ $this->topic ], array_column($out['result']['topics'], 'id'));
+        $this->assertSame(1, $out['result']['total']);
+
+        $none = $this->read('bbpress-list-topics', [ 'forum_id' => $this->forum, 'tag' => 'no-such-tag' ]);
+        $this->assertSame([], $none['result']['topics']);
+        $this->assertSame(0, $none['result']['total']);
+    }
+
+    public function test_tags_follow_a_renamed_topic_tag_taxonomy(): void
+    {
+        if (! function_exists('bbp_get_topic_tag_tax_id')) {
+            // bbPress's own accessor, which a site renames the taxonomy through.
+            eval('function bbp_get_topic_tag_tax_id() { return apply_filters("bbp_get_topic_tag_tax_id", "topic-tag"); }');
+        }
+        $rename = static fn (): string => 'forum-label';
+        add_filter('bbp_get_topic_tag_tax_id', $rename);
+        register_taxonomy('forum-label', 'topic');
+        try {
+            wp_set_object_terms($this->topic, [ 'billing' ], 'forum-label');
+            $tags = $this->read('bbpress-get-topic', [ 'topic_id' => $this->topic ])['result']['topic']['tags'];
+            $this->assertSame([ 'billing' ], array_column($tags, 'slug'));
+
+            $out = $this->read('bbpress-list-topics', [ 'forum_id' => $this->forum, 'tag' => 'billing' ]);
+            $this->assertSame([ $this->topic ], array_column($out['result']['topics'], 'id'));
+        } finally {
+            remove_filter('bbp_get_topic_tag_tax_id', $rename);
+            unregister_taxonomy('forum-label');
+        }
+    }
+
     // ---------------------------------------------------------------
     // The bbpress_posts snapshot
     // ---------------------------------------------------------------
