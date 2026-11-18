@@ -205,3 +205,36 @@ if ( ! function_exists( 'wpmcp_test_memberpress_locked' ) ) {
 		return false;
 	}
 }
+
+/*
+ * The part of MemberPress's product emails create-membership reads (issue
+ * #822), from MemberPress 1.14.3: MeprEmailFactory::all('MeprBaseProductEmail')
+ * returns one object per product email class, keyed by class, each with the
+ * public $defaults (enabled, subject, body, use_template) and $show_form that
+ * app/emails/MeprUserProductWelcomeEmail.php sets; the wp-admin membership
+ * screen renders one form per email with show_form and saves those values.
+ */
+if ( ! class_exists( 'MeprEmailFactory' ) ) {
+	abstract class MeprBaseProductEmail {
+		public $defaults  = [];
+		public $show_form = false;
+	}
+
+	class MeprUserProductWelcomeEmail extends MeprBaseProductEmail {
+		public function __construct() {
+			$this->show_form = true;
+			$this->defaults  = [
+				'enabled'      => false,
+				'subject'      => '** Thanks for Purchasing {$product_name}',
+				'body'         => 'Welcome to {$product_name}',
+				'use_template' => true,
+			];
+		}
+	}
+
+	class MeprEmailFactory {
+		public static function all( $etype = 'MeprBaseEmail', $args = [] ) {
+			return 'MeprBaseProductEmail' === $etype ? [ 'MeprUserProductWelcomeEmail' => new MeprUserProductWelcomeEmail() ] : [];
+		}
+	}
+}
