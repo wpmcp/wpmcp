@@ -232,7 +232,6 @@ final class Login_Url_Pack
             'post_status'      => 'any',
             'posts_per_page'   => 1,
             'fields'           => 'ids',
-            'suppress_filters' => true,
         ]);
         if ([] !== $taken) {
             return self::refusal('login_slug_collision', sprintf('"%s" is already the slug of post %d, which the login screen would hide. Choose another slug.', $slug, (int) $taken[0]), [ 'post_id' => (int) $taken[0] ]);
