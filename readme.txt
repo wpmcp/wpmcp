@@ -47,6 +47,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
 * With Pro, Tutor LMS, LifterLMS and LearnDash: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read); LearnDash also lists a learner's courses with progress and can enroll, unenroll or reset progress (off until the site turns them on), each undoable
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
+* With Pro, Thrive Optimize: A/B tests with each variation's traffic share and results (read), undoable traffic split changes and test stops, and picking a winner (not undoable, asks for confirmation), off until the site turns them on
 * With Pro, BetterDocs: knowledge base docs and categories (read, and undoable doc creates and edits)
 * With Pro, WP Offload Media (read): the storage provider, bucket and offload switches with credentials never returned, how many attachments are offloaded, and per attachment whether it is in the bucket, its object key and the URL the site serves
 * With Pro, Fluent Support and Awesome Support: tickets and their threads (read, customer emails masked in lists), and undoable replies, notes and status changes, off until the site turns them on
@@ -188,6 +189,7 @@ New:
 * bbPress topic tags on get-topic and list-topics, with a tag filter (#882).
 * Kadence element expiry settings in the layout operations (#892).
 * MemberPress update-rule adds or removes one access condition, and create-membership fills in the same defaults as wp-admin (#822).
+* Thrive Optimize A/B tests: read tests and results, change a traffic split, stop a test, pick a winner (#827).
 
 = 0.9.1 =
 This update tightens privacy and credential handling across many integrations and adds a dozen new ones.

@@ -230,6 +230,10 @@ return [
         // access rows stays: it acts on MemberPress's own table and needs
         // no MemberPress class.
         'src/Integrations/MemberPress_Pack.php',
+        // Thrive Optimize A/B tests (issue #827), paid-tier. strip.php takes
+        // out the lines in Plugin_Data_Integration that merge the ops, count
+        // the pack towards availability and name it in the summary.
+        'src/Integrations/Thrive_Optimize_Pack.php',
         // Elementor Pro form submissions (issue #654), paid-tier. strip.php
         // takes out the lines in Plugin_Data_Integration that merge the ops
         // and count the pack towards availability. The dispatcher's
