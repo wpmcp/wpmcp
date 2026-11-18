@@ -40,6 +40,8 @@ class ActionSchedulerPackTest extends \WP_UnitTestCase
             $this->markTestSkipped('Action Scheduler is not loaded in this run.');
         }
         Snapshot_Store::install();
+        // Start from an empty undo history, whatever an earlier test left (issue #963).
+        $GLOBALS['wpdb']->query('DELETE FROM ' . Snapshot_Store::table_name());
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));
         add_filter('wpmcp_enable_action_scheduler_write', '__return_true');
         $this->clear_queue();
@@ -118,6 +120,11 @@ class ActionSchedulerPackTest extends \WP_UnitTestCase
     public function test_while_action_scheduler_is_missing_a_call_answers_plugin_missing_with_the_plugins_link(): void
     {
         add_filter('wpmcp_action_scheduler_active', '__return_false');
+        // Keep the plugin-data integration itself available through another
+        // pack, as CodeSnippetsPackTest does, so the answer comes from the
+        // Action Scheduler pack and not from whichever other test happened to
+        // leave a pack's host loaded (issue #963).
+        add_filter('wpmcp_buddypress_active', '__return_true');
         $out = $this->read('actionscheduler-list-actions');
         $this->assertContains($this->code($out), [ 'plugin_missing', 'plugin_inactive' ], (string) wp_json_encode($out));
         $this->assertStringContainsString('Install and activate Action Scheduler', $out['error']['message']);

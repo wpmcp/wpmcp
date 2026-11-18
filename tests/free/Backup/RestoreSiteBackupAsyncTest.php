@@ -487,6 +487,15 @@ class RestoreSiteBackupAsyncTest extends \WP_UnitTestCase
             $other->close();
         }
 
+        // The server drops a closed connection's locks on its own thread, a
+        // moment after close() returns; under load that moment is visible
+        // (issue #963). Wait for it, as a later request would, before asking.
+        global $wpdb;
+        $lock = Run_Restore_Job::lock_name((int) $job['id']);
+        for ($i = 0; $i < 50 && '1' !== (string) $wpdb->get_var($wpdb->prepare('SELECT IS_FREE_LOCK(%s)', $lock)); $i++) {
+            usleep(20000);
+        }
+
         // The run's process is gone with its connection: now it stopped.
         $this->assertSame('failed', Backup_Job_Store::get($job['id'])['status']);
     }
