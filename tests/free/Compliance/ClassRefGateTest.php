@@ -134,6 +134,68 @@ class ClassRefGateTest extends \WP_UnitTestCase
     }
 
     /**
+     * Issue #935: the WooCommerce build scanned only src/Safety and hook
+     * callbacks, so a plain `use` of a pruned class anywhere else in shared
+     * code (src/MCP/Registrar.php importing an integration class) passed
+     * check:flavors. The src-wide scan reports it, skips only the files the
+     * build names (Plugin.php, whose references sit in flavor-gated branches
+     * the hook scan reads), and excuses only an allowlisted reference.
+     */
+    public function test_a_shared_file_importing_a_pruned_class_is_reported_outside_safety(): void
+    {
+        $stage = sys_get_temp_dir() . '/wpmcp-class-ref-gate-' . wp_generate_uuid4();
+        $files = [
+            'src/MCP/Registrar.php'        => "<?php\nnamespace WPMCP\\MCP;\nuse WPMCP\\Integrations\\Pruned_Refusal;\nuse WPMCP\\Kept\\Present;\n",
+            'src/Plugin.php'               => "<?php\nnamespace WPMCP;\nuse WPMCP\\Tools\\Elementor\\Pruned_Tool;\n",
+            'src/Tools/Export/Mirror.php'  => "<?php\nnamespace WPMCP\\Tools\\Export;\nuse WPMCP\\Tools\\Builders\\Guarded_Adapter;\nuse WPMCP\\Tools\\Builders\\Unlisted_Adapter;\n",
+        ];
+        mkdir($stage . '/vendor/composer', 0777, true);
+        file_put_contents($stage . '/vendor/composer/autoload_classmap.php', "<?php return ['WPMCP\\\\Kept\\\\Present' => 'x'];");
+        foreach ($files as $path => $src) {
+            if (! is_dir(dirname($stage . '/' . $path))) {
+                mkdir(dirname($stage . '/' . $path), 0777, true);
+            }
+            file_put_contents($stage . '/' . $path, $src);
+        }
+        $allow = [
+            'src/Tools/Export/Mirror.php' => [ 'WPMCP\\Tools\\Builders\\Guarded_Adapter' ],
+            'src/Gone.php'                => [ 'WPMCP\\Tools\\Bridge\\Stale' ],
+        ];
+
+        try {
+            $missing = implode("\n", \Class_Ref_Gate::missing($stage, 'src', false, [ 'src/Plugin.php' ], $allow));
+            $stale   = \Class_Ref_Gate::stale_allowances($stage, 'src', [ 'src/Plugin.php' ], $allow);
+        } finally {
+            foreach (array_keys($files) as $path) {
+                unlink($stage . '/' . $path);
+            }
+            unlink($stage . '/vendor/composer/autoload_classmap.php');
+        }
+
+        $this->assertStringContainsString('src/MCP/Registrar.php -> WPMCP\\Integrations\\Pruned_Refusal', $missing);
+        $this->assertStringContainsString('WPMCP\\Tools\\Builders\\Unlisted_Adapter', $missing);
+        $this->assertStringNotContainsString('WPMCP\\Kept\\Present', $missing);
+        $this->assertStringNotContainsString('Pruned_Tool', $missing, 'an excluded file is left to the hook scan');
+        $this->assertStringNotContainsString('Guarded_Adapter', $missing, 'an allowlisted reference is excused');
+        $this->assertSame([ 'src/Gone.php -> WPMCP\\Tools\\Bridge\\Stale' ], $stale, 'an allow entry that no longer matches is reported');
+    }
+
+    /**
+     * The WooCommerce build (and so check:flavors) runs the src-wide scan
+     * with the flavor's allowlist, not only the src/Safety one (#935).
+     */
+    public function test_the_woocommerce_build_scans_every_shipped_file(): void
+    {
+        $script = (string) file_get_contents(dirname(__DIR__, 3) . '/scripts/build-woo-release.sh');
+
+        $this->assertMatchesRegularExpression(
+            '#class-ref-gate\.php" "\$STAGE" src --exclude=src/Plugin\.php --allow="\$ROOT/scripts/flavors/woocommerce/class-ref-allow\.php"#',
+            $script
+        );
+        $this->assertFileExists(dirname(__DIR__, 3) . '/scripts/flavors/woocommerce/class-ref-allow.php');
+    }
+
+    /**
      * Runs the hook scan over a one-file stage whose classmap holds only
      * WPMCP\Boot and WPMCP\Kept\Present.
      *
