@@ -245,19 +245,62 @@ class CodeSnippetsPackTest extends \WP_UnitTestCase
         $this->assertSame($before, $this->row($id));
     }
 
-    public function test_update_refuses_an_active_snippet_a_locked_one_a_non_php_one_and_failing_code(): void
+    public function test_update_refuses_an_active_snippet_a_locked_one_code_on_a_non_php_one_and_failing_code(): void
     {
         $active = $this->seed([ 'active' => 1 ]);
         $html   = $this->seed([ 'scope' => 'footer-content', 'code' => '<p>hi</p>' ]);
         $locked = $this->seed();
         update_option('code_snippets_locked', [ $locked => true ]);
         $plain  = $this->seed();
+        $before = $this->row($html);
 
         $this->assertSame('snippet_active', $this->write('code-snippets-update-snippet', [ 'id' => $active, 'name' => 'N' ])['error']['code'] ?? null);
-        $this->assertSame('unsupported_snippet_type', $this->write('code-snippets-update-snippet', [ 'id' => $html, 'name' => 'N' ])['error']['code'] ?? null);
+        $code = $this->write('code-snippets-update-snippet', [ 'id' => $html, 'name' => 'N', 'code' => '<p>bye</p>' ]);
+        $this->assertSame('unsupported_snippet_type', $code['error']['code'] ?? null);
+        $this->assertStringContainsString('code', (string) ($code['error']['message'] ?? ''));
+        $this->assertStringContainsString('PHP', (string) ($code['error']['message'] ?? ''));
+        $this->assertSame($before, $this->row($html), 'a refused code change writes nothing, not even the name');
         $this->assertSame('snippet_locked', $this->write('code-snippets-update-snippet', [ 'id' => $locked, 'name' => 'N' ])['error']['code'] ?? null);
         $this->assertSame('validation_failed', $this->write('code-snippets-update-snippet', [ 'id' => $plain, 'code' => 'eval($_POST["x"]);' ])['error']['code'] ?? null);
         $this->assertSame(0, $GLOBALS['wpmcp_test_code_snippets_executed']);
+        $this->assertSame([], Snapshot_Store::recent(5));
+    }
+
+    /** Issue #881: name, description, tags and priority run no code, so every snippet type takes them. */
+    public function test_update_changes_the_details_of_html_css_and_js_snippets_and_rollback_restores_them(): void
+    {
+        foreach ([ 'footer-content' => 'html', 'site-css' => 'css', 'site-head-js' => 'js' ] as $scope => $type) {
+            $id     = $this->seed([ 'scope' => $scope, 'code' => '/* ' . $type . ' */' ]);
+            $before = $this->row($id);
+            $out    = $this->ok($this->write('code-snippets-update-snippet', [ 'id' => $id, 'name' => 'Renamed ' . $type, 'description' => 'new desc', 'tags' => [ 'gamma' ], 'priority' => 3 ]));
+
+            $this->assertTrue($out['recoverable'], $type);
+            $this->assertSame($type, $out['result']['snippet']['type']);
+            $this->assertArrayNotHasKey('validation', $out['result'], 'no PHP check report for a ' . $type . ' snippet');
+            $after = $this->row($id);
+            $this->assertSame('Renamed ' . $type, $after['name'], $type);
+            $this->assertSame('new desc', $after['description'], $type);
+            $this->assertSame('gamma', $after['tags'], $type);
+            $this->assertSame('3', (string) $after['priority'], $type);
+            $this->assertSame($before['code'], $after['code'], $type);
+            $this->assertSame($scope, $after['scope'], $type);
+            $this->assertSame('0', (string) $after['active'], $type);
+
+            $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']), $type);
+            $this->assertSame($before, $this->row($id), $type);
+        }
+        $this->assertSame(0, $GLOBALS['wpmcp_test_code_snippets_executed']);
+    }
+
+    public function test_an_active_or_locked_html_snippet_is_still_refused(): void
+    {
+        $active = $this->seed([ 'scope' => 'footer-content', 'code' => '<p>hi</p>', 'active' => 1 ]);
+        $locked = $this->seed([ 'scope' => 'footer-content', 'code' => '<p>hi</p>' ]);
+        update_option('code_snippets_locked', [ $locked => true ]);
+
+        $this->assertSame('snippet_active', $this->write('code-snippets-update-snippet', [ 'id' => $active, 'name' => 'N' ])['error']['code'] ?? null);
+        $this->assertSame('snippet_locked', $this->write('code-snippets-update-snippet', [ 'id' => $locked, 'name' => 'N' ])['error']['code'] ?? null);
+        $this->assertSame('1', (string) $this->row($active)['active']);
         $this->assertSame([], Snapshot_Store::recent(5));
     }
 
