@@ -387,7 +387,7 @@ foreach ( file( 'bin/legs.tsv', FILE_IGNORE_NEW_LINES ) as $line ) {
 				break 2;
 			}
 			$pstem = norm( basename( $path, '.php' ) );
-			if ( strlen( $stem ) >= 4 && str_starts_with( $pstem, $stem ) ) {
+			if ( ( strlen( $stem ) >= 4 && str_starts_with( $pstem, $stem ) ) || ( strlen( $stem ) >= 5 && str_contains( $pstem, $stem ) ) ) {
 				$why = "$f is named after $path";
 				break 2;
 			}
