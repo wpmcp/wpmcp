@@ -245,6 +245,10 @@ return [
         'src/Integrations/Helpdesk_Adapter.php',
         'src/Integrations/Helpdesk_Fluent_Support.php',
         'src/Integrations/Helpdesk_Awesome_Support.php',
+        // Thrive Automator automations (issue #830), paid-tier. strip.php
+        // takes out its lines in Plugin_Data_Integration and its rollback
+        // refresher in Plugin.
+        'src/Integrations/Thrive_Automator_Pack.php',
         // Weglot and GTranslate language settings (issue #690), paid-tier.
         // strip.php takes out the lines in Plugin_Data_Integration that merge
         // the ops and count the pack towards availability. The option

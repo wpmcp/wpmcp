@@ -87,6 +87,11 @@ if (! defined('ABSPATH')) {
  *    masked in lists, replied to, noted and set to a status, each ticket
  *    write off until wpmcp_enable_helpdesk_write and snapshotted as a
  *    'helpdesk_ticket' image (Helpdesk_Pack).
+ *  - Issue #830 adds the paid-tier Thrive Automator ops
+ *    (Thrive_Automator_Pack): automations listed and read with credentials
+ *    redacted, the trigger and action catalog, and automations turned on
+ *    (confirm:true) or off (off until wpmcp_enable_thrive_automator_write),
+ *    each under a post snapshot.
  *  - Issue #690 adds the paid-tier translation settings ops
  *    (Translation_Settings_Pack): Weglot languages and exclusions read, and
  *    GTranslate languages read and set (off until
@@ -142,6 +147,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || Elementor_Pro_Forms_Pack::active()
             || BetterDocs_Pack::active()
             || Helpdesk_Pack::active()
+            || Thrive_Automator_Pack::active()
             || Translation_Settings_Pack::active();
     }
 
@@ -158,6 +164,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
             . ', BetterDocs docs, Fluent Support and Awesome Support tickets'
+            . ', Thrive Automator automations'
             . ', Weglot and GTranslate language settings';
     }
 
@@ -206,6 +213,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         foreach (Helpdesk_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
         }
+        $groups[] = [ 'Thrive Automator', false, Thrive_Automator_Pack::operations() ];
         $groups[] = [ 'Weglot', false, Translation_Settings_Pack::weglot_operations() ];
         $groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];
 
@@ -250,6 +258,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Elementor_Pro_Forms_Pack::operations(),
             BetterDocs_Pack::operations(),
             Helpdesk_Pack::operations(),
+            Thrive_Automator_Pack::operations(),
             Translation_Settings_Pack::operations()
         );
     }
