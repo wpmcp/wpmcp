@@ -85,6 +85,11 @@ if (! defined('ABSPATH')) {
  *    GTranslate languages read and set (off until
  *    wpmcp_enable_translation_settings_write), the write snapshotted on the
  *    GTranslate option.
+ *  - Issue #665 adds the paid-tier SureCart ops (SureCart_Pack): products,
+ *    orders and customers (masked) and coupons read from SureCart's cloud,
+ *    and product edits and coupon creates (off until
+ *    wpmcp_enable_surecart_write), each snapshotted as a 'surecart_object'
+ *    image read from SureCart's API.
  *  - Issue #702 adds the Action Scheduler ops (Action_Scheduler_Pack): queue
  *    actions listed with args masked and read one at a time with their log,
  *    and pending actions canceled (undoable, as an 'action_scheduler'
@@ -130,7 +135,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || Elementor_Pro_Forms_Pack::active()
             || BetterDocs_Pack::active()
             || Helpdesk_Pack::active()
-            || Translation_Settings_Pack::active();
+            || Translation_Settings_Pack::active()
+            || SureCart_Pack::active();
     }
 
     public function registers_only_when_available(): bool
@@ -145,7 +151,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
             . ', BetterDocs docs, Fluent Support and Awesome Support tickets'
-            . ', Weglot and GTranslate language settings';
+            . ', Weglot and GTranslate language settings'
+            . ', SureCart store data';
     }
 
     /**
@@ -192,6 +199,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         }
         $groups[] = [ 'Weglot', false, Translation_Settings_Pack::weglot_operations() ];
         $groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];
+        $groups[] = [ 'SureCart', false, SureCart_Pack::operations() ];
 
         $hosts = [];
         foreach ($groups as [ $plugin, $several, $ops ]) {
@@ -231,7 +239,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Elementor_Pro_Forms_Pack::operations(),
             BetterDocs_Pack::operations(),
             Helpdesk_Pack::operations(),
-            Translation_Settings_Pack::operations()
+            Translation_Settings_Pack::operations(),
+            SureCart_Pack::operations()
         );
     }
 

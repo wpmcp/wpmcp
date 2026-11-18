@@ -250,6 +250,10 @@ return [
         // the ops and count the pack towards availability. The option
         // snapshot it writes is generic and needs no plugin class.
         'src/Integrations/Translation_Settings_Pack.php',
+        // SureCart store data (issue #665), paid-tier. strip.php takes out
+        // its lines in Plugin_Data_Integration; SureCart_Api and
+        // SureCart_Snapshot in src/Safety stay for the rollback core.
+        'src/Integrations/SureCart_Pack.php',
         // Cache and performance plugin settings (issue #692), paid-tier.
         // strip.php takes out the line in Theme_Integration that merges the
         // ops and the rollback refresher in Plugin.

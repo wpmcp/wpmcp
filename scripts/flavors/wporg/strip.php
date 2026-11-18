@@ -1489,7 +1489,8 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
             . "            \$groups[] = [ \$adapter->label(), false, \$adapter->operations() ];\n"
             . "        }\n"
             . "        \$groups[] = [ 'Weglot', false, Translation_Settings_Pack::weglot_operations() ];\n"
-            . "        \$groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];\n",
+            . "        \$groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];\n"
+            . "        \$groups[] = [ 'SureCart', false, SureCart_Pack::operations() ];\n",
         '',
         1,
     ],
@@ -1497,8 +1498,34 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         "            . ', FluentCRM and MailPoet'\n"
             . "            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'\n"
             . "            . ', BetterDocs docs, Fluent Support and Awesome Support tickets'\n"
-            . "            . ', Weglot and GTranslate language settings';\n",
+            . "            . ', Weglot and GTranslate language settings'\n"
+            . "            . ', SureCart store data';\n",
         "            . ', FluentCRM and MailPoet';\n",
+        1,
+    ],
+    // The SureCart ops (issue #665) are the paid add-on's too, removed by
+    // policy.php; their lines go first, so the translation settings edits
+    // below still match. SureCart_Api and SureCart_Snapshot stay: the
+    // safety core names them for a snapshot already taken.
+    [
+        " *  - Issue #665 adds the paid-tier SureCart ops (SureCart_Pack): products,\n"
+            . " *    orders and customers (masked) and coupons read from SureCart's cloud,\n"
+            . " *    and product edits and coupon creates (off until\n"
+            . " *    wpmcp_enable_surecart_write), each snapshotted as a 'surecart_object'\n"
+            . " *    image read from SureCart's API.\n",
+        '',
+        1,
+    ],
+    [
+        "            || Translation_Settings_Pack::active()\n"
+            . "            || SureCart_Pack::active();\n",
+        "            || Translation_Settings_Pack::active();\n",
+        1,
+    ],
+    [
+        "            Translation_Settings_Pack::operations(),\n"
+            . "            SureCart_Pack::operations()\n",
+        "            Translation_Settings_Pack::operations()\n",
         1,
     ],
     // The translation settings ops (issue #690) are the paid add-on's too,

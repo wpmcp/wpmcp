@@ -62,6 +62,7 @@ final class Plugin_Refusal
         'Under Construction' => [ 'file' => 'under-construction-page/under-construction.php', 'slug' => 'under-construction-page' ],
         'Weglot'           => [ 'file' => 'weglot/weglot.php', 'slug' => 'weglot' ],
         'GTranslate'       => [ 'file' => 'gtranslate/gtranslate.php', 'slug' => 'gtranslate' ],
+        'SureCart'         => [ 'file' => 'surecart/surecart.php', 'slug' => 'surecart' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
