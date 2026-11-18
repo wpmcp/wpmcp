@@ -1483,6 +1483,20 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
     [ "            . ', WP Offload Media status'\n", '', 1 ],
     [ "        \$groups[] = [ 'WP Offload Media', false, Offload_Media_Pack::operations() ];\n", '', 1 ],
     [ "            Offload_Media_Pack::operations(),\n", '', 1 ],
+    // The Thrive Ovation ops (issue #829) are the paid add-on's too, removed
+    // by policy.php; one line each, so they match wherever they sit.
+    [
+        " *  - Issue #829 adds the paid-tier Thrive Ovation ops (Thrive_Ovation_Pack):\n"
+            . " *    testimonials listed with author names and emails masked, read one at a\n"
+            . " *    time, tags listed, and testimonials created, edited, set to a status and\n"
+            . " *    tagged (off until wpmcp_enable_thrive_ovation_write), each undoable.\n",
+        '',
+        1,
+    ],
+    [ "            || Thrive_Ovation_Pack::active()\n", '', 1 ],
+    [ "            . ', Thrive Ovation testimonials'\n", '', 1 ],
+    [ "        \$groups[] = [ 'Thrive Ovation', false, Thrive_Ovation_Pack::operations() ];\n", '', 1 ],
+    [ "            Thrive_Ovation_Pack::operations(),\n", '', 1 ],
     // The per-op plugin names of the paid packs (issue #815) go with them,
     // and so does their part of the summary; these lines go first, so the
     // pack edits below still match.
