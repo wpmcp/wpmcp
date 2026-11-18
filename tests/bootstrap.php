@@ -126,6 +126,14 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'bbpress/bbpress.php' );
     }
 
+    // The optional GamiPress live test (issue #833) runs the GamiPress ops
+    // against a local GamiPress copy named by WPMCP_GAMIPRESS_SRC (the free
+    // plugin from wordpress.org works). Loaded only on request: the
+    // stub-backed GamiPress tests define its functions themselves.
+    if ( getenv( 'WPMCP_GAMIPRESS_SRC' ) && is_file( rtrim( (string) getenv( 'WPMCP_GAMIPRESS_SRC' ), '/' ) . '/gamipress.php' ) ) {
+        require rtrim( (string) getenv( 'WPMCP_GAMIPRESS_SRC' ), '/' ) . '/gamipress.php';
+    }
+
     // The live Breakdance job (issue #457, WPMCP_LIVE_BREAKDANCE=1) runs the
     // Breakdance adapter against a real Breakdance 1.x, copied in from
     // WPMCP_BREAKDANCE_SRC. Loaded only on request: the stub-backed
@@ -667,6 +675,30 @@ tests_add_filter( 'init', function () {
     if ( getenv( 'WPMCP_LIVE_SITE_REVIEWS' ) && function_exists( 'glsr' ) ) {
         glsr( \GeminiLabs\SiteReviews\Database\Tables::class )->createTables();
         glsr( \GeminiLabs\SiteReviews\Role::class )->resetAll();
+    }
+}, 20 );
+
+// The GamiPress live test's tables and settings, built by GamiPress's own
+// installer and table classes once per run, before any test transaction
+// starts. A no-op everywhere else.
+tests_add_filter( 'init', function () {
+    if ( getenv( 'WPMCP_GAMIPRESS_SRC' ) && defined( 'GAMIPRESS_DIR' ) && function_exists( 'ct_setup_table' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        require_once GAMIPRESS_DIR . 'includes/install.php';
+        gamipress_install();
+        // A fresh install records its own version as done, as GamiPress's
+        // upgrade routine does on a site with no earlier version.
+        update_option( 'gamipress_version', GAMIPRESS_VER );
+        foreach ( [ 'gamipress_user_earnings', 'gamipress_logs' ] as $table ) {
+            $ct = ct_setup_table( $table );
+            if ( is_object( $ct ) ) {
+                $ct->db->maybe_upgrade();
+                if ( isset( $ct->meta ) && is_object( $ct->meta ) ) {
+                    $ct->meta->db->maybe_upgrade();
+                }
+            }
+            ct_reset_setup_table();
+        }
     }
 }, 20 );
 

@@ -97,6 +97,9 @@ class Snapshot
         if (Action_Scheduler_Snapshot::TYPE === $object_type) {
             return Action_Scheduler_Snapshot::capture((string) $object_id);
         }
+        if (Gamipress_User_Snapshot::TYPE === $object_type) {
+            return Gamipress_User_Snapshot::capture((string) $object_id);
+        }
         if (FunnelKit_Funnel_Snapshot::TYPE === $object_type) {
             return FunnelKit_Funnel_Snapshot::capture((int) $object_id);
         }

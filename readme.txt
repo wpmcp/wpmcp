@@ -47,6 +47,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
 * With Pro, Tutor LMS, LifterLMS and LearnDash: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read); LearnDash also lists a learner's courses with progress and can enroll, unenroll or reset progress (off until the site turns them on), each undoable
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
+* With Pro, GamiPress: points, achievement and rank types, achievements, ranks and each user's points, earned achievements and rank (read), and achievement edits plus points, achievement and rank awards and revokes through GamiPress, each undoable (off until the site turns them on)
 * With Pro, BetterDocs: knowledge base docs and categories (read, and undoable doc creates and edits)
 * With Pro, WP Offload Media (read): the storage provider, bucket and offload switches with credentials never returned, how many attachments are offloaded, and per attachment whether it is in the bucket, its object key and the URL the site serves
 * With Pro, Fluent Support and Awesome Support: tickets and their threads (read, customer emails masked in lists), and undoable replies, notes and status changes, off until the site turns them on
