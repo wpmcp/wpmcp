@@ -12,6 +12,7 @@ use WPMCP\Tools\Export\Export_Dir;
 use WPMCP\Tools\Filesystem\Filesystem_Guard;
 use WPMCP\Tools\Redirects\Redirect_Store;
 use WPMCP\Tools\Search\Search_Index_Store;
+use WPMCP\Tools\Security\File_Quarantine;
 use WPMCP\Tools\WidgetBuilder\Compiler\Compiled_Widget_Manifest;
 
 /**
@@ -267,7 +268,7 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             array_map(static fn ($t) => $wpdb->prefix . $t, Data_Registry::TABLES)
         );
         $this->assertSame(
-            [ File_Backup::BACKUP_DIR, Site_Backup_Dir::DIR_NAME, Export_Dir::DIR_NAME, Content_Mirror::DIR_NAME, Filesystem_Guard::BACKUP_DIR ],
+            [ File_Backup::BACKUP_DIR, Site_Backup_Dir::DIR_NAME, Export_Dir::DIR_NAME, Content_Mirror::DIR_NAME, Filesystem_Guard::BACKUP_DIR, File_Quarantine::DIR ],
             Data_Registry::UPLOADS_DIRS
         );
         $this->assertSame(

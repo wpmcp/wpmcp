@@ -66,8 +66,10 @@ WP MCP keeps copies of site data it needs to work: undo snapshots of what an age
 
 Used by the `scan-security` ability to compare this site's core files
 against the official checksums for its version, so modified core files can
-be reported. It is contacted only when an administrator or an agent runs
-that ability. What is sent: the WordPress version and the site locale, under
+be reported, and by the `incident-response` ability's `quarantine-file`
+action for a file in wp-admin, wp-includes or the install root, so a core
+file is never quarantined. It is contacted only when an administrator or an
+agent runs one of these. What is sent: the WordPress version and the site locale, under
 a `WPMCP-Security-Scanner/1.0` user agent. No content and no personal data.
 Privacy policy: https://wordpress.org/about/privacy/
 
