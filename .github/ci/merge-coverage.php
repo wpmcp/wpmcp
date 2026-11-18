@@ -27,6 +27,11 @@ foreach ( array_slice( $argv, 2 ) as $file ) {
 		fwrite( STDERR, "merge-coverage: $file is not a PHP coverage file\n" );
 		exit( 1 );
 	}
+	// The shards recorded their uncovered files already. Processing them
+	// again means including every src/ file outside WordPress, where the
+	// first `defined( 'ABSPATH' ) || exit;` ends this script with status 0
+	// and no report.
+	$coverage->doNotProcessUncoveredFiles();
 	if ( null === $merged ) {
 		$merged = $coverage;
 	} else {
