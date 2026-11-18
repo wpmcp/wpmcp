@@ -138,7 +138,7 @@ class Woo_Write
                 '',
                 sprintf("add_filter('%s', fn (\$on, \$op) => '%s' === \$op ? true : \$on, 10, 2);", self::ENABLE_FILTER, $op)
             ),
-            [ 'filter' => self::ENABLE_FILTER ]
+            [ 'filter' => self::ENABLE_FILTER ] + (Opt_In_Required::admin_setting(self::ENABLE_FILTER) ?? [])
         );
     }
 
