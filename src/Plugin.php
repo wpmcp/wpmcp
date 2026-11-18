@@ -1652,7 +1652,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-media',
             'free',
-            'Read a Media Library attachment: title, URL, every registered size, dimensions, mime type, alt text, caption and description',
+            'Read a Media Library attachment: title, URL, every registered size and missing_sizes, dimensions, mime type, alt text, caption and description',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1764,7 +1764,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-media',
             'free',
-            'List Media Library attachments, filtered by type ("image" or a mime like "image/png"), after/before dates and search, paged newest first with total/pages',
+            'List Media Library attachments, filtered by type ("image" or a mime like "image/png"), after/before dates and search, paged newest first with total/pages. missing_sizes:true adds each image\'s ungenerated registered sizes',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1774,6 +1774,7 @@ final class Plugin
                     'before'   => [ 'type' => 'string' ],
                     'page'     => [ 'type' => 'integer' ],
                     'per_page' => [ 'type' => 'integer' ],
+                    'missing_sizes' => [ 'type' => 'boolean' ],
                 ],
             ],
             [$list_media, 'handle'],
@@ -1802,17 +1803,17 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resize-media',
             'free',
-            'Regenerate the given registered image sizes of an attachment from its original and report each file (name, dimensions, URL). Snapshot-first with a file backup (undoable)',
+            'Regenerate the given registered image sizes of an attachment from its original and report each file (name, dimensions, URL). Omit sizes to fill the missing ones; media_ids: up to 20 attachments. Snapshot-first with a file backup (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
                     'media_id'   => [ 'type' => 'integer' ],
+                    'media_ids'  => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
                     'sizes'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
                     'session_id' => [ 'type' => 'string' ],
                     // Resize even when some files could not be backed up.
                     'allow_unrecoverable_files' => [ 'type' => 'boolean' ],
                 ],
-                'required'   => [ 'media_id', 'sizes' ],
             ],
             [$resize_media, 'handle'],
             'edit_posts',
