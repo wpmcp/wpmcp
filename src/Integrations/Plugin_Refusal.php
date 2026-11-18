@@ -62,6 +62,7 @@ final class Plugin_Refusal
         'Flamingo'         => [ 'file' => 'flamingo/flamingo.php', 'slug' => 'flamingo' ],
         'ACF Pro'          => [ 'file' => 'advanced-custom-fields-pro/acf.php', 'url' => 'https://www.advancedcustomfields.com/pro/' ],
         'SeedProd'         => [ 'file' => 'coming-soon/coming-soon.php', 'slug' => 'coming-soon' ],
+        'WPGraphQL'        => [ 'file' => 'wp-graphql/wp-graphql.php', 'slug' => 'wp-graphql' ],
         'Under Construction' => [ 'file' => 'under-construction-page/under-construction.php', 'slug' => 'under-construction-page' ],
         'Weglot'           => [ 'file' => 'weglot/weglot.php', 'slug' => 'weglot' ],
         'GTranslate'       => [ 'file' => 'gtranslate/gtranslate.php', 'slug' => 'gtranslate' ],
