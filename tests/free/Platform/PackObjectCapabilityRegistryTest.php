@@ -45,6 +45,8 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
         'plugin-data:code-snippets-activate-snippet:id' => 'a Code Snippets snippet row in its own table, behind manage_options (Code Snippets\' own capability)',
         'plugin-data:code-snippets-deactivate-snippet:id' => 'a Code Snippets snippet row in its own table, behind manage_options (Code Snippets\' own capability)',
         'theme:ignore-wordfence-scan-issue:issue_id' => 'a Wordfence scan issue row in its own table, behind manage_options (manage_network on a network), Wordfence\'s own capability',
+        'theme:list-backwpup-backups:job_id' => 'a BackWPup job in its own backwpup_jobs site option, behind manage_options (manage_network_options on a network)',
+        'theme:run-backwpup-backup:job_id' => 'a BackWPup job in its own backwpup_jobs site option, behind manage_options (manage_network_options on a network)',
         'plugin-data:actionscheduler-get-action:action_id' => 'an Action Scheduler queue action in its own store (database or posts), behind manage_options (the capability the Action Scheduler admin screen takes)',
         'plugin-data:actionscheduler-cancel-action:action_id' => 'an Action Scheduler queue action in its own store (database or posts), behind manage_options (the capability the Action Scheduler admin screen takes)',
         'plugin-data:actionscheduler-run-action:action_id' => 'an Action Scheduler queue action in its own store (database or posts), behind manage_options (the capability the Action Scheduler admin screen takes)',

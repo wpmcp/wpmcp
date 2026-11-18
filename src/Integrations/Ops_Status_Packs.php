@@ -17,6 +17,7 @@ if (! defined('ABSPATH')) {
  *  - get-duplicator-status (Duplicator_Status)
  *  - list-updraftplus-backups and run-updraftplus-backup (UpdraftPlus_Status, #694)
  *  - list-aio-wp-migration-backups (AIOWM_Status, #694)
+ *  - list-backwpup-backups and run-backwpup-backup (BackWPup_Status, #694)
  *  - get-solid-security-status (Solid_Security_Status)
  *  - get-sucuri-status, get-aios-status and get-limit-login-attempts-status
  *    (Sucuri_Status, AIOS_Status, Limit_Login_Attempts_Status, #695)
@@ -33,7 +34,7 @@ if (! defined('ABSPATH')) {
  * skipped cleanly: its ops stay documented in list-operations
  * (dependency_met:false) and answer <plugin>_inactive without touching
  * anything. Presence is filterable per plugin (wpmcp_updraftplus_active,
- * wpmcp_duplicator_active, wpmcp_solid_security_active,
+ * wpmcp_duplicator_active, wpmcp_backwpup_active, wpmcp_solid_security_active,
  * wpmcp_monsterinsights_active, wpmcp_w3tc_active, wpmcp_sucuri_active,
  * wpmcp_aios_active, wpmcp_limit_login_attempts_active).
  *
@@ -61,6 +62,7 @@ final class Ops_Status_Packs
             UpdraftPlus_Status::operations(),
             Duplicator_Status::operations(),
             AIOWM_Status::operations(),
+            BackWPup_Status::operations(),
             Solid_Security_Status::operations(),
             Sucuri_Status::operations(),
             AIOS_Status::operations(),
