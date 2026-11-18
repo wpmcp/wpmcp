@@ -261,13 +261,15 @@ class Restore_Site_Backup
 
         $report = $this->compatibility_report($archive, $manifest, $include_files);
 
-        $interrupted = self::interrupted_restore();
+        $interrupted         = self::interrupted_restore();
+        $interrupted_warning = null;
         if (null !== $interrupted) {
             // A dry run writes nothing; a real run puts the earlier safety
             // archive back in the job store before its own import can
             // overwrite the progress file that names it.
             $relisted             = $dry_run ? self::listed_safety_job($interrupted) : self::relist_safety_archive($interrupted);
-            $report['warnings'][] = self::interrupted_warning($interrupted, $relisted);
+            $interrupted_warning  = self::interrupted_warning($interrupted, $relisted);
+            $report['warnings'][] = $interrupted_warning;
         }
 
         $sql_path = null;
@@ -314,7 +316,18 @@ class Restore_Site_Backup
                 throw new \RuntimeException('Restore refused: ' . implode(' ', $report['refusals']));
             }
 
-            return $this->execute($archive, (string) $sql_path, (array) $scan, $include_files, $preserve_session, $report['warnings']);
+            $result = $this->execute($archive, (string) $sql_path, (array) $scan, $include_files, $preserve_session, $report['warnings']);
+
+            // The import completed over the stopped restore (issue #871):
+            // the warning written before it ran no longer holds.
+            if (null !== $interrupted && null !== $interrupted_warning && ! empty($result['restored'])) {
+                $result['warnings'] = array_map(
+                    static fn(string $warning): string => $warning === $interrupted_warning ? self::replaced_note($interrupted) : $warning,
+                    $result['warnings']
+                );
+            }
+
+            return $result;
         } finally {
             if (null !== $sql_path) {
                 self::remove_scratch($sql_path);
@@ -950,6 +963,94 @@ class Restore_Site_Backup
         ]);
 
         return (int) $job['id'];
+    }
+
+    /**
+     * The fields that mark a running restore job failed because its run
+     * stopped (issue #860), or null while it may still be alive. Read by
+     * Backup_Job_Store's stale sweep, so list-backup-jobs, get-backup-status
+     * and the next restore all see the same outcome. A restore is alive
+     * while any restore holds the restore lock; otherwise it stopped when
+     * its progress file names it (it died mid-import), or when its record
+     * carries run_lock and that lock is free (the run ended, or the record
+     * came back in a database restored from an archive taken while it ran).
+     * A record without either sign keeps the time-based limit.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function stopped_run(array $job): ?array
+    {
+        $id = (int) ($job['id'] ?? 0);
+        if ($id <= 0 || ! self::lock_is_free()) {
+            return null;
+        }
+
+        $progress = self::progress();
+        if (null !== $progress && $id === (int) ($progress['state']['restore_job_id'] ?? 0)) {
+            return self::stopped_fields($progress['state']);
+        }
+
+        if (empty($job['run_lock']) || Run_Restore_Job::run_is_alive($id)) {
+            return null;
+        }
+
+        return [
+            'status' => 'failed',
+            'error'  => 'Marked failed: this restore stopped without finishing (the request running it ended, or this record came back with a database restored from an archive taken while it ran). If the site looks wrong, restore its pre-restore safety archive (list-backup-jobs shows it); maintenance mode may still be on (disable-maintenance turns it off).',
+        ];
+    }
+
+    /**
+     * The record of a restore that died mid-import, from its progress file:
+     * status failed, where it stopped, its safety archive by file (issue
+     * #814: the half import rewound the job store, so the job id may
+     * already belong to another archive) and its maintenance window.
+     *
+     * @return array<string, mixed>
+     */
+    public static function stopped_fields(array $state): array
+    {
+        $safety = (int) ($state['safety_job_id'] ?? 0);
+        $path   = self::safety_archive_path($state);
+        $undo   = null !== $path
+            ? sprintf('Restore the file %s (its pre-restore safety archive; restore-site-backup with path %s)', esc_html(basename($path)), esc_html($path))
+            : sprintf('Restore backup job %d (its pre-restore safety archive)', $safety);
+
+        return [
+            'status'         => 'failed',
+            'progress'       => [
+                'phase'     => (string) ($state['phase'] ?? 'import'),
+                'statement' => (int) ($state['statement'] ?? 0),
+                'table'     => (string) ($state['table'] ?? ''),
+            ],
+            'safety_archive' => ['job_id' => $safety, 'file' => isset($state['safety_file']) ? basename((string) $state['safety_file']) : null],
+            'maintenance'    => [
+                'enabled_during_restore' => true,
+                'started_at'             => $state['maintenance_started_at'] ?? null,
+                'ended_at'               => null,
+                'seconds'                => null,
+            ],
+            'error'          => sprintf(
+                'The restore stopped mid-import without finishing (last at statement %d on table %s). %s to put the site back; maintenance mode may still be on (disable-maintenance turns it off).',
+                (int) ($state['statement'] ?? 0),
+                esc_html((string) ($state['table'] ?? 'unknown')),
+                $undo
+            ),
+        ];
+    }
+
+    /**
+     * What replaces the interrupted-restore warning once a restore has
+     * completed its import over it (issue #871): the site is no longer half
+     * restored, and the earlier, older safety archive would undo this one.
+     */
+    private static function replaced_note(array $state): string
+    {
+        return sprintf(
+            'This restore replaced an earlier restore that stopped without finishing (started %s, from %s): its import completed, so the earlier attempt no longer applies. Its older safety archive would undo this restore; this restore\'s own safety archive is in safety_archive.',
+            esc_html((string) ($state['started_at'] ?? 'unknown')),
+            esc_html((string) ($state['archive'] ?? 'unknown'))
+        );
     }
 
     /** The warning about an interrupted restore, naming its safety archive by file. */
