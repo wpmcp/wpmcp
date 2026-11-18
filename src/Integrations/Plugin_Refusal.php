@@ -31,6 +31,8 @@ final class Plugin_Refusal
         'FunnelKit'        => [ 'file' => 'funnel-builder/funnel-builder.php', 'slug' => 'funnel-builder' ],
         'Duplicator'       => [ 'file' => 'duplicator/duplicator.php', 'slug' => 'duplicator' ],
         'TablePress'       => [ 'file' => 'tablepress/tablepress.php', 'slug' => 'tablepress' ],
+        'wpDataTables'     => [ 'file' => 'wpdatatables/wpdatatables.php', 'slug' => 'wpdatatables' ],
+        'Ninja Tables'     => [ 'file' => 'ninja-tables/ninja-tables.php', 'slug' => 'ninja-tables' ],
         'MemberPress'      => [ 'file' => 'memberpress/memberpress.php', 'url' => 'https://memberpress.com/' ],
         'LearnDash'        => [ 'file' => 'sfwd-lms/sfwd_lms.php', 'url' => 'https://www.learndash.com/' ],
         'LifterLMS'        => [ 'file' => 'lifterlms/lifterlms.php', 'slug' => 'lifterlms' ],
