@@ -493,15 +493,12 @@ class BuilderDesignWriteTest extends \WP_UnitTestCase
         $this->assertSame('{not json', get_option('breakdance_global_settings_json_string'));
     }
 
-    public function test_breakdance_variables_and_oxygen_design_writes_are_not_supported(): void
+    /** Oxygen 6 design writes (issue #805) are covered by OxygenDesignWriteTest. */
+    public function test_breakdance_variables_are_not_supported(): void
     {
         $variables = $this->write(['builder' => 'breakdance', 'operation' => 'add', 'to' => 'variables', 'element' => ['label' => 'x'], 'expected_hash' => 'h']);
         $this->assertInstanceOf(\WP_Error::class, $variables);
         $this->assertSame('invalid_design_path', $variables->get_error_code());
-
-        $oxygen = $this->write(['builder' => 'oxygen', 'operation' => 'add', 'to' => 'classes', 'element' => ['name' => 'x'], 'expected_hash' => 'h']);
-        $this->assertInstanceOf(\WP_Error::class, $oxygen);
-        $this->assertSame('unsupported_builder', $oxygen->get_error_code());
     }
 
     // ------------------------------------------------------------ surface

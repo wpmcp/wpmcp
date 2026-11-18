@@ -82,8 +82,9 @@ if (! defined('ABSPATH')) {
  *
  * With `scope` 'design_system' the call edits one entry of the builder's
  * global design data instead of a post (issue #391): Bricks classes,
- * variables and palettes, Breakdance classes and palette colors, Avada
- * palette colors, typography sets and global options. See
+ * variables and palettes, Breakdance classes and palette colors, Oxygen 6
+ * selectors, variables and palette colors (issue #805), Avada palette
+ * colors, typography sets and global options. See
  * Builder_Design_Write and Avada_Design, which snapshot the one option they
  * change.
  *
