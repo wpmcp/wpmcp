@@ -234,11 +234,26 @@ final class BetterDocs_Pack
     private static function doc_refusal(int $id, bool $write): ?array
     {
         $post = get_post($id);
-        if (! $post instanceof \WP_Post || self::POST_TYPE !== $post->post_type || 'trash' === $post->post_status) {
+        if (! $post instanceof \WP_Post || self::POST_TYPE !== $post->post_type) {
             return self::refusal('doc_not_found', sprintf('%d is not a BetterDocs doc.', $id), [ 'id' => $id ]);
         }
         if (! current_user_can($write ? 'edit_post' : 'read_post', $id)) {
             return self::refusal('operation_denied', sprintf('You are not allowed to %s doc %d.', $write ? 'edit' : 'read', $id), [ 'reason' => 'capability', 'id' => $id ]);
+        }
+        // #873: a trashed doc is still a doc. Say so (after the capability
+        // check, so a caller who cannot see it learns nothing) instead of
+        // calling the id wrong, and still refuse: reads and writes stay off
+        // trashed docs until someone restores them.
+        if ('trash' === $post->post_status) {
+            return self::refusal(
+                'doc_trashed',
+                sprintf('Doc %d is in the trash. Restore it from Docs, Trash in wp-admin to read or edit it.', $id),
+                [
+                    'id'              => $id,
+                    'status'          => 'trash',
+                    'previous_status' => (string) get_post_meta($id, '_wp_trash_meta_status', true),
+                ]
+            );
         }
         return null;
     }
