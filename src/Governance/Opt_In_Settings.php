@@ -81,6 +81,9 @@ final class Opt_In_Settings
             'wpmcp_enable_pretty_links_write'      => [ 'owner' => $i . 'Pretty_Links_Pack.php', 'destructive' => false ],
             'wpmcp_enable_thirstyaffiliates_write' => [ 'owner' => $i . 'Thirsty_Affiliates_Pack.php', 'destructive' => false ],
             'wpmcp_enable_site_reviews_write'      => [ 'owner' => $i . 'Site_Reviews_Pack.php', 'destructive' => false ],
+            'wpmcp_enable_block_suite_settings_write' => [ 'owner' => $i . 'Block_Suite_Settings.php', 'destructive' => false ],
+            'wpmcp_enable_translation_settings_write' => [ 'owner' => $i . 'Translation_Settings_Pack.php', 'destructive' => false ],
+            'wpmcp_enable_advanced_ads_write'      => [ 'owner' => $i . 'Advanced_Ads_Pack.php', 'destructive' => false ],
             'wpmcp_enable_image_optimizer_write'   => [ 'owner' => $i . 'Image_Optimizer_Pack.php', 'destructive' => true ],
         ];
     }
@@ -118,6 +121,9 @@ final class Opt_In_Settings
             'wpmcp_enable_pretty_links_write'      => __('Pretty Links: writes', 'wpmcp'),
             'wpmcp_enable_thirstyaffiliates_write' => __('ThirstyAffiliates: writes', 'wpmcp'),
             'wpmcp_enable_site_reviews_write'      => __('Site Reviews: writes', 'wpmcp'),
+            'wpmcp_enable_block_suite_settings_write' => __('Kadence Blocks and Spectra: plugin settings writes', 'wpmcp'),
+            'wpmcp_enable_translation_settings_write' => __('GTranslate: language settings writes', 'wpmcp'),
+            'wpmcp_enable_advanced_ads_write'      => __('Advanced Ads: writes', 'wpmcp'),
             'wpmcp_enable_image_optimizer_write'   => __('Image optimization plugins: optimize an image', 'wpmcp'),
         ];
     }
