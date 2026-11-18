@@ -32,6 +32,10 @@ class AnyStatusQueryGuardTest extends \WP_UnitTestCase
             'count'  => 1,
             'reason' => 'The helper itself: it defaults post_status to any and adds the read filter.',
         ],
+        'Integrations/Login_Url_Pack.php::login_slug_refusal'              => [
+            'count'  => 1,
+            'reason' => 'Collision check in set-login-url, which runs at manage_options: a draft or private post slug would still be hidden by the login screen; only the colliding post id leaves.',
+        ],
         'Integrations/LMS_Adapter.php::child_posts'                        => [
             'count'  => 1,
             'reason' => 'Write path only: a reorder or insert renumbers every sibling, and edit_refusal() refuses the call when a sibling the caller may not edit would change.',
