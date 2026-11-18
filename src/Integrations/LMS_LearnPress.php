@@ -205,8 +205,9 @@ final class LMS_LearnPress extends LMS_Adapter
             'posts_per_page' => -1,
             'no_found_rows'  => true,
         ];
-        // Only the items the caller may read (issue #465), unless the write path asks for every row.
-        return $every_row ? get_posts([ 'post_status' => 'any' ] + $args) : Readable_Posts::get_posts($args);
+        // Only the items the caller may read (issue #465). The write path here
+        // never lists posts: it renumbers every row of the section items table.
+        return Readable_Posts::get_posts($args);
     }
 
     protected function stored_order(int $id): int
