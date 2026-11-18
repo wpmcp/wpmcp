@@ -2696,12 +2696,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/write-file',
             'free',
-            'Create or overwrite a file in the WordPress install. Undo: rollback-operation. Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT. PHP must parse; a fatal on the front end or admin after saving reverts it; if that check cannot run, refused unless unchecked:true',
+            'Create or overwrite a file in the WordPress install. Undo: rollback-operation. Refuses wp-config.php/.htaccess. Off by default (wpmcp_enable_fs_writes filter); needs edit_files, honors DISALLOW_FILE_EDIT. PHP must parse; a fatal on the front end or admin after saving reverts it; if that check cannot run, refused unless unchecked:true. encoding:base64 writes binary (5 MB, no PHP or scripts)',
             [
                 'type'       => 'object',
                 'properties' => [
                     'path'       => [ 'type' => 'string' ],
                     'content'    => [ 'type' => 'string' ],
+                    'encoding'   => [ 'type' => 'string', 'enum' => [ 'utf8', 'base64' ] ],
                     'unchecked'  => [ 'type' => 'boolean' ],
                     'session_id' => [ 'type' => 'string' ],
                 ],
