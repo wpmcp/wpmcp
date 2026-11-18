@@ -80,6 +80,11 @@ if (! defined('ABSPATH')) {
  *    masked in lists, replied to, noted and set to a status, each ticket
  *    write off until wpmcp_enable_helpdesk_write and snapshotted as a
  *    'helpdesk_ticket' image (Helpdesk_Pack).
+ *  - Issue #690 adds the paid-tier translation settings ops
+ *    (Translation_Settings_Pack): Weglot languages and exclusions read, and
+ *    GTranslate languages read and set (off until
+ *    wpmcp_enable_translation_settings_write), the write snapshotted on the
+ *    GTranslate option.
  *  - Issue #702 adds the Action Scheduler ops (Action_Scheduler_Pack): queue
  *    actions listed with args masked and read one at a time with their log,
  *    and pending actions canceled (undoable, as an 'action_scheduler'
@@ -120,7 +125,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || MemberPress_Pack::active()
             || Elementor_Pro_Forms_Pack::active()
             || BetterDocs_Pack::active()
-            || Helpdesk_Pack::active();
+            || Helpdesk_Pack::active()
+            || Translation_Settings_Pack::active();
     }
 
     public function registers_only_when_available(): bool
@@ -134,7 +140,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
-            . ', BetterDocs docs, Fluent Support and Awesome Support tickets';
+            . ', BetterDocs docs, Fluent Support and Awesome Support tickets'
+            . ', Weglot and GTranslate language settings';
     }
 
     /**
@@ -177,6 +184,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         foreach (Helpdesk_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
         }
+        $groups[] = [ 'Weglot', false, Translation_Settings_Pack::weglot_operations() ];
+        $groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];
 
         $hosts = [];
         foreach ($groups as [ $plugin, $several, $ops ]) {
@@ -213,7 +222,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             MemberPress_Pack::operations(),
             Elementor_Pro_Forms_Pack::operations(),
             BetterDocs_Pack::operations(),
-            Helpdesk_Pack::operations()
+            Helpdesk_Pack::operations(),
+            Translation_Settings_Pack::operations()
         );
     }
 
