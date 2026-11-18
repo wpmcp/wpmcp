@@ -78,6 +78,7 @@ use WPMCP\Admin\Handshake_Settings_Page;
 use WPMCP\Admin\Connection_Page;
 use WPMCP\Admin\Announcements;
 use WPMCP\Admin\Snapshot_Retention_Notice;
+use WPMCP\Admin\New_Tools_Notice;
 use WPMCP\Admin\Pro_Banner;
 use WPMCP\Admin\Ability_Grid_Page;
 use WPMCP\Admin\Memory_Page;
@@ -960,6 +961,9 @@ final class Plugin
             // a deeper history than the flat cap keeps it until the owner
             // decides, and this is the notice that asks.
             Snapshot_Retention_Notice::register();
+            // Tools an update added and the state they arrived in (issue
+            // #853), on the Dashboard until an administrator dismisses it.
+            New_Tools_Notice::register();
             // In-admin Pro banner: a dismissible pricing-page link for free
             // installs on the Dashboard, the Plugins list and WP MCP screens
             // (docs/superpowers/specs/2026-11-01-pro-upgrade-banner.md).
@@ -5766,7 +5770,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-governance-settings',
             'free',
-            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}}. Undoable; refuses unknown names and disabling the governance or undo tools. site_wide audits ability calls outside MCP; enforce also refuses abilities toggled off by name',
+            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}}. Undoable; refuses unknown names and disabling the governance or undo tools. site_wide audits ability calls outside MCP; enforce also refuses abilities toggled off by name. auto_enable_new_tools: updates switch their new safe tools on',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5774,6 +5778,7 @@ final class Plugin
                     'domain'    => [ 'type' => 'object' ],
                     'operation' => [ 'type' => 'object' ],
                     'site_wide' => [ 'type' => 'string', 'enum' => [ 'off', 'audit', 'enforce' ] ],
+                    'auto_enable_new_tools' => [ 'type' => 'boolean' ],
                 ],
             ],
             [$update_governance_settings, 'handle'],

@@ -297,6 +297,17 @@ Choose the mode site-wide with the `wpmcp_tool_exposure_mode` option (`full` or 
 
 Measured `tools/list` payload in the test environment (unlicensed, optional test plugins active): **full** about 136,000 bytes across 270 tools; **compact** about 2,200 bytes across 5 tools, a **98% reduction**. A checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) caps the compact payload and prints these numbers on every test run.
 
+## New tools after updates
+
+A tool that an update ships switched off stays off until an administrator turns it on. Site owners who want every new tool without visiting the Abilities screen can turn on **Switch on new tools after updates** there, or send `update-governance-settings` with `{"auto_enable_new_tools": true}` (`get-governance-settings` reports it). The setting is off by default, every change is written to the governance audit log, and the MCP change returns an `operation_id` that `rollback-operation` undoes.
+
+With the setting on, an update still leaves these off:
+
+- tools that run code, write files or database rows, or manage users, roles, plugins or themes, and every tool behind an execution opt-in filter;
+- any tool you switched off by hand.
+
+After an update that added tools, the Dashboard shows which ones and the state each arrived in, until an administrator dismisses the notice.
+
 ## Pinning an identity to IP ranges
 
 A scoped identity can be pinned to the addresses your agents run from. Pass `allowed_ips` to `create-identity` as a list of IPv4 or IPv6 addresses and CIDR ranges (for example `["203.0.113.0/24", "2001:db8::/32"]`). A request acting as that identity from any other address is refused before any tool runs, with the same generic error as any other denial, and the refusal is recorded in the governance audit log as `identity/ip-refused` with the refused address. Overwriting the identity without `allowed_ips` clears the list. Identities without a list behave as before, the Connection screen shows each identity's list, and the admin screens are never restricted.
