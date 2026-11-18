@@ -212,7 +212,7 @@ class Add_Scoped_Css
 
         if ('revision' === $post->post_type || 'attachment' === $post->post_type || ! is_post_type_viewable($post->post_type)) {
             throw new \InvalidArgumentException(sprintf(
-                'Post %d is a %s, which is never rendered as its own page, so scoped CSS stored for it would never print. Pass the id of the page or post that is actually viewed.',
+                'Post %d has post type "%s", which is never rendered as its own page, so scoped CSS stored for it would never print. Pass the id of the page or post that is actually viewed.',
                 (int) $post_id,
                 esc_html($post->post_type)
             ));

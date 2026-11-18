@@ -174,7 +174,7 @@ class Product_Import_Plan
             }
             if ($product && ! in_array($product->get_type(), ['simple', 'variable'], true)) {
                 return self::error_entry($index, $sku, [
-                    'Product ' . $found . ' is a ' . $product->get_type() . ' product; only simple and variable products can be imported.',
+                    'Product ' . $found . ' has product type "' . $product->get_type() . '"; only simple and variable products can be imported.',
                 ]);
             }
             $existing = $product ?: null;
