@@ -51,6 +51,23 @@ class Rollback_Service
      */
     private static bool $post_create_untouched = false;
 
+    /**
+     * The posts the most recent restore moved to the trash because it undid
+     * their creation (issue #822): id, post_type and title of each, so the
+     * rollback tools can say where a created item went.
+     *
+     * @var array<int, array{id: int, post_type: string, title: string}>
+     */
+    private static array $trashed = [];
+
+    /** Return and clear the posts the most recent restore moved to the trash. */
+    public static function take_trashed(): array
+    {
+        $trashed       = self::$trashed;
+        self::$trashed = [];
+        return $trashed;
+    }
+
     /** Return and clear the warnings accumulated by the most recent restore. */
     public static function take_warnings(): array
     {
@@ -74,6 +91,7 @@ class Rollback_Service
     public static function restore_operation(string $operation_id): bool
     {
         self::$warnings = [];
+        self::$trashed  = [];
         self::ensure_ledger_schema();
         $row = Snapshot_Store::get_by_operation($operation_id);
         if (! $row) {
@@ -728,6 +746,7 @@ class Rollback_Service
     public static function restore_session(string $session_id): int
     {
         self::$warnings = [];
+        self::$trashed  = [];
         self::ensure_ledger_schema();
         self::assert_session_owner($session_id);
         $pruned = Snapshot_Store::is_loose_session($session_id) ? 0 : Snapshot_Store::pruned_rows_for_session($session_id);
@@ -3000,7 +3019,9 @@ class Rollback_Service
             if (! Save_Filters::without(self::POST_SAVE_FILTERS, static fn () => wp_trash_post($post_id))) {
                 self::$post_create_untouched = true;
                 self::warn("Post {$post_id} created by this operation could not be moved to the trash; it was left in place.");
+                continue;
             }
+            self::$trashed[] = [ 'id' => $post_id, 'post_type' => (string) $current->post_type, 'title' => (string) $current->post_title ];
         }
     }
 

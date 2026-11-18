@@ -6,6 +6,8 @@ use WPMCP\Integrations\Plugin_Data_Integration;
 use WPMCP\Pro\Gate;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
+use WPMCP\Tools\Rollback_Operation;
+use WPMCP\Tools\Rollback_Session;
 
 require_once __DIR__ . '/../../support/memberpress-stubs.php';
 
@@ -589,5 +591,138 @@ class MemberPressPackTest extends \WP_UnitTestCase
         $this->assertSame([ [ 'access_type' => 'member', 'access_operator' => 'is', 'access_condition' => 'ada' ] ], wpmcp_test_memberpress_conditions($out['result']['rule']['id']));
         $this->assertSame('Ada only', get_the_title($out['result']['rule']['id']));
         $this->assertGreaterThan(0, $ada);
+    }
+
+    // ---------------------------------------------------------------
+    // Issue #822: clearer results, single access edits, admin defaults
+    // ---------------------------------------------------------------
+
+    /** Issue #822 (1): MemberPress enforces only published rules, so a draft rule says it protects nothing yet. */
+    public function test_a_rule_created_as_a_draft_says_it_is_not_enforced_until_published(): void
+    {
+        $gold  = $this->membership('Gold');
+        $page  = self::factory()->post->create([ 'post_type' => 'page', 'post_title' => 'Lounge' ]);
+        $draft = $this->ok($this->write('memberpress-create-rule', [ 'type' => 'single_page', 'content' => (string) $page, 'access' => [ [ 'type' => 'membership', 'condition' => (string) $gold ] ] ]));
+        $this->assertSame('draft', $draft['result']['rule']['status']);
+        $this->assertFalse($draft['result']['enforced']);
+        $this->assertStringContainsString('not enforced until published', $draft['result']['note']);
+        $this->assertFalse(wpmcp_test_memberpress_locked($page), 'the page is still open');
+
+        $live = $this->ok($this->write('memberpress-create-rule', [ 'type' => 'single_page', 'content' => (string) $page, 'status' => 'publish', 'access' => [ [ 'type' => 'membership', 'condition' => (string) $gold ] ] ]));
+        $this->assertTrue($live['result']['enforced']);
+        $this->assertArrayNotHasKey('note', $live['result']);
+
+        $off = $this->ok($this->write('memberpress-update-rule', [ 'id' => $live['result']['rule']['id'], 'status' => 'pending' ]));
+        $this->assertFalse($off['result']['enforced'], 'an update that leaves the rule unpublished says so too');
+        $this->assertStringContainsString('not enforced until published', $off['result']['note']);
+    }
+
+    /** Issue #822 (2): add_access and remove_access change one condition and keep the rest. */
+    public function test_update_rule_adds_and_removes_single_access_conditions_and_rolls_back(): void
+    {
+        $gold   = $this->membership('Gold');
+        $rule   = $this->rule('all', '', [ [ 'membership', $gold ] ]);
+        $before = wpmcp_test_memberpress_conditions($rule);
+
+        $out = $this->ok($this->write('memberpress-update-rule', [ 'id' => $rule, 'add_access' => [ [ 'type' => 'role', 'condition' => 'subscriber' ], [ 'type' => 'membership', 'condition' => (string) $gold ] ] ]));
+        $this->assertTrue($out['recoverable']);
+        $this->assertSame([
+            [ 'access_type' => 'membership', 'access_operator' => 'is', 'access_condition' => (string) $gold ],
+            [ 'access_type' => 'role', 'access_operator' => 'is', 'access_condition' => 'subscriber' ],
+        ], wpmcp_test_memberpress_conditions($rule), 'the existing condition is kept and a duplicate is not stored twice');
+        Rollback_Service::restore_session($out['session_id']);
+        $this->assertSame($before, wpmcp_test_memberpress_conditions($rule));
+
+        $this->ok($this->write('memberpress-update-rule', [ 'id' => $rule, 'add_access' => [ [ 'type' => 'role', 'condition' => 'subscriber' ] ] ]));
+        $out = $this->ok($this->write('memberpress-update-rule', [ 'id' => $rule, 'remove_access' => [ [ 'type' => 'membership', 'operator' => 'is', 'condition' => (string) $gold ] ] ]));
+        $this->assertSame([ [ 'access_type' => 'role', 'access_operator' => 'is', 'access_condition' => 'subscriber' ] ], wpmcp_test_memberpress_conditions($rule));
+        $this->assertSame([ [ 'type' => 'role', 'operator' => 'is', 'condition' => 'subscriber' ] ], $out['result']['rule']['access']);
+        Rollback_Service::restore_session($out['session_id']);
+        $this->assertCount(2, wpmcp_test_memberpress_conditions($rule));
+    }
+
+    public function test_single_access_edits_refuse_before_any_snapshot(): void
+    {
+        $gold   = $this->membership('Gold');
+        $rule   = $this->rule('all', '', [ [ 'membership', $gold ] ]);
+        $before = Snapshot_Store::row_count();
+        $cases  = [
+            'conflicting_args'    => [ 'access' => [ [ 'type' => 'role', 'condition' => 'editor' ] ], 'add_access' => [ [ 'type' => 'role', 'condition' => 'subscriber' ] ] ],
+            'condition_not_found' => [ 'remove_access' => [ [ 'type' => 'role', 'condition' => 'editor' ] ] ],
+            'access_required'     => [ 'remove_access' => [ [ 'type' => 'membership', 'condition' => (string) $gold ] ] ],
+            'invalid_condition'   => [ 'add_access' => [ [ 'type' => 'role', 'condition' => 'no_such_role' ] ] ],
+        ];
+        foreach ($cases as $code => $args) {
+            $out = $this->write('memberpress-update-rule', [ 'id' => $rule ] + $args);
+            $this->assertSame($code, $out['error']['code'] ?? null, $code . ': ' . wp_json_encode($out));
+        }
+        $this->assertSame($before, Snapshot_Store::row_count());
+        $this->assertCount(1, wpmcp_test_memberpress_conditions($rule));
+    }
+
+    /** Issue #822 (3): a membership in the Trash is named as such, with how to fix it. */
+    public function test_a_trashed_membership_is_named_as_trashed_in_the_refusal(): void
+    {
+        $gold   = $this->membership('Gold');
+        $silver = $this->membership('Silver');
+        $rule   = $this->rule('all', '', [ [ 'membership', $gold ] ]);
+        wp_trash_post($silver);
+
+        $out = $this->write('memberpress-update-rule', [ 'id' => $rule, 'access' => [ [ 'type' => 'membership', 'condition' => (string) $silver ] ] ]);
+        $this->assertSame('invalid_condition', $out['error']['code'] ?? null);
+        $this->assertStringContainsString('in the Trash', $out['error']['message']);
+        $this->assertStringContainsString('restore it', $out['error']['message']);
+        $this->assertSame('trash', $out['error']['data']['status'] ?? null);
+
+        $out = $this->write('memberpress-update-membership', [ 'id' => $silver, 'price' => 5 ]);
+        $this->assertSame('membership_not_found', $out['error']['code'] ?? null);
+        $this->assertStringContainsString('in the Trash', $out['error']['message']);
+    }
+
+    /** Issue #822 (4): undoing a create says the item went to the Trash, for both rollback tools. */
+    public function test_undoing_a_create_says_the_item_was_moved_to_the_trash(): void
+    {
+        $gold = $this->ok($this->write('memberpress-create-membership', [ 'title' => 'Gold' ]));
+        $id   = $gold['result']['membership']['id'];
+        $out  = (new Rollback_Session())->handle([ 'session_id' => $gold['session_id'] ]);
+        $this->assertSame('trash', get_post_status($id));
+        $this->assertSame([ [ 'id' => $id, 'post_type' => 'memberpressproduct', 'title' => 'Gold' ] ], $out['moved_to_trash'] ?? null);
+
+        $silver = $this->membership('Silver');
+        $rule   = $this->ok($this->write('memberpress-create-rule', [ 'type' => 'all', 'title' => 'Everything', 'access' => [ [ 'type' => 'membership', 'condition' => (string) $silver ] ] ]));
+        $rows   = array_column(Snapshot_Store::list_by_session($rule['session_id']), 'operation_id', 'object_type');
+        $out    = (new Rollback_Operation())->handle([ 'operation_id' => $rows['post_create'] ]);
+        $this->assertTrue($out['restored']);
+        $this->assertSame([ [ 'id' => $rule['result']['rule']['id'], 'post_type' => 'memberpressrule', 'title' => 'Everything' ] ], $out['moved_to_trash'] ?? null);
+
+        $edit = $this->ok($this->write('memberpress-update-membership', [ 'id' => $silver, 'price' => 3 ]));
+        $out  = (new Rollback_Operation())->handle([ 'operation_id' => (string) $edit['operation_id'] ]);
+        $this->assertArrayNotHasKey('moved_to_trash', $out, 'an edit undo trashes nothing');
+    }
+
+    /** Issue #822 (5): a membership created here gets what the wp-admin form saves for a new one. */
+    public function test_create_membership_takes_the_wp_admin_defaults_for_unset_fields(): void
+    {
+        $out = $this->ok($this->write('memberpress-create-membership', [ 'title' => 'Test Silver' ]));
+        $id  = $out['result']['membership']['id'];
+        $this->assertSame('Test Silver', get_post_meta($id, '_mepr_product_pricing_title', true), 'the admin screen fills the price box title from the membership title');
+        $this->assertSame('Sign Up', get_post_meta($id, '_mepr_product_pricing_button_text', true));
+        $this->assertSame('message', get_post_meta($id, '_mepr_thank_you_page_type', true));
+        $emails = get_post_meta($id, '_mepr_emails', true);
+        $this->assertSame([ 'MeprUserProductWelcomeEmail' ], array_keys($emails));
+        $this->assertFalse($emails['MeprUserProductWelcomeEmail']['enabled'], 'the welcome email starts off, as in wp-admin');
+        $this->assertTrue($emails['MeprUserProductWelcomeEmail']['use_template']);
+        $this->assertSame('** Thanks for Purchasing {$product_name}', $emails['MeprUserProductWelcomeEmail']['subject']);
+        $this->assertStringContainsString('Welcome', $emails['MeprUserProductWelcomeEmail']['body']);
+        $this->assertSame('Test Silver', $out['result']['membership']['pricing_title']);
+
+        $given = $this->ok($this->write('memberpress-create-membership', [ 'title' => 'Gold', 'pricing_title' => 'Go Gold', 'pricing_button_txt' => 'Join' ]));
+        $gid   = $given['result']['membership']['id'];
+        $this->assertSame('Go Gold', get_post_meta($gid, '_mepr_product_pricing_title', true));
+        $this->assertSame('Join', get_post_meta($gid, '_mepr_product_pricing_button_text', true));
+
+        $gold = $this->membership('Old');
+        $this->ok($this->write('memberpress-update-membership', [ 'id' => $gold, 'price' => 2 ]));
+        $this->assertFalse(metadata_exists('post', $gold, '_mepr_product_pricing_title'), 'an update fills in no defaults');
     }
 }

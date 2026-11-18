@@ -28,10 +28,17 @@ class Rollback_Operation
         // Non-fatal conflict findings (currently only from db_rows restores:
         // rows that changed, vanished, or were reclaimed since the operation).
         // The restore still succeeded; the caller is told the ground shifted.
-        return [
+        $out = [
             'restored' => $restored,
             'warnings' => Rollback_Service::take_warnings(),
         ];
+        // A created post the undo moved to the trash is named (issue #822):
+        // restore-post brings it back.
+        $trashed = Rollback_Service::take_trashed();
+        if ([] !== $trashed) {
+            $out['moved_to_trash'] = $trashed;
+        }
+        return $out;
     }
 
     /** The plain-text refusal for an operation id with no undo point (issue #758). */

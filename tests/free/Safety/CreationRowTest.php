@@ -292,4 +292,20 @@ class CreationRowTest extends \WP_UnitTestCase
     {
         $this->assertContains('post_create', Rollback_Service::restorable_object_types());
     }
+
+    /** Issue #822: both rollback tools say which created posts the undo moved to the trash. */
+    public function test_the_rollback_tools_name_the_created_posts_they_moved_to_the_trash(): void
+    {
+        $one = (new Create_Post())->handle(['title' => 'First', 'session_id' => 'trash-note']);
+        $out = (new Rollback_Operation())->handle(['operation_id' => $one['operation_id']]);
+        $this->assertTrue($out['restored']);
+        $this->assertSame([['id' => $one['post_id'], 'post_type' => 'post', 'title' => 'First']], $out['moved_to_trash'] ?? null);
+
+        $two = (new Create_Post())->handle(['title' => 'Second', 'session_id' => 'trash-note-2']);
+        $out = (new Rollback_Session())->handle(['session_id' => 'trash-note-2']);
+        $this->assertSame([['id' => $two['post_id'], 'post_type' => 'post', 'title' => 'Second']], $out['moved_to_trash'] ?? null);
+
+        $again = (new Rollback_Session())->handle(['session_id' => 'trash-note-2']);
+        $this->assertArrayNotHasKey('moved_to_trash', $again, 'nothing was trashed the second time');
+    }
 }

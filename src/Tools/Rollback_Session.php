@@ -16,9 +16,16 @@ class Rollback_Session
 
         // Non-fatal conflict findings (currently only from db_rows restores:
         // rows that changed, vanished, or were reclaimed since an operation).
-        return [
+        $out = [
             'restored_count' => $count,
             'warnings'       => Rollback_Service::take_warnings(),
         ];
+        // A created post the undo moved to the trash is named (issue #822):
+        // restore-post brings it back.
+        $trashed = Rollback_Service::take_trashed();
+        if ([] !== $trashed) {
+            $out['moved_to_trash'] = $trashed;
+        }
+        return $out;
     }
 }
