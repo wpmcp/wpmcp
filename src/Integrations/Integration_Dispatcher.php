@@ -286,7 +286,8 @@ abstract class Integration_Dispatcher
             $this->pair_capability(),
             $this->domain(),
             'read',
-            objects: \Closure::fromCallable([ $this, 'named_objects' ])
+            objects: \Closure::fromCallable([ $this, 'named_objects' ]),
+            op_capability: \Closure::fromCallable([ $this, 'operation_capability' ])
         );
 
         $write = new Ability(
@@ -303,10 +304,26 @@ abstract class Integration_Dispatcher
             'update',
             null,
             $has_destructive ? true : null,
-            objects: \Closure::fromCallable([ $this, 'named_objects' ])
+            objects: \Closure::fromCallable([ $this, 'named_objects' ]),
+            op_capability: \Closure::fromCallable([ $this, 'operation_capability' ])
         );
 
         return [ $read, $write ];
+    }
+
+    /**
+     * The capability the op an input names needs, or null when it names no
+     * known op. Lets a permission refusal name the op's own capability
+     * rather than only the pair's (issue #875).
+     *
+     * @param array<string, mixed> $input
+     */
+    public function operation_capability(array $input): ?string
+    {
+        $op = is_string($input['operation'] ?? null) ? $input['operation'] : '';
+        $def = '' === $op ? null : ($this->operations()[ $op ] ?? null);
+
+        return null === $def ? null : (string) ($def['capability'] ?? $this->capability());
     }
 
     /** Entry point for the {integration}-read ability. */

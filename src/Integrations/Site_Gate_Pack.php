@@ -116,7 +116,7 @@ final class Site_Gate_Pack
         $named = (string) ($args['plugin'] ?? 'auto');
         if ('auto' !== $named) {
             if (! Site_Gate::plugin_active($named)) {
-                return [ null, self::refusal('site_gate_plugin_inactive', sprintf('The %s plugin is not active on this site.', self::LABELS[ $named ] ?? $named)) ];
+                return [ null, Plugin_Refusal::make('site_gate_plugin_inactive', self::LABELS[ $named ] ?? $named) ];
             }
             return [ $named, null ];
         }
@@ -127,7 +127,7 @@ final class Site_Gate_Pack
             $active = [] !== $on ? $on : $active;
         }
         if ([] === $active) {
-            return [ null, self::refusal('site_gate_plugin_inactive', 'Neither SeedProd nor Under Construction is active on this site. Other gates can be read with get-site-gate-status but not toggled here.') ];
+            return [ null, Plugin_Refusal::any_of('site_gate_plugin_inactive', 'Neither SeedProd nor Under Construction is active on this site. Other gates can be read with get-site-gate-status but not toggled here.') ];
         }
         if (count($active) > 1) {
             return [ null, self::refusal('plugin_required', 'More than one gate plugin is active; name one with plugin.', [ 'plugins' => $active ]) ];

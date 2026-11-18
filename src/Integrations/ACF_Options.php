@@ -23,10 +23,12 @@ class ACF_Options
     /** 'requires' check: the options page API is loaded. */
     public static function requirement()
     {
-        return function_exists('acf_get_options_pages') && function_exists('acf_get_options_page') ? true : [
-            'code'    => 'acf_options_unavailable',
-            'message' => 'Options pages need ACF Pro, which is not active on this site.',
-        ];
+        if (function_exists('acf_get_options_pages') && function_exists('acf_get_options_page')) {
+            return true;
+        }
+        $refusal            = Plugin_Refusal::make('acf_options_unavailable', 'ACF Pro');
+        $refusal['message'] = 'Options pages need ACF Pro. ' . $refusal['message'];
+        return $refusal;
     }
 
     /** Every options page, or one page's values when 'page' names its menu slug. */

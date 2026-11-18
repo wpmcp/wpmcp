@@ -42,6 +42,14 @@ class Registrar
     /** @var array<string, true> abilities whose execute() has begun but not yet checked permission. */
     private static array $invoked = [];
 
+    /**
+     * The refusal behind the last denied permission callback, per ability,
+     * and whether that check ran inside execute(). See permission_callback().
+     *
+     * @var array<string, array{error: \WP_Error, in_execute: bool}>
+     */
+    private static array $refusals = [];
+
     /** The last decision recorded by a check made outside execute(). */
     private static ?string $standalone = null;
 
@@ -114,7 +122,11 @@ class Registrar
                 // or post type be decided here rather than inside each tool.
                 // permission() rather than is_permitted() so a read-only
                 // OAuth connection is told which scope it lacks (issue #454).
-                'permission_callback' => fn ($input = null) => $this->permission($a, is_array($input) ? $input : []),
+                // permission_callback() returns a bool, never a WP_Error:
+                // execute() flags a WP_Error there as incorrect usage and
+                // swaps it for a generic error. The refusal reaches the
+                // client through permission_result() (issue #875).
+                'permission_callback' => fn ($input = null) => $this->permission_callback($a, is_array($input) ? $input : []),
             ]);
         }
     }
@@ -187,7 +199,163 @@ class Registrar
 
         // An input naming an agent memory entry is told to use the memory
         // tools (issue #517) rather than handed a bare permission denial.
-        return Client_Access::denial($a) ?? self::plugin_missing($a) ?? Content_Guard::input_refusal($a, $input) ?? false;
+        return Client_Access::denial($a) ?? self::plugin_missing($a) ?? Content_Guard::input_refusal($a, $input) ?? self::capability_refusal($a, $input) ?? false;
+    }
+
+    /**
+     * The registered permission callback: permission() as a bool. A denial
+     * with a refusal (scope, plugin missing, memory entry, capability) keeps
+     * the refusal aside for permission_result(), which hands it back from
+     * check_permissions() when the check runs on its own (the MCP adapter,
+     * stdio, core's REST run route). Inside execute() the callback's false
+     * stands, so core answers ability_invalid_permissions without the
+     * incorrect-usage notice a WP_Error there raises; call-tool then asks
+     * explain_denial() for the message.
+     *
+     * On a core without wp_ability_permission_result (6.9) a check outside
+     * execute() gets the refusal from the callback itself, the only way
+     * out there; inside execute() it is false on every version.
+     *
+     * @param array<string, mixed> $input As for is_permitted().
+     */
+    public function permission_callback(Ability $a, array $input = []): bool|\WP_Error
+    {
+        unset(self::$refusals[ $a->name ]);
+
+        $result = $this->permission($a, $input);
+        if (! $result instanceof \WP_Error) {
+            return $result;
+        }
+        $in_execute                 = self::inside_execute();
+        self::$refusals[ $a->name ] = [ 'error' => $result, 'in_execute' => $in_execute ];
+        if ($in_execute) {
+            return false;
+        }
+
+        // Outside execute() core raises no notice, but on 7.1 the filter
+        // hands the refusal back, so the callback itself stays a bool. 6.9
+        // has no such filter, so there the callback returns it.
+        return self::core_filters_permission() ? false : $result;
+    }
+
+    /**
+     * Whether this permission check was made by WP_Ability::execute(). Read
+     * from the call stack rather than the wp_ability_invoked mark, which a
+     * call that fails validation before its check leaves set. Only a denial
+     * asks, so the cost stays off the allowed path.
+     */
+    private static function inside_execute(): bool
+    {
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- frame names only, no arguments.
+        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 12) as $frame) {
+            if ('execute' === ($frame['function'] ?? '') && is_a($frame['class'] ?? '', 'WP_Ability', true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether core runs wp_ability_permission_result (WordPress 7.1). */
+    private static function core_filters_permission(): bool
+    {
+        return class_exists('WP_Filter_Sentinel', false);
+    }
+
+    /**
+     * wp_ability_permission_result: a denial of one of our abilities by a
+     * check made outside execute() becomes the refusal permission_callback()
+     * kept, so the caller learns what is missing. Anything else (a grant, a
+     * denial another filter made, a check inside execute()) is left alone.
+     *
+     * @param mixed $permission The permission result so far.
+     * @param mixed $name       The ability name.
+     * @return mixed
+     */
+    public static function permission_result($permission, $name = '')
+    {
+        $kept = self::$refusals[ (string) $name ] ?? null;
+        if (false !== $permission || null === $kept || $kept['in_execute']) {
+            return $permission;
+        }
+
+        return $kept['error'];
+    }
+
+    /**
+     * For a caller holding execute()'s ability_invalid_permissions answer:
+     * the same code, with the message and data of the refusal the check
+     * inside that execute() found, when it found one. Anything else is
+     * returned unchanged.
+     *
+     * @param mixed $result What execute() returned.
+     * @return mixed
+     */
+    public static function explain_denial(string $name, $result)
+    {
+        if (! $result instanceof \WP_Error || 'ability_invalid_permissions' !== $result->get_error_code()) {
+            return $result;
+        }
+        $kept = self::$refusals[ $name ] ?? null;
+        if (null === $kept || ! $kept['in_execute']) {
+            return $result;
+        }
+        $data = $kept['error']->get_error_data();
+
+        return new \WP_Error(
+            'ability_invalid_permissions',
+            $kept['error']->get_error_message(),
+            [ 'refusal' => $kept['error']->get_error_code() ] + (is_array($data) ? $data : [])
+        );
+    }
+
+    /**
+     * The refusal for a caller who lacks the capability a tool (or, for a
+     * dispatcher pair, the op the input names) needs (issue #875): the
+     * adapter shows only a WP_Error's message, so without this the client
+     * sees a bare "Permission denied". Null when the capability is held, so
+     * every other denial (governance, scope, tier) stays as it was. Names
+     * the capability and the roles that carry it, nothing about the user.
+     *
+     * @param array<string, mixed> $input
+     */
+    private static function capability_refusal(Ability $a, array $input): ?\WP_Error
+    {
+        if (! self::tier_permitted($a->tier)) {
+            return null;
+        }
+        $capability = $a->capability;
+        $operation  = '';
+        if (null !== $a->op_capability && is_string($input['operation'] ?? null)) {
+            $op_cap = ($a->op_capability)($input);
+            if (null !== $op_cap && ! current_user_can($op_cap)) {
+                $capability = $op_cap;
+                $operation  = $input['operation'];
+            }
+        }
+        if ('' === $operation && current_user_can($capability)) {
+            return null;
+        }
+
+        $tool  = str_replace('/', '-', $a->name);
+        $roles = [];
+        // Role names only for a logged-in caller, never an anonymous one.
+        foreach (is_user_logged_in() ? wp_roles()->roles : [] as $role) {
+            if (! empty($role['capabilities'][ $capability ])) {
+                $roles[] = translate_user_role($role['name']);
+            }
+        }
+        $shown = [] === $roles ? '' : sprintf(' (roles with it: %s)', implode(', ', array_slice($roles, 0, 4)));
+
+        $message = '' === $operation
+            ? sprintf('%1$s requires the "%2$s" capability%3$s. Ask a site administrator for a role that has it.', $tool, $capability, $shown)
+            : sprintf('Operation "%1$s" of %2$s requires the "%3$s" capability%4$s. Ask a site administrator for a role that has it.', $operation, $tool, $capability, $shown);
+
+        $data = [ 'status' => 403, 'reason' => 'capability', 'capability' => $capability, 'tool' => $tool ];
+        if ('' !== $operation) {
+            $data['operation'] = $operation;
+        }
+
+        return new \WP_Error('operation_denied', $message, $data);
     }
 
     /**
@@ -481,39 +649,61 @@ class Registrar
             return null;
         }
 
-        $operation = is_string($arguments['operation'] ?? null) ? $arguments['operation'] : '';
-        $host      = '' === $operation ? null : ( $held['operations'][ $operation ] ?? null );
+        $plugins_url = admin_url('plugins.php');
+        $operation   = is_string($arguments['operation'] ?? null) ? $arguments['operation'] : '';
+        $host        = '' === $operation ? null : ( $held['operations'][ $operation ] ?? null );
         if (null !== $host) {
             $message = $host['several']
                 ? sprintf(
-                    'Op "%1$s" of %2$s works with %3$s, and none of them is active on this site, so it cannot run. Install and activate one of them, then try again.',
+                    'Op "%1$s" of %2$s works with %3$s, and none of them is active on this site, so it cannot run. Install and activate one of them (%4$s), then try again.',
                     $operation,
                     $name,
-                    $host['name']
+                    $host['name'],
+                    $plugins_url
                 )
                 : sprintf(
-                    '%1$s is not active on this site, so op "%2$s" of %3$s cannot run. Install and activate %1$s, then try again.',
+                    '%1$s is not active on this site, so op "%2$s" of %3$s cannot run. Install and activate %1$s (%4$s), then try again.',
                     $host['name'],
                     $operation,
-                    $name
+                    $name,
+                    $plugins_url
                 );
 
-            return new \WP_Error('plugin_missing', $message, [ 'plugin' => $host['name'], 'operation' => $operation ]);
+            return new \WP_Error('plugin_missing', $message, [ 'plugin' => $host['name'], 'operation' => $operation, 'plugins_url' => $plugins_url ]);
         }
 
         $message = $held['several']
             ? sprintf(
-                'None of the plugins %1$s works with is active on this site (%2$s), so %1$s cannot run. Install and activate one of them, then try again.',
+                'None of the plugins %1$s works with is active on this site (%2$s), so %1$s cannot run. Install and activate one of them (%3$s), then try again.',
                 $name,
-                $held['plugin']
+                $held['plugin'],
+                $plugins_url
             )
             : sprintf(
-                '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s, then try again.',
+                '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s (%3$s), then try again.',
                 $held['plugin'],
-                $name
+                $name,
+                $plugins_url
             );
 
-        return new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'] ]);
+        return new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'], 'plugins_url' => $plugins_url ]);
+    }
+
+    /**
+     * plugin_inactive() for an advertised MCP tool name (wpmcp-plugin-data-write)
+     * rather than an ability name, for the transports that see only the
+     * tool name (issue #876). Null when no held pair has that tool name.
+     *
+     * @param array<string, mixed> $arguments the call's arguments, if any
+     */
+    public function plugin_inactive_for_tool(string $tool_name, array $arguments = []): ?\WP_Error
+    {
+        foreach (array_keys($this->held_for_plugin) as $name) {
+            if (Stdio_Transport::tool_name($name) === $tool_name) {
+                return $this->plugin_inactive($name, $arguments);
+            }
+        }
+        return null;
     }
 
     /**

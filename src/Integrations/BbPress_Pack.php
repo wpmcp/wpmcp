@@ -56,7 +56,7 @@ final class BbPress_Pack
     public static function requirement(bool $write = false)
     {
         if (! self::active() || ($write && ! function_exists('bbp_insert_topic'))) {
-            return [ 'code' => 'bbpress_inactive', 'message' => 'bbPress is not active on this site.' ];
+            return Plugin_Refusal::make('bbpress_inactive', 'bbPress');
         }
         return true;
     }

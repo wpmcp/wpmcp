@@ -271,7 +271,7 @@ class Context_Primitives
             return self::not_found(sprintf('Not available: %s', $ability_name));
         }
 
-        $result = $ability->execute($input);
+        $result = Registrar::explain_denial($ability_name, $ability->execute($input));
         if (is_wp_error($result) && 'ability_invalid_permissions' === $result->get_error_code()) {
             return new \WP_Error(self::ERROR_DENIED, $result->get_error_message());
         }

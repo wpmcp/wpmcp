@@ -34,10 +34,7 @@ final class JetEngine_Pack
     /** @return true|array{code: string, message: string} */
     public static function requirement()
     {
-        return self::active() ? true : [
-            'code'    => 'jetengine_inactive',
-            'message' => 'JetEngine is not active on this site.',
-        ];
+        return self::active() ? true : Plugin_Refusal::make('jetengine_inactive', 'JetEngine');
     }
 
     /**

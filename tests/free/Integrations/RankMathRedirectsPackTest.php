@@ -133,6 +133,14 @@ class RankMathRedirectsPackTest extends \WP_UnitTestCase
         $out = $this->read('rankmath-list-404-log');
         $this->assertSame('rank_math_inactive', $out['error']['code']);
         $this->assertStringContainsString('Rank Math', $out['error']['message']);
+
+        // Issue #951: every Rank Math op gives the next step and the plugins link.
+        foreach ([ 'rankmath-list-redirections', 'rankmath-list-404-log' ] as $op) {
+            $out = $this->read($op);
+            $this->assertSame('rank_math_inactive', $out['error']['code'], $op);
+            $this->assertStringContainsString('Install and activate Rank Math SEO (' . admin_url('plugins.php') . ')', $out['error']['message'], $op);
+            $this->assertSame(admin_url('plugins.php'), $out['error']['data']['plugins_url'] ?? null, $op);
+        }
     }
 
     public function test_writes_are_off_until_opted_in(): void

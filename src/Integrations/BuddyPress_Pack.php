@@ -69,7 +69,7 @@ final class BuddyPress_Pack
     public static function requirement(string $component)
     {
         if (! self::active()) {
-            return [ 'code' => 'buddypress_inactive', 'message' => 'BuddyPress is not active on this site.' ];
+            return Plugin_Refusal::make('buddypress_inactive', 'BuddyPress');
         }
         [$label, $tables] = self::COMPONENTS[ $component ];
         if (! BuddyPress_Rows_Snapshot::tables_exist(...$tables)) {

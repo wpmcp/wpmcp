@@ -92,7 +92,10 @@ class ReadOnlyScopeRegistryTest extends \WP_UnitTestCase
             $result = $registrar->permission($a, []);
             if ('read' === $a->operation) {
                 ++$reads;
-                if ($result !== $full[ $a->name ]) {
+                // A denial is a WP_Error naming what is missing (issue #875), a
+                // new object each time, so compare decisions by code.
+                $decided = static fn ($r) => is_wp_error($r) ? $r->get_error_code() : $r;
+                if ($decided($result) !== $decided($full[ $a->name ])) {
                     $failures[] = sprintf('%s (read): decided differently from a full token', $a->name);
                 }
                 continue;

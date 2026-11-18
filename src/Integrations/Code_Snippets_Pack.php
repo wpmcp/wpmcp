@@ -71,7 +71,7 @@ final class Code_Snippets_Pack
     public static function requirement()
     {
         if (! self::active()) {
-            return [ 'code' => 'code_snippets_inactive', 'message' => 'The Code Snippets plugin is not active on this site.' ];
+            return Plugin_Refusal::make('code_snippets_inactive', 'Code Snippets');
         }
         foreach (self::API as $fn) {
             if (! function_exists('Code_Snippets\\' . $fn)) {

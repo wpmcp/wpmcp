@@ -99,8 +99,11 @@ class ConnectionTesterTest extends \WP_UnitTestCase
     public function test_a_well_behaved_host_passes_every_transport_check(): void
     {
         $this->stub_response(401, $this->good_headers(), '{"error":"unauthorized"}');
+        // The test site is plain HTTP, where Application Passwords are off by design.
+        add_filter('wp_is_application_passwords_available', '__return_true');
 
         $result = (new Connection_Tester())->test();
+        remove_all_filters('wp_is_application_passwords_available');
 
         $this->assertTrue($result['ok']);
         foreach ($result['checks'] as $check) {

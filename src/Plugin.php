@@ -918,6 +918,11 @@ final class Plugin
             \WPMCP\Governance\Call_Source::register();
             \WPMCP\Governance\Site_Wide_Governance::register();
             add_action('wp_ability_invoked', [Registrar::class, 'note_invoked'], PHP_INT_MIN, 1);
+            // A denial of our own ability reaches a standalone permission
+            // check (adapter, stdio, REST run route) as the refusal naming
+            // what is missing (issue #875), while the callback itself only
+            // ever returns a bool. Just before Site_Wide_Governance (MAX).
+            add_filter('wp_ability_permission_result', [Registrar::class, 'permission_result'], PHP_INT_MAX - 1, 2);
             // Handshake context injection (issue #80): swap the MCP
             // Adapter's initialize `instructions` for the admin-authored
             // text plus the permission-gated site summary. A no-op unless
@@ -968,6 +973,9 @@ final class Plugin
             // old domain. Scoped to our own routes; everything else on the
             // site is untouched.
             (new Transport_Guard())->register();
+            // A direct call to a plugin-data tool held back for want of an
+            // active plugin names the plugin to activate (issue #876).
+            (new \WPMCP\MCP\Hidden_Tool_Refusal())->register();
             // Mounts /wp-json/mcp/wpmcp-server, the JSON-RPC endpoint the
             // README and get-connection-info have always advertised. Without
             // it wp_register_ability() gives us abilities but no MCP

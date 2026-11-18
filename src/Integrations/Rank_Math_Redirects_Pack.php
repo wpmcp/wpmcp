@@ -167,7 +167,7 @@ final class Rank_Math_Redirects_Pack
     private static function requirement(string $module)
     {
         if (! self::is_active()) {
-            return [ 'code' => 'rank_math_inactive', 'message' => 'The Rank Math SEO plugin is not active on this site.' ];
+            return Plugin_Refusal::make('rank_math_inactive', 'Rank Math SEO');
         }
         $modules = (array) get_option('rank_math_modules', []);
         if (! in_array($module, $modules, true)) {

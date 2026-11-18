@@ -31,8 +31,12 @@ class Get_Connection_Info
         $endpoint          = Client_Config_Generator::endpoint();
         $auth_header_value = 'Basic BASE64_OF_username:application-password';
 
+        $passwords = \WPMCP\Auth\App_Passwords_Status::state(current_user_can('manage_options'));
+
         return [
             'endpoint' => $endpoint,
+            'application_passwords_available' => $passwords['available'],
+        ] + (isset($passwords['message']) ? [ 'application_passwords_notice' => $passwords['message'] ] : []) + [
             'auth'     => [
                 'type' => 'WordPress Application Password (HTTP Basic)',
                 'note' => 'Never share or paste a real Application Password into chat; generate the base64 value locally and store it only in your MCP client\'s own config file.',
