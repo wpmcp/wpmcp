@@ -249,7 +249,8 @@ jobs:
             echo "::error::expected the coverage of 4 shards, found ${#covs[@]} (a shard crashed or was cancelled)"
             exit 1
           fi
-          php .github/ci/merge-coverage.php clover.xml "${covs[@]}"
+          # Each shard's coverage is a few hundred MB unserialised; the runner has 16 GB.
+          php -d memory_limit=-1 .github/ci/merge-coverage.php clover.xml "${covs[@]}"
           php bin/check-coverage.php clover.xml "$floor" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Baseline entries that pass now

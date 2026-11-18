@@ -31,7 +31,10 @@ function fail_ids( array $reports, bool &$ok ): array {
 			$ok = false;
 			continue;
 		}
-		foreach ( $xml->xpath( '//testcase[failure or error]' ) as $case ) {
+		// A risky test is logged as an <error> of type RiskyTestError, but
+		// PHPUnit does not fail the run for it (no --fail-on-risky), so
+		// neither does the gate.
+		foreach ( $xml->xpath( '//testcase[failure or error[not(contains(@type, "Risky"))]]' ) as $case ) {
 			$name          = preg_replace( '/ with data set .*$/s', '', (string) $case['name'] );
 			$ids[ (string) $case['class'] . '::' . $name ] = true;
 		}
