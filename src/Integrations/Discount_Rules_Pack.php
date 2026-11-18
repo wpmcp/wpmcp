@@ -305,7 +305,7 @@ final class Discount_Rules_Pack
         }
         $type = (string) $row['discount_type'];
         if (isset($args['adjustment']) && ! isset(self::CREATABLE[ $type ])) {
-            return self::refusal('invalid_args', sprintf('Rule %d is a %s rule; its adjustment is changed in the Discount Rules screen.', $id, $type), [ 'rule_id' => $id ]);
+            return self::refusal('invalid_args', sprintf('Rule %d has the discount type "%s"; its adjustment is changed in the Discount Rules screen.', $id, $type), [ 'rule_id' => $id ]);
         }
         $dates = [
             'date_from' => array_key_exists('date_from', $args) ? (string) $args['date_from'] : self::format_date($row['date_from']),
@@ -350,7 +350,7 @@ final class Discount_Rules_Pack
                     return self::refusal('invalid_args', 'This rule takes adjustment {type, value}.');
                 }
                 if (! in_array((string) $adjustment['type'], $allowed, true)) {
-                    return self::refusal('invalid_args', sprintf('A %s adjustment type is one of %s.', $type, implode(', ', $allowed)));
+                    return self::refusal('invalid_args', sprintf('The adjustment type for "%s" is one of %s.', $type, implode(', ', $allowed)));
                 }
             }
             $bad = self::range_refusal($adjustment);
