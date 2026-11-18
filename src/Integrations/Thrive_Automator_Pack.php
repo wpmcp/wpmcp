@@ -186,7 +186,6 @@ final class Thrive_Automator_Pack
                 'order'               => 'ASC',
                 'no_found_rows'       => false,
                 'ignore_sticky_posts' => true,
-                'suppress_filters'    => true,
             ]
         );
         $rows = [];
