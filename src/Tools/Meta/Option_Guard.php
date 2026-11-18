@@ -97,6 +97,12 @@ class Option_Guard
         // tool argument whose key does not look secret, such as an
         // update-rows option_value that carries a gateway credential.
         'wpmcp_request_log',
+        // The opt-in operation toggles (issue #823, Opt_In_Settings::OPTION
+        // and NETWORK_OPTION). Each one switches on a group of operations
+        // that is off by default, so writing it through update-option would
+        // let an agent grant itself those operations. Only the admin screen
+        // writes them.
+        'wpmcp_opt_in_groups',
     ];
 
     public static function is_denylisted(string $name): bool
