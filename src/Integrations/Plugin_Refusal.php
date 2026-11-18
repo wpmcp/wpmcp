@@ -51,6 +51,7 @@ final class Plugin_Refusal
         'Code Snippets'    => [ 'file' => 'code-snippets/code-snippets.php', 'slug' => 'code-snippets' ],
         'bbPress'          => [ 'file' => 'bbpress/bbpress.php', 'slug' => 'bbpress' ],
         'BuddyPress'       => [ 'file' => 'buddypress/bp-loader.php', 'slug' => 'buddypress' ],
+        'BuddyBoss Platform' => [ 'file' => 'buddyboss-platform/bp-loader.php', 'url' => 'https://www.buddyboss.com/platform/' ],
         'JetEngine'        => [ 'file' => 'jet-engine/jet-engine.php', 'url' => 'https://crocoblock.com/plugins/jetengine/' ],
         'Pods'             => [ 'file' => 'pods/init.php', 'slug' => 'pods' ],
         'TranslatePress'   => [ 'file' => 'translatepress-multilingual/index.php', 'slug' => 'translatepress-multilingual' ],
@@ -62,6 +63,10 @@ final class Plugin_Refusal
         'Under Construction' => [ 'file' => 'under-construction-page/under-construction.php', 'slug' => 'under-construction-page' ],
         'Weglot'           => [ 'file' => 'weglot/weglot.php', 'slug' => 'weglot' ],
         'GTranslate'       => [ 'file' => 'gtranslate/gtranslate.php', 'slug' => 'gtranslate' ],
+        'Smush'            => [ 'file' => 'wp-smushit/wp-smush.php', 'slug' => 'wp-smushit' ],
+        'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
+        'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
+        'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
