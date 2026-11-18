@@ -36,7 +36,15 @@ jobs:
         run: bash .github/ci/licensed-guard.sh
       - uses: shivammathur/setup-php@v2
         with: { php-version: '8.1', coverage: none }
-      - run: composer install --no-interaction
+      - name: Composer cache dir
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock', 'composer.json') }}
+          restore-keys: composer-${{ runner.os }}-
+      - run: composer install --no-interaction --prefer-dist --no-progress
       - run: composer lint
       - run: composer drift:check
       # Last and always, so a PHP 8.1 break never hides lint or drift. Every
@@ -83,7 +91,15 @@ jobs:
       - uses: actions/checkout@v5
       - uses: shivammathur/setup-php@v2
         with: { php-version: '8.3', coverage: none }
-      - run: composer install --no-interaction
+      - name: Composer cache dir
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock', 'composer.json') }}
+          restore-keys: composer-${{ runner.os }}-
+      - run: composer install --no-interaction --prefer-dist --no-progress
       - name: Compliance, distribution profile (source tree)
         run: composer compliance
       - name: Build the directory zip and gate it
@@ -135,13 +151,31 @@ jobs:
   # The action also logs `Failed to post/update comment: Resource not
   # accessible by integration` on every run: it tries to comment on the PR and
   # this job deliberately has no `pull-requests: write`. Expected, harmless.
+  #
+  # On a pull request the check is scoped (.github/ci/plugin-check-scope.php):
+  # only the shipped files the PR changes are scanned, plus wpmcp.php,
+  # readme.txt and uninstall.php; a PR that changes no shipped file skips it,
+  # and one that changes the build or check config (scripts/, tools/,
+  # .github/, phpcs config, composer) scans the whole build. Every push to
+  # main scans the whole build.
   plugin-check:
     runs-on: ubuntu-latest
     steps:
+      # Depth 2: the PR's merge commit and its first parent, the base tip.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
       - uses: shivammathur/setup-php@v2
         with: { php-version: '8.3', coverage: none }
-      - run: composer install --no-interaction
+      - name: Composer cache dir
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock', 'composer.json') }}
+          restore-keys: composer-${{ runner.os }}-
+      - run: composer install --no-interaction --prefer-dist --no-progress
       # The build script's last step is the wporg-free compliance hard gate, so
       # a compliance blocker would otherwise abort this job before Plugin Check
       # ever runs, losing the second signal exactly when the build regresses.
@@ -149,11 +183,21 @@ jobs:
         id: build
         continue-on-error: true
         run: bash scripts/build-wporg-release.sh
+      - name: Scope
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            php .github/ci/plugin-check-scope.php HEAD^1 HEAD build/wporg/wpmcp | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "mode=full" | tee -a "$GITHUB_OUTPUT"
+          fi
       - name: Plugin Check
-        if: hashFiles('build/wporg/wpmcp/wpmcp.php') != ''
+        if: hashFiles('build/wporg/wpmcp/wpmcp.php') != '' && steps.scope.outputs.mode != 'skip'
         uses: wordpress/plugin-check-action@v1
         with:
           build-dir: ./build/wporg/wpmcp
+          exclude-directories: ${{ steps.scope.outputs.exclude-dirs }}
+          exclude-files: ${{ steps.scope.outputs.exclude-files }}
           # No ignore-codes. Both WordPressCS codes this job used to ignore
           # have been driven to zero, so none are ignored any more and an
           # error-level finding under either one fails this job:
