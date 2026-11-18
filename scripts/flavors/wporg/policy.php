@@ -278,6 +278,8 @@ return [
         // Its Spectra library source (issue #364), the only path that
         // reaches websitedemos.net.
         'src/Integrations/Block_Suite_Spectra_Library.php',
+        // Its Kadence Blocks and Spectra settings and page CSS ops (issue #648).
+        'src/Integrations/Block_Suite_Settings.php',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer
         // all go. Named file by file rather than by directory because
