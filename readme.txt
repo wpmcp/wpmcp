@@ -42,7 +42,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * Email logs (read): WP Mail Logging, Check and Log Email and Email Log emails listed with recipients masked and no bodies, and read one at a time with the body cut and reset or login links removed
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, Sucuri Security, All In One WP Security, Limit Login Attempts Reloaded, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * WP Mail SMTP: the active mailer and from identity with credentials never returned, the Pro email log, a test send to your own address, and an undoable from name and address change
-* With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
+* With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable; with Funnel Builder Pro, checkout order bumps too: list, create, rename, switch on or off, set products with quantity and discount, and delete
 * With Pro, Tutor LMS, LifterLMS and LearnDash: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read); LearnDash also lists a learner's courses with progress and can enroll, unenroll or reset progress (off until the site turns them on), each undoable
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * With Pro, BetterDocs: knowledge base docs and categories (read, and undoable doc creates and edits)
