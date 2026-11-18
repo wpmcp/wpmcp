@@ -50,8 +50,14 @@ if (! defined('ABSPATH')) {
  * does not buy is worth stating precisely, because the obvious claim is
  * wrong: abilities are registered once, at process start, and
  * Registrar::register() skips governance-disabled ones at registration
- * time, so the ADVERTISED tool list is fixed for the life of the process
- * (which is why capabilities advertise listChanged:false). What is
+ * time, so the ADVERTISED tool list is fixed for the life of the process.
+ * What can change is what a fresh session would see (a plugin activated in
+ * wp-admin, a license added, a governance or exposure toggle), and a
+ * session started by serve() watches for that (Tool_List_Watch, issue #632):
+ * it advertises tools.listChanged:true and sends one
+ * notifications/tools/list_changed per change, so a client that honours it
+ * re-lists, and the refusal for a held tool says to reconnect for the rest.
+ * HTTP is stateless and keeps listChanged:false. What is
  * re-evaluated per message is everything inside the call path: compact-mode
  * exposure, the Governance and project-memory gates, capability checks and
  * the rate-limit budget. A mid-process revocation therefore still denies at
@@ -94,6 +100,37 @@ class Stdio_Transport
      * @var callable(string, array<string,mixed>): (array<string,mixed>|null)|null
      */
     private $client_requester = null;
+
+    /**
+     * Watches tool availability for the serve() session (issue #632).
+     * Null when the transport answers HTTP or is driven unwatched.
+     */
+    private ?Tool_List_Watch $list_watch = null;
+
+    /**
+     * Makes this a long-lived session that advertises tools.listChanged and
+     * reports availability changes through tool_list_notification(). Only
+     * serve() calls it: the HTTP 2026 bridge is stateless.
+     */
+    public function watch_tool_list(): void
+    {
+        $this->list_watch = new Tool_List_Watch();
+    }
+
+    /**
+     * The notifications/tools/list_changed message to send, once per change
+     * of the available tool set since the session's initialize, or null.
+     *
+     * @return array<string,string>|null
+     */
+    public function tool_list_notification(): ?array
+    {
+        if (null === $this->list_watch || ! $this->list_watch->changed()) {
+            return null;
+        }
+
+        return [ 'jsonrpc' => self::JSONRPC, 'method' => 'notifications/tools/list_changed' ];
+    }
 
     /**
      * Wires the channel for server-to-client requests (2025-11-25
@@ -142,6 +179,18 @@ class Stdio_Transport
         }
 
         $transport = new self();
+        $transport->watch_tool_list();
+
+        // Availability can change in another process while this one waits
+        // on stdin, or through a tool call this one ran: checked before and
+        // after each message, on fresh option reads.
+        $notify = static function () use ($transport): void {
+            self::reset_per_message_state();
+            $notification = $transport->tool_list_notification();
+            if (null !== $notification) {
+                self::emit($notification);
+            }
+        };
 
         // Messages the client sent while the server was waiting on its own
         // request (elicitation, issue #387) wait here for the main loop.
@@ -171,6 +220,8 @@ class Stdio_Transport
                 continue;
             }
 
+            $notify();
+
             // A throwing tool costs one HTTP request on the other
             // transport; here it would cost the whole session, and the
             // client would block forever on a request id that never gets
@@ -192,7 +243,7 @@ class Stdio_Transport
                 self::emit($response);
             }
 
-            self::reset_per_message_state();
+            $notify();
         }
         // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- pairs with the fopen above; closing php://stdin is not a filesystem operation.
         fclose($stdin);
@@ -413,9 +464,15 @@ class Stdio_Transport
         $capabilities               = json_decode((string) wp_json_encode($params['capabilities'] ?? []), true);
         $this->session_capabilities = is_array($capabilities) ? $capabilities : [];
 
+        $server_capabilities = self::capabilities();
+        if (null !== $this->list_watch) {
+            $server_capabilities['tools']['listChanged'] = true;
+            $this->list_watch->start();
+        }
+
         $result = [
             'protocolVersion' => self::negotiate_protocol_version($params),
-            'capabilities'    => self::capabilities(),
+            'capabilities'    => $server_capabilities,
             'serverInfo'      => [
                 // The name the adapter is handed in Server::create_server(),
                 // not the server id: clients key config and display off
@@ -949,7 +1006,7 @@ class Stdio_Transport
         ];
     }
 
-    /** @param array<string,mixed> $response Response to write to stdout. */
+    /** @param array<string,mixed> $response Message to write to stdout. */
     private static function emit(array $response): void
     {
         $json = wp_json_encode($response);

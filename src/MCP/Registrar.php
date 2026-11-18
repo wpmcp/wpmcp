@@ -655,14 +655,14 @@ class Registrar
         if (null !== $host) {
             $message = $host['several']
                 ? sprintf(
-                    'Op "%1$s" of %2$s works with %3$s, and none of them is active on this site, so it cannot run. Install and activate one of them (%4$s), then try again.',
+                    'Op "%1$s" of %2$s works with %3$s, and none of them is active on this site, so it cannot run. Install and activate one of them (%4$s), then reconnect the MCP client so it reloads its tool list.',
                     $operation,
                     $name,
                     $host['name'],
                     $plugins_url
                 )
                 : sprintf(
-                    '%1$s is not active on this site, so op "%2$s" of %3$s cannot run. Install and activate %1$s (%4$s), then try again.',
+                    '%1$s is not active on this site, so op "%2$s" of %3$s cannot run. Install and activate %1$s (%4$s), then reconnect the MCP client so it reloads its tool list.',
                     $host['name'],
                     $operation,
                     $name,
@@ -674,13 +674,13 @@ class Registrar
 
         $message = $held['several']
             ? sprintf(
-                'None of the plugins %1$s works with is active on this site (%2$s), so %1$s cannot run. Install and activate one of them (%3$s), then try again.',
+                'None of the plugins %1$s works with is active on this site (%2$s), so %1$s cannot run. Install and activate one of them (%3$s), then reconnect the MCP client so it reloads its tool list.',
                 $name,
                 $held['plugin'],
                 $plugins_url
             )
             : sprintf(
-                '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s (%3$s), then try again.',
+                '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s (%3$s), then reconnect the MCP client so it reloads its tool list.',
                 $held['plugin'],
                 $name,
                 $plugins_url
