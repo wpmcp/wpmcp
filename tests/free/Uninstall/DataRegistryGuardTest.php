@@ -101,6 +101,12 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             'ihaf_insert_header',
             'ihaf_insert_body',
             'ihaf_insert_footer',
+            // FiboSearch's settings, changed by update-fibosearch-settings
+            // on the theme pair (issue #700).
+            'dgwt_wcas_settings',
+            // Relevanssi's own settings, one option per name, changed by
+            // update-relevanssi-settings on the theme pair (issue #700).
+            'relevanssi_*',
         ],
         'transient'      => [
             'scrape_key_*',

@@ -3754,7 +3754,14 @@ final class Plugin
                     $host = $integration->host_plugin();
                     $ops  = $integration->operation_hosts();
                     foreach ($integration->abilities() as $ability) {
-                        $registrar->hold_for_plugin($ability, $host['name'], $host['several'], $ops);
+                        $channel = 'read' === $ability->operation ? 'read' : 'write';
+                        $registrar->hold_for_plugin(
+                            $ability,
+                            $host['name'],
+                            $host['several'],
+                            $ops,
+                            static fn (string $op): ?array => $integration->unknown_operation_refusal($channel, $op)
+                        );
                     }
                 }
                 continue;
