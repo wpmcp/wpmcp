@@ -56,10 +56,19 @@ if (! defined('ABSPATH')) {
  * "links") are keyed by their own id. A create reserves its id before the
  * snapshot, so the restore removes the row the write inserted.
  *
+ * Jetpack CRM contacts (issue #684, the `zbs_contacts` table, the one
+ * suffix "contacts") are keyed by their `ID` column. An update's image is
+ * put back as it was. A create's image holds no row: its undo removes the
+ * contact through Jetpack CRM's own deleteContact(), which also drops the
+ * tags, aliases, meta and logs the plugin added with it, and is refused,
+ * leaving the contact in place, once quotes, invoices, transactions or tasks
+ * have been linked to it since or while the plugin is not loaded.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
  * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
- * manage_network on a multisite network) for a Wordfence row.
+ * manage_network on a multisite network) for a Wordfence row, and Jetpack
+ * CRM's admin_zerobs_customers (or manage_options) for a contact.
  */
 final class Plugin_Table_Rows_Snapshot
 {
@@ -72,6 +81,7 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'mepr_rule_access_',
         'rank_math'        => 'rank_math_',
         'prli'             => 'prli_',
+        'jpcrm'            => 'zbs_',
     ];
 
     /**
@@ -87,6 +97,7 @@ final class Plugin_Table_Rows_Snapshot
     private const KEY_COLUMNS = [
         'mepr_rule_access' => 'rule_id',
         'wordfence_blocks' => 'IP',
+        'jpcrm'            => 'ID',
     ];
 
     /** kind => the only suffixes it allows, for a kind with a fixed table. */
@@ -94,6 +105,7 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => [ 'conditions' ],
         'rank_math'        => [ 'redirections' ],
         'prli'             => [ 'links' ],
+        'jpcrm'            => [ 'contacts' ],
     ];
 
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
@@ -284,6 +296,13 @@ final class Plugin_Table_Rows_Snapshot
             return;
         }
 
+        if ('jpcrm' === $kind && [] === (array) ($data['rows'] ?? [])) {
+            foreach ($ids as $id) {
+                self::remove_jpcrm_contact((int) $id);
+            }
+            return;
+        }
+
         global $wpdb;
         $in = implode(',', array_fill(0, count($ids), '%d'));
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- third-party table with no WP API; $in holds only %d placeholders.
@@ -309,6 +328,39 @@ final class Plugin_Table_Rows_Snapshot
             self::purge_rank_math_cache($ids);
         }
         self::after_wordfence_restore($kind);
+    }
+
+    /**
+     * Undo a Jetpack CRM contact create: remove the contact through the
+     * plugin's own deleteContact(), so the tags, aliases, meta and logs it
+     * added go with it. Refused (Mutation_Failed, the contact left in place)
+     * once quotes, invoices, transactions or tasks are linked to it, or
+     * while the plugin's API is not loaded. A contact already gone is fine.
+     */
+    private static function remove_jpcrm_contact(int $id): void
+    {
+        global $wpdb;
+
+        $contacts = (string) self::table('jpcrm', 'contacts');
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Jetpack CRM's own table, read live.
+        if (0 === (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE ID = %d', $contacts, $id))) {
+            return;
+        }
+        $links = $wpdb->prefix . 'zbs_object_links';
+        if (self::table_exists($links)) {
+            // Quote 3, invoice 4, transaction 5 and task 6, linked to contact (type 1).
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Jetpack CRM's own table, read live.
+            $linked = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE zbsol_objtype_to = 1 AND zbsol_objid_to = %d AND zbsol_objtype_from IN (3, 4, 5, 6)', $links, $id));
+            if ($linked > 0) {
+                throw new Mutation_Failed(sprintf('Rollback refused: Jetpack CRM contact %d has %d quote(s), invoice(s), transaction(s) or task(s) linked since it was created, so it was left in place.', (int) $id, (int) $linked));
+            }
+        }
+        $zbs = $GLOBALS['zbs'] ?? null;
+        $api = is_object($zbs) && isset($zbs->DAL) && is_object($zbs->DAL) && isset($zbs->DAL->contacts) ? $zbs->DAL->contacts : null;
+        if (! is_object($api) || ! method_exists($api, 'deleteContact')) {
+            throw new Mutation_Failed(sprintf('Rollback refused: Jetpack CRM is not active, so contact %d was left in place. Activate it and undo again.', (int) $id));
+        }
+        $api->deleteContact([ 'id' => $id, 'saveOrphans' => false ]);
     }
 
     /**
@@ -456,6 +508,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('trp_dictionary' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring TranslatePress translations requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('jpcrm' === $kind) {
+            if (! current_user_can('admin_zerobs_customers') && ! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring a Jetpack CRM contact requires the admin_zerobs_customers capability.');
             }
             return;
         }

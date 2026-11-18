@@ -67,6 +67,8 @@ final class Plugin_Refusal
         'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
+        'Jetpack CRM'      => [ 'file' => 'zero-bs-crm/ZeroBSCRM.php', 'slug' => 'zero-bs-crm' ],
+        'HubSpot'          => [ 'file' => 'leadin/leadin.php', 'slug' => 'leadin' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
