@@ -518,6 +518,9 @@ final class Plugin
         // An undo that would change a synced pattern other people's posts
         // place is refused for a user who cannot edit those posts (#711).
         [\WPMCP\Integrations\Core_Patterns_Pack::class, 'restore_refusal', 'wpmcp_rollback_post_refusal'],
+        // An undo of a PublishPress Future schedule or cancel puts the post's
+        // meta back; the plugin's scheduled action follows it (issue #709).
+        [\WPMCP\Integrations\PublishPress_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],
         // An undo of a cache plugin settings write lets the plugin rebuild
         // what it derives from its settings, as its own save does (#692).
         [\WPMCP\Integrations\Cache_Settings_Pack::class, 'after_options_restored'],

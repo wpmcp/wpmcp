@@ -101,6 +101,11 @@ if (! defined('ABSPATH')) {
  *    status, test or live mode, display type, prices) and Paid Member
  *    Subscriptions plans and members (Paid_Member_Subscriptions_Pack,
  *    member names and emails masked).
+ *  - Issue #709 adds the PublishPress editorial workflow ops
+ *    (PublishPress_Pack): the Planner content calendar read and editorial
+ *    status changes, Checklists requirements read, and PublishPress Future
+ *    scheduled changes listed, scheduled and canceled (writes off until
+ *    wpmcp_enable_publishpress_write), each write under a post snapshot.
  *
  * The pair registers only while at least one of them is loaded (the LMS
  * and TablePress ops only on an install that may run the paid tier), and
@@ -127,7 +132,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || PublishPress_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || Offload_Media_Pack::active()
             || TablePress_Pack::active()
@@ -148,7 +153,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans, PublishPress Planner, PublishPress Checklists and PublishPress Future'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', WP Offload Media status'
             . ', FluentCRM and MailPoet'
@@ -184,6 +189,9 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'Site Reviews', false, Site_Reviews_Pack::operations() ],
             [ 'WP Simple Pay', false, Simple_Pay_Pack::operations() ],
             [ 'Paid Member Subscriptions', false, Paid_Member_Subscriptions_Pack::operations() ],
+            [ 'PublishPress Planner', false, PublishPress_Pack::planner_operations() ],
+            [ 'PublishPress Checklists', false, PublishPress_Pack::checklists_operations() ],
+            [ 'PublishPress Future', false, PublishPress_Pack::future_operations() ],
         ];
         foreach (LMS_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
@@ -233,6 +241,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Site_Reviews_Pack::operations(),
             Simple_Pay_Pack::operations(),
             Paid_Member_Subscriptions_Pack::operations(),
+            PublishPress_Pack::operations(),
             BuddyPress_Pack::operations(),
             LMS_Pack::operations(),
             Offload_Media_Pack::operations(),
