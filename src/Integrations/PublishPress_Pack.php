@@ -614,7 +614,7 @@ final class PublishPress_Pack
             foreach ((array) $args['terms'] as $term_id) {
                 $term = get_term((int) $term_id, $taxonomy);
                 if (! $term instanceof \WP_Term) {
-                    return self::refusal('invalid_params', sprintf('%d is not a %s term.', (int) $term_id, $taxonomy), [ 'term_id' => (int) $term_id ]);
+                    return self::refusal('invalid_params', sprintf('%d is not a term of taxonomy "%s".', (int) $term_id, $taxonomy), [ 'term_id' => (int) $term_id ]);
                 }
             }
         }
