@@ -1,36 +1,177 @@
 name: PHPUnit
 
-# The WordPress integration suite on every pull request and every push to main,
-# so main cannot go red unnoticed. It mirrors the default legs of the local
-# gate (bin/test-local.sh): the current WordPress, the `Requires at least`
-# floor from readme.txt, and the current WordPress as a multisite network.
-# The live legs (real third-party plugins, licensed copies) stay local only.
+# The WordPress integration suite and the free live legs, split across
+# parallel jobs for the fastest feedback (handoff/2026-11-18/gate-strategy.md,
+# Tier 1).
+#
+# Two modes, chosen by the plan job:
+#
+#   full    every push to main, the nightly run, a manual run, and a pull
+#           request that changes a core file, carries the label full-ci, or
+#           cannot be mapped (.github/ci/impact.php lists the rules)
+#   impact  any other pull request: only the tests that exercise the changed
+#           files (the impact map, built from per-test coverage of main's full
+#           runs, plus naming conventions), the tests the PR changes, and the
+#           always-run guard, flavor and hardening tests, on WP 7.1 and on the
+#           PHP 8.1 / WP 6.9 floor; plus only the free live legs whose tests
+#           or groups the change touches
+#
+#   plan      decides the mode, shards the selection by the per-file times of
+#             earlier runs and pins the test plugin versions, once, so every
+#             job of a run agrees
+#   unit      full: the suite in shards: WP 7.1 with coverage (4), the WP 6.9
+#             floor (3), WP 7.1 multisite (3), and the PHP 8.1 floor
+#             (readme.txt "Requires PHP") on WP 6.9 (2); impact: the selection,
+#             one or two jobs per environment
+#   report    full only: merges the coverage of the 7.1 shards and holds it to
+#             the floor in bin/test-local.sh, saves the timings for the next
+#             plan, and on main rebuilds the impact map (cache impact-map-*,
+#             artifact impact-map; bin/update-impact-map.sh commits it as the
+#             fallback tests/impact-map.json)
+#   live      the free live legs (bin/legs.tsv, tier "free"), in 3 groups in
+#             full mode or the selected legs in one job, each through
+#             bin/test-local.sh against a MariaDB service
+#
+# Licensed live legs never run here: they need commercial copies that stay on
+# the owner's Mac. .github/ci/licensed-guard.sh (CI workflow, static job) fails
+# if anything licensed is referenced under .github/ or in the live matrix.
 # No secrets are needed: everything installed here is public.
 
 on:
   pull_request:
   push:
     branches: [main]
+  # Nightly full run at 21:30 UTC (02:30 PKT), and by hand.
+  schedule:
+    - cron: '30 21 * * *'
+  workflow_dispatch:
 
+# Pull requests: one run per PR, a new push cancels the run it replaces.
+# Everything else (push to main, nightly, manual) gets a group of its own run
+# id, so it is never cancelled or displaced: GitHub keeps only one PENDING run
+# per group and cancels the older one, which with several merges an hour
+# meant main's full run, its coverage merge and the impact map build could
+# never finish. Every main run now finishes and the newest map wins.
 concurrency:
-  group: phpunit-${{ github.ref }}
-  cancel-in-progress: true
+  group: phpunit-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
+  # The plan job reads the PR's current labels (full-ci), so a re-run after
+  # adding the label takes the full path.
+  pull-requests: read
+
+# pipefail: a failing command before a pipe (check-coverage | tee) fails the step.
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Absolute, normalised paths: a ".." in ABSPATH breaks the test library.
+  WP_ROOT: ${{ github.workspace }}/../wp
 
 jobs:
-  phpunit:
-    name: PHPUnit (WP ${{ matrix.wp }}${{ matrix.multisite && ' multisite' || '' }})
+  plan:
+    name: Plan shards
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      plugins: ${{ steps.plugins.outputs.versions }}
+      plugins-key: ${{ steps.plugins.outputs.key }}
+      mode: ${{ steps.select.outputs.mode }}
+      unit-matrix: ${{ steps.matrix.outputs.unit-matrix }}
+      live-matrix: ${{ steps.matrix.outputs.live-matrix }}
+    steps:
+      # Depth 2: on a pull request the checkout is GitHub's merge commit, and
+      # its first parent is the base branch tip the change is diffed against.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      # The newest timings from any earlier run this ref can see (its own
+      # branch first, then main). None yet: shard.php balances by file size.
+      - uses: actions/cache/restore@v4
+        with:
+          path: timings.json
+          key: phpunit-timings-${{ github.run_id }}
+          restore-keys: phpunit-timings-
+
+      # The newest impact map from main's full runs. impact.php takes the
+      # newer of it and the committed tests/impact-map.json.
+      - uses: actions/cache/restore@v4
+        if: github.event_name == 'pull_request'
+        with:
+          path: impact-map.json
+          key: impact-map-${{ github.run_id }}
+          restore-keys: impact-map-
+
+      - name: Select tests (full or impact)
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "### Test impact selection: full (${{ github.event_name }})" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          labels=$(gh api "repos/${{ github.repository }}/issues/$PR/labels" --jq '[.[].name] | join(",")' 2>/dev/null || echo "${{ join(github.event.pull_request.labels.*.name, ',') }}")
+          # A selector crash must never shrink the run: it falls back to full.
+          mkdir -p impact
+          if php .github/ci/impact.php --base HEAD^1 --head HEAD --labels "$labels" \
+              --map impact-map.json --map tests/impact-map.json \
+              --timings "$( [ -f timings.json ] && echo timings.json || echo - )" \
+              --out impact > impact/outputs.txt && grep -qE '^mode=(full|impact)$' impact/outputs.txt; then
+            cat impact/outputs.txt | tee -a "$GITHUB_OUTPUT"
+            cat impact/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::the impact selector failed; running the full suite"
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Shard the suite
+        id: matrix
+        run: |
+          timings=$( [ -f timings.json ] && echo timings.json || echo - )
+          if [ "${{ steps.select.outputs.mode }}" = impact ]; then
+            SHARD_ONLY=impact/tests.txt php .github/ci/shard.php shards "$timings" "${{ steps.select.outputs.shards }}"
+            php .github/ci/unit-matrix.php impact "${{ steps.select.outputs.shards }}" "${{ steps.select.outputs.legs }}" >> "$GITHUB_OUTPUT"
+          else
+            php .github/ci/shard.php shards "$timings" 4 3 2
+            php .github/ci/unit-matrix.php full >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shards
+          path: shards/
+          retention-days: 3
+
+      # The latest release of every unpinned test plugin, asked of
+      # WordPress.org once for the whole run: all shards test the same
+      # versions, the zips are cached by exact version, and a new plugin
+      # release shows up as a new cache key, not as one red shard.
+      - name: Pin the test plugin versions
+        id: plugins
+        run: |
+          versions=$(bash bin/test-local.sh --resolve-plugins | grep '=' | tr '\n' ' ' | sed 's/ $//')
+          [ -n "$versions" ] || { echo "::error::could not resolve the test plugin versions"; exit 1; }
+          echo "Test plugins: $versions"
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+          echo "key=$(printf '%s' "$versions" | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+  unit:
+    name: Unit ${{ matrix.label }} (${{ matrix.shard }}/${{ matrix.of }})
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
+      # Rows from .github/ci/unit-matrix.php: the 12 shards, or the impact jobs.
       matrix:
-        include:
-          - { wp: '7.1', multisite: false }
-          - { wp: '6.9', multisite: false }
-          - { wp: '7.1', multisite: true }
+        include: ${{ fromJSON(needs.plan.outputs.unit-matrix) }}
     services:
       mysql:
         image: mariadb:10.11
@@ -40,24 +181,30 @@ jobs:
         ports: ['3306:3306']
         options: >-
           --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=5s --health-timeout=5s --health-retries=20
+          --health-interval=2s --health-timeout=5s --health-retries=40
+    env:
+      WPMCP_PLUGIN_VERSIONS: ${{ needs.plan.outputs.plugins }}
     steps:
       - uses: actions/checkout@v5
 
-      # Absolute, normalised paths: a ".." in ABSPATH breaks the test library.
       - name: Paths
         run: |
+          root=$(realpath -m "$WP_ROOT")
           {
-            echo "WP_TESTS_DIR=$RUNNER_TEMP/wp/wordpress-tests-lib"
-            echo "WP_CORE_DIR=$RUNNER_TEMP/wp/wordpress"
-            echo "TMPDIR=$RUNNER_TEMP/wp/tmp"
-            echo "WPMCP_DOWNLOAD_CACHE=$RUNNER_TEMP/wp/downloads"
+            echo "WP_TESTS_DIR=$root/wordpress-tests-lib"
+            echo "WP_CORE_DIR=$root/wordpress"
+            echo "TMPDIR=$root/tmp"
+            echo "WPMCP_DOWNLOAD_CACHE=$root/downloads"
+            echo "DOWNLOADS=$root/downloads"
           } >> "$GITHUB_ENV"
 
+      # pcov, not xdebug: it only records line coverage and is several times
+      # faster. pcov.directory limits it to src/.
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
-          coverage: none
+          php-version: ${{ matrix.php }}
+          coverage: ${{ matrix.coverage && 'pcov' || 'none' }}
+          ini-values: ${{ matrix.coverage && format('pcov.directory={0}/src, memory_limit=2G', github.workspace) || 'memory_limit=1G' }}
           tools: composer
           extensions: mysqli, mbstring, zip, gd, intl, xml
 
@@ -71,28 +218,267 @@ jobs:
           key: composer-${{ runner.os }}-${{ hashFiles('composer.lock', 'composer.json') }}
           restore-keys: composer-${{ runner.os }}-
 
-      # Core, the test library and the test plugins are cached by exact
-      # version inside the download cache (bin/download-cache.sh).
+      # Core, the test library and the plugin zips, by exact version (the
+      # plan pinned the plugins), so a warm run downloads nothing.
       - uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}/wp/downloads
-          key: wp-downloads-${{ matrix.wp }}-${{ hashFiles('bin/install-wp-tests.sh', 'bin/install-test-plugins.sh', 'bin/download-cache.sh') }}
-          restore-keys: wp-downloads-${{ matrix.wp }}-
+          path: ${{ env.DOWNLOADS }}
+          key: wp-downloads-${{ matrix.wp }}-${{ hashFiles('bin/install-wp-tests.sh', 'bin/install-test-plugins.sh', 'bin/download-cache.sh') }}-${{ needs.plan.outputs.plugins-key }}
+          restore-keys: |
+            wp-downloads-${{ matrix.wp }}-${{ hashFiles('bin/install-wp-tests.sh', 'bin/install-test-plugins.sh', 'bin/download-cache.sh') }}-
+            wp-downloads-${{ matrix.wp }}-
 
-      - run: composer install --no-interaction --prefer-dist
+      - run: composer install --no-interaction --prefer-dist --no-progress
 
-      # The WordPress test library is exported from develop.svn.wordpress.org.
-      - name: Install subversion
-        run: command -v svn >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq subversion)
+      # The test library is exported from develop.svn.wordpress.org; only a
+      # cold download cache needs svn (about 20 s to install).
+      - name: Install subversion when the test library is not cached
+        run: |
+          if [ -d "$DOWNLOADS/tests-lib/${{ matrix.wp }}-includes" ] && [ -d "$DOWNLOADS/tests-lib/${{ matrix.wp }}-data" ]; then
+            echo "Test library ${{ matrix.wp }} is cached; no svn needed."
+          else
+            command -v svn >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq subversion)
+          fi
 
       - name: Install WordPress, the test library and the test plugins
         run: |
-          mkdir -p "$TMPDIR" "$WPMCP_DOWNLOAD_CACHE"
+          mkdir -p "$TMPDIR" "$DOWNLOADS"
           bash bin/install-wp-tests.sh wpmcp_test root root 127.0.0.1:3306 "${{ matrix.wp }}" true
           bash bin/install-test-plugins.sh
           mkdir -p "$WP_CORE_DIR/wp-content/uploads"
 
-      - name: PHPUnit
+      - uses: actions/download-artifact@v4
+        with:
+          name: shards
+          path: shards
+
+      # The known-failure baseline (tests/phpunit-baseline-<leg>.txt, shared
+      # with bin/test-local.sh) decides: only a failure not listed there fails
+      # the shard. With no baseline file every failure counts.
+      - name: PHPUnit shard ${{ matrix.shard }} of ${{ matrix.of }}
         env:
           WP_MULTISITE: ${{ matrix.multisite && '1' || '0' }}
-        run: vendor/bin/phpunit
+        run: |
+          mkdir -p reports
+          args=(-c "shards/shard-${{ matrix.of }}-${{ matrix.shard }}.xml" --log-junit reports/junit.xml)
+          if [ "${{ matrix.coverage }}" = true ]; then
+            args+=(--coverage-php reports/coverage.cov)
+          fi
+          set +e
+          vendor/bin/phpunit "${args[@]}"
+          rc=$?
+          set -e
+          php .github/ci/baseline-gate.php "${{ matrix.leg }}" "$rc" reports/junit.xml
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-${{ matrix.leg }}-php${{ matrix.php }}-${{ matrix.shard }}of${{ matrix.of }}
+          path: reports/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  report:
+    name: Coverage floor and timings
+    needs: [plan, unit]
+    # Full runs only: an impact run has no coverage, and its partial timings
+    # would unbalance the next full plan.
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.mode == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      # pcov here too: a shard's coverage file rebuilds its CodeCoverage with
+      # the driver it was recorded with.
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: pcov
+          tools: composer
+          ini-values: memory_limit=2G
+
+      - name: Composer cache dir
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock', 'composer.json') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: unit-*
+          path: reports
+
+      # The same floor bin/test-local.sh enforces (COVERAGE_FLOOR there is its
+      # one home), on the 7.1 shards' coverage merged.
+      - name: Coverage floor
+        run: |
+          floor=$(sed -n 's/^COVERAGE_FLOOR=//p' bin/test-local.sh | head -1)
+          [ -n "$floor" ] || { echo "::error::no COVERAGE_FLOOR in bin/test-local.sh"; exit 1; }
+          mapfile -t covs < <(find reports -path '*unit-phpunit-default-*' -name coverage.cov | sort)
+          if [ "${#covs[@]}" -ne 4 ]; then
+            echo "::error::expected the coverage of 4 shards, found ${#covs[@]} (a shard crashed or was cancelled)"
+            exit 1
+          fi
+          # Each shard's coverage is a few hundred MB unserialised; the runner has 16 GB.
+          php -d memory_limit=-1 -d display_errors=stderr -d error_reporting=-1 .github/ci/merge-coverage.php clover.xml "${covs[@]}"
+          ls -la clover.xml
+          php bin/check-coverage.php clover.xml "$floor" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Baseline entries that pass now
+        if: always()
+        run: |
+          for leg in phpunit-default phpunit-floor multisite; do
+            mapfile -t reports < <(find reports -path "*unit-$leg-php8.3-*" -name junit.xml | sort)
+            [ "${#reports[@]}" -gt 0 ] || continue
+            php .github/ci/baseline-gate.php --fixed "$leg" "${reports[@]}" || true
+          done
+
+      - name: Timings for the next plan
+        if: always()
+        run: |
+          mapfile -t reports < <(find reports -name junit.xml | sort)
+          [ "${#reports[@]}" -gt 0 ] && php .github/ci/timings.php timings.json "${reports[@]}" || echo "No reports, keeping the old timings."
+
+      - uses: actions/cache/save@v4
+        if: always() && hashFiles('timings.json') != ''
+        with:
+          path: timings.json
+          key: phpunit-timings-${{ github.run_id }}
+
+      # The impact map for pull requests, from the per-test coverage of the
+      # 7.1 shards: main's full runs only (a PR's coverage is of its own code).
+      - name: Impact map
+        id: impact-map
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          mapfile -t dirs < <(find reports -maxdepth 1 -type d -name 'unit-phpunit-default-*' | sort)
+          [ "${#dirs[@]}" -eq 4 ] || { echo "::warning::impact map skipped: ${#dirs[@]} coverage shards"; exit 0; }
+          php -d memory_limit=-1 .github/ci/impact-map.php impact-map.json "$GITHUB_SHA" "PHPUnit run ${{ github.run_id }} (${{ github.event_name }})" "${dirs[@]}"
+
+      - uses: actions/cache/save@v4
+        if: always() && github.event_name != 'pull_request' && hashFiles('impact-map.json') != ''
+        with:
+          path: impact-map.json
+          key: impact-map-${{ github.run_id }}
+
+      - uses: actions/upload-artifact@v4
+        if: always() && github.event_name != 'pull_request' && hashFiles('impact-map.json') != ''
+        with:
+          name: impact-map
+          path: impact-map.json
+          retention-days: 30
+
+  live:
+    name: Live legs (${{ matrix.label }})
+    needs: plan
+    if: needs.plan.outputs.live-matrix != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      # Full: 3 groups (.github/ci/live-legs.sh). Impact: the selected legs.
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.live-matrix) }}
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=2s --health-timeout=5s --health-retries=40
+    env:
+      LIVE_GROUPS: 3
+      # bin/test-local.sh external database mode: no private MariaDB.
+      WPMCP_TEST_DB_HOST: 127.0.0.1:3306
+      WPMCP_TEST_DB_USER: root
+      WPMCP_TEST_DB_PASS: root
+      # A runner has about 14 GB free; the Mac's disk floors do not apply.
+      WPMCP_TEST_MIN_FREE_GB: 2
+      WPMCP_TEST_HARD_MIN_FREE_GB: 1
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Paths
+        run: |
+          root=$(realpath -m "$WP_ROOT")
+          echo "WPMCP_TEST_CACHE=$root/cache" >> "$GITHUB_ENV"
+          echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer
+          ini-values: memory_limit=1G
+          extensions: mysqli, mbstring, zip, gd, intl, xml
+
+      - name: Composer cache dir
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock', 'composer.json') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      # bin/test-local.sh keeps core, the test library and every plugin zip by
+      # exact version under <cache>/downloads, and asks WordPress.org for the
+      # latest releases at most once a day; the day is part of the key.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.WPMCP_TEST_CACHE }}/downloads
+          key: live-downloads-${{ matrix.group }}-${{ hashFiles('bin/install-wp-tests.sh', 'bin/install-test-plugins.sh', 'bin/download-cache.sh', 'bin/legs.tsv') }}-${{ env.day }}
+          restore-keys: |
+            live-downloads-${{ matrix.group }}-${{ hashFiles('bin/install-wp-tests.sh', 'bin/install-test-plugins.sh', 'bin/download-cache.sh', 'bin/legs.tsv') }}-
+            live-downloads-${{ matrix.group }}-
+            live-downloads-
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Database client and subversion
+        run: |
+          need=()
+          command -v mariadb >/dev/null || command -v mysql >/dev/null || need+=(mariadb-client)
+          # bin/test-local.sh insists on svn before it builds an install, but
+          # with the test library in the download cache nothing calls it. A
+          # stub then saves the 20 s apt install; should a cache miss call it
+          # after all, it fails the leg and says why.
+          if ls -d "$WPMCP_TEST_CACHE"/downloads/tests-lib/*-includes >/dev/null 2>&1; then
+            mkdir -p "$RUNNER_TEMP/bin"
+            printf '#!/bin/sh\necho "svn stub: the WordPress test library was expected in the download cache" >&2\nexit 1\n' > "$RUNNER_TEMP/bin/svn"
+            chmod +x "$RUNNER_TEMP/bin/svn"
+            echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          elif ! command -v svn >/dev/null; then
+            need+=(subversion)
+          fi
+          if [ "${#need[@]}" -gt 0 ]; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq "${need[@]}"
+          fi
+
+      - name: Legs (${{ matrix.label }})
+        id: legs
+        run: |
+          if [ -n "${{ matrix.legs }}" ]; then
+            read -r -a legs <<<"${{ matrix.legs }}"
+          else
+            mapfile -t legs < <(bash .github/ci/live-legs.sh --list --group "${{ matrix.group }}")
+          fi
+          [ "${#legs[@]}" -gt 0 ] || { echo "::error::group ${{ matrix.group }} has no legs"; exit 1; }
+          printf '%s\n' "${legs[@]}"
+          echo "flags=$(printf -- '--%s ' "${legs[@]}")" >> "$GITHUB_OUTPUT"
+
+      # One bin/test-local.sh run, exactly as on the Mac: each leg its own
+      # install and database, --fail-on-skipped, every leg runs even after a
+      # failure, and the summary names each leg and its plugin versions.
+      - name: Run the live legs
+        run: bash bin/test-local.sh ${{ steps.legs.outputs.flags }}

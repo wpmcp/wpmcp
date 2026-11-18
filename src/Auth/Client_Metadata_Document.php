@@ -321,8 +321,10 @@ class Client_Metadata_Document
      * Called by /authorize after the document validated.
      *
      * @param array{client_id: string, client_name: string, redirect_uris: string[]} $client
+     * @return true|\WP_Error true when the client may authorize now (bool in the
+     *                        signature: a true type needs PHP 8.2, issue #960)
      */
-    public static function admit(array $client): true|\WP_Error
+    public static function admit(array $client): bool|\WP_Error
     {
         $client_id = $client['client_id'];
         $clients   = self::clients();

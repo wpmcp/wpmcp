@@ -18,27 +18,13 @@ namespace WPMCP\Tests\Free\Content;
  *   plugins keep entries for administrators only. It is the one type here
  *   that opts into 'any' queries (exclude_from_search false), so the
  *   list-posts 'any' path is exercised against a hidden type too.
+ *
+ * The type names live in Hidden_Post_Type_Names, which every class using
+ * this trait implements: constants in a trait need PHP 8.2 and the plugin
+ * supports 8.1 (issue #960).
  */
 trait Hidden_Post_Types
 {
-    protected const ENROLLMENT = 'acme_enrolled';
-    protected const ORDER      = 'acme_order';
-    protected const ENTRY      = 'acme_form_entry';
-
-    /** Primitive capabilities the order type declares, granted to administrators the way shop plugins grant theirs. */
-    private const ORDER_CAPS = [
-        'edit_acme_orders',
-        'edit_others_acme_orders',
-        'publish_acme_orders',
-        'read_private_acme_orders',
-        'delete_acme_orders',
-        'delete_others_acme_orders',
-        'edit_published_acme_orders',
-        'edit_private_acme_orders',
-        'delete_private_acme_orders',
-        'delete_published_acme_orders',
-    ];
-
     /** @var array<string,int> type => row id */
     protected array $hidden_rows = [];
 

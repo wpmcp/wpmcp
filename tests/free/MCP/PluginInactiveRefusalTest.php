@@ -91,7 +91,7 @@ class PluginInactiveRefusalTest extends \WP_UnitTestCase
                 $this->assertInstanceOf(\WP_Error::class, $result);
                 $this->assertSame('plugin_missing', $result->get_error_code());
                 $this->assertSame(
-                    "Fixture Forms is not active on this site, so {$name} cannot run. Install and activate Fixture Forms (" . admin_url('plugins.php') . "), then try again.",
+                    "Fixture Forms is not active on this site, so {$name} cannot run. Install and activate Fixture Forms (" . admin_url('plugins.php') . "), then reconnect the MCP client so it reloads its tool list.",
                     $result->get_error_message()
                 );
                 $this->assertSame('Fixture Forms', $result->get_error_data()['plugin']);
@@ -165,7 +165,7 @@ class PluginInactiveRefusalTest extends \WP_UnitTestCase
         $result = (new Call_Tool())->handle(['name' => 'wpmcp/fixturesuite-read']);
         $this->assertSame('plugin_missing', $result->get_error_code());
         $this->assertSame(
-            'None of the plugins wpmcp/fixturesuite-read works with is active on this site (Alpha Blocks, Beta Blocks), so wpmcp/fixturesuite-read cannot run. Install and activate one of them (' . admin_url('plugins.php') . '), then try again.',
+            'None of the plugins wpmcp/fixturesuite-read works with is active on this site (Alpha Blocks, Beta Blocks), so wpmcp/fixturesuite-read cannot run. Install and activate one of them (' . admin_url('plugins.php') . '), then reconnect the MCP client so it reloads its tool list.',
             $result->get_error_message()
         );
     }
