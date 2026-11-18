@@ -522,7 +522,7 @@ final class Data_Tables_Pack
         if ('simple' !== $type) {
             return self::refusal(
                 'table_not_editable',
-                sprintf('wpDataTables table %d is a %s table: its data comes from that source, not from cells stored in WordPress. Only simple tables are edited here; change the source, or edit the table in wpDataTables.', $id, $type),
+                sprintf('wpDataTables table %d has type "%s": its data comes from that source, not from cells stored in WordPress. Only simple tables are edited here; change the source, or edit the table in wpDataTables.', $id, $type),
                 [ 'table_id' => $id, 'table_type' => $type ]
             );
         }
