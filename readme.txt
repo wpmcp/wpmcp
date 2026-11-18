@@ -40,7 +40,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * Activity logs (read): WP Activity Log and Simple History events listed with IP addresses and emails masked and read one at a time in full
 * Action Scheduler (WooCommerce and many plugins use it): queue actions listed by hook, group, status and date with emails, IPs and tokens masked, read one at a time with their log, and pending actions canceled (undoable) or run now (not undoable, asks for confirmation); both writes are off until the site turns them on
 * Email logs (read): WP Mail Logging, Check and Log Email and Email Log emails listed with recipients masked and no bodies, and read one at a time with the body cut and reset or login links removed
-* Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
+* Site operations status (read): UpdraftPlus, Duplicator, Solid Security, Sucuri Security, All In One WP Security, Limit Login Attempts Reloaded, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * WP Mail SMTP: the active mailer and from identity with credentials never returned, the Pro email log, a test send to your own address, and an undoable from name and address change
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
 * With Pro, Tutor LMS, LifterLMS and LearnDash: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read); LearnDash also lists a learner's courses with progress and can enroll, unenroll or reset progress (off until the site turns them on), each undoable
