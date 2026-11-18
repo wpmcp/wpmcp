@@ -2838,6 +2838,9 @@ class Rollback_Service
         } finally {
             if ([] !== $attempted) {
                 Database_Guard::invalidate_caches($table, ['rows' => $attempted]);
+                // Lets the plugin that owns the table drop what it derives
+                // from these rows, as its own save does (issue #686).
+                do_action('wpmcp_rollback_db_rows_restored', $table);
             }
         }
     }
