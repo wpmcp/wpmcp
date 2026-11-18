@@ -85,6 +85,7 @@ final class Opt_In_Settings
             'wpmcp_enable_restrict_content_write'  => [ 'owner' => $i . 'Restrict_Content_Pack.php', 'destructive' => false ],
             'wpmcp_enable_ultimate_member_write'   => [ 'owner' => $i . 'Ultimate_Member_Pack.php', 'destructive' => false ],
             'wpmcp_enable_translation_settings_write' => [ 'owner' => $i . 'Translation_Settings_Pack.php', 'destructive' => false ],
+            'wpmcp_enable_advanced_ads_write'      => [ 'owner' => $i . 'Advanced_Ads_Pack.php', 'destructive' => false ],
         ];
     }
 
@@ -125,6 +126,7 @@ final class Opt_In_Settings
             'wpmcp_enable_restrict_content_write'  => __('Restrict Content: membership level changes', 'wpmcp'),
             'wpmcp_enable_ultimate_member_write'   => __('Ultimate Member: member role changes', 'wpmcp'),
             'wpmcp_enable_translation_settings_write' => __('GTranslate: language settings writes', 'wpmcp'),
+            'wpmcp_enable_advanced_ads_write'      => __('Advanced Ads: writes', 'wpmcp'),
         ];
     }
 
