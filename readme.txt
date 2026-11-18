@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -126,6 +126,10 @@ OAuth is off by default. Clients configured with an application password (Claude
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 1.0.1 =
+Fixes:
+* WP MCP loads on PHP 8.1 again, the minimum version it supports. 1.0.0 used a return type that needs PHP 8.2 in the client registration code, so the plugin failed to start on PHP 8.1 (#960).
 
 = 1.0.0 =
 The first full release. It closes the gaps found in the manual test pass: actions that cannot be undone need an explicit confirm in the call, writes refuse arguments they do not understand, and refusals say what is missing.
@@ -995,6 +999,9 @@ Admin and tooling:
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 1.0.1 =
+Sites on PHP 8.1 must update: 1.0.0 does not load there.
 
 = 1.0.0 =
 First full release. Irreversible actions now need confirm:true in the call, writes refuse unknown arguments, and media deletes refuse when files cannot be backed up. Recommended for all sites.
