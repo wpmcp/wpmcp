@@ -130,6 +130,9 @@ class Op_Catalog
     /** The plugin the memberships.* rows need (PR #573), an Op_Guard::PLUGINS key. */
     private const PLUGIN_MEMBERSHIPS = 'woocommerce-memberships';
 
+    /** The gateway plugins gateways.health reads (issue #661), an Op_Guard::PLUGINS key. */
+    private const PLUGIN_GATEWAYS = 'payment-gateway-plugins';
+
     /** WooCommerce's native brands taxonomy (issue #293). */
     private const BRAND_TAXONOMY = 'product_brand';
 
@@ -283,6 +286,10 @@ class Op_Catalog
         'gateways.list'       => [ 'GET', '/wc/v3/payment_gateways', 'gateways', self::CAP_STORE, 'Payment gateways: enabled, title, description, order and settings (secrets masked)', 'read', null, [ 'handler' => 'gateway_list' ] ],
         'gateways.get'        => [ 'GET', '/wc/v3/payment_gateways/{id}', 'gateways', self::CAP_STORE, 'One payment gateway with its settings fields (secrets masked)', 'read', null, [ 'handler' => 'gateway_get' ] ],
         'gateways.update'     => [ 'PUT', '/wc/v3/payment_gateways/{id}', 'gateways', self::CAP_STORE, 'Set a gateway\'s enabled, title, description or non-secret settings; or its order, alone. Secret fields are refused', 'write', [ 'type' => 'wc_gateway', 'param' => 'id' ], [ 'handler' => 'gateway_update' ] ],
+        // Connection health of Stripe, WooPayments and PayPal Payments (issue
+        // #661), from the options those plugins store (Gateway_Health). Read
+        // only; no credential or merchant identity is ever returned.
+        'gateways.health'     => [ 'GET', '/wc/v3/payment_gateways', 'gateways', self::CAP_STORE, 'Stripe, WooPayments, PayPal Payments health: connected, test mode, webhook status, last error (no keys); gateway (id) optional', 'read', null, [ 'handler' => 'gateway_health', 'plugin' => self::PLUGIN_GATEWAYS ] ],
 
         // System status (issue #292), through the wc/v3 status endpoints
         // (Status_Ops). The report masks secret-like values. run-tool runs

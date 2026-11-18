@@ -52,13 +52,17 @@ final class Gateway_Ops
     ];
 
     /**
-     * The gateways.list and gateways.get reads.
+     * The gateways.list and gateways.get reads, and gateways.health
+     * (Gateway_Health, issue #661).
      *
      * @param array<string, mixed> $params
      * @return array<string, mixed>
      */
     public static function read(string $handler, array $params): array
     {
+        if ('gateway_health' === $handler) {
+            return Gateway_Health::read($params);
+        }
         try {
             self::refuse_unknown($params, self::KEYS[ $handler ] ?? []);
             if ('gateway_get' === $handler) {
