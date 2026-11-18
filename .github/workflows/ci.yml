@@ -6,10 +6,12 @@ on:
   push:
     branches: [main]
 
-# A new push to a branch or PR cancels the run it replaces; main finishes.
+# A new push to a PR cancels the run it replaces. Every other run (push to
+# main) has a group of its own run id, so it is never cancelled, not even
+# while pending: GitHub cancels an older pending run in the same group.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

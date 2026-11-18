@@ -46,12 +46,15 @@ on:
     - cron: '30 21 * * *'
   workflow_dispatch:
 
-# One run per branch or PR: a new push cancels the run it replaces. Runs on
-# main are left to finish, so main's timings and caches stay current; the
-# nightly run has its own group so it never displaces a push to main.
+# Pull requests: one run per PR, a new push cancels the run it replaces.
+# Everything else (push to main, nightly, manual) gets a group of its own run
+# id, so it is never cancelled or displaced: GitHub keeps only one PENDING run
+# per group and cancels the older one, which with several merges an hour
+# meant main's full run, its coverage merge and the impact map build could
+# never finish. Every main run now finishes and the newest map wins.
 concurrency:
-  group: phpunit-${{ github.event_name == 'schedule' && 'nightly' || github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: phpunit-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
