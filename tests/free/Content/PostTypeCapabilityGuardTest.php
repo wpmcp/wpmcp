@@ -19,7 +19,7 @@ use WPMCP\Tools\Search\Search_Content;
  * post type in the input, the type's own capabilities; a non-public type
  * with no admin screen is refused outright below administrator.
  */
-class PostTypeCapabilityGuardTest extends \WP_UnitTestCase
+class PostTypeCapabilityGuardTest extends \WP_UnitTestCase implements Hidden_Post_Type_Names
 {
     use Hidden_Post_Types;
 
