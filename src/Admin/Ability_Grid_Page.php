@@ -336,13 +336,33 @@ class Ability_Grid_Page
                 <?php endif; ?>
             <?php endif; ?>
 
-            <?php foreach ($this->rows() as $domain => $rows) : ?>
-                <h2 style="margin-top: 1.5em;">
-                    <code><?php echo esc_html($domain); ?></code>
-                    <span style="font-weight: normal; font-size: 13px;">
-                        (<?php echo (int) count($rows); ?>)
-                    </span>
-                </h2>
+            <?php
+            $grid        = $this->rows();
+            $open_domain = $this->acted_domain($result);
+            $this->render_filters();
+            ?>
+
+            <?php foreach ($grid as $domain => $rows) : ?>
+                <?php
+                $disabled_count = count(array_filter($rows, static fn (array $r): bool => ! $r['enabled']));
+                ?>
+                <details class="wpmcp-domain" data-domain="<?php echo esc_attr($domain); ?>"<?php echo $domain === $open_domain ? ' open' : ''; ?> style="margin-top: 1em;">
+                    <summary style="cursor: pointer; padding: 0.4em 0; font-size: 1.15em;">
+                        <code><?php echo esc_html($domain); ?></code>
+                        <span class="wpmcp-domain-counts" style="font-weight: normal; font-size: 13px;">
+                            <?php
+                            echo esc_html(sprintf(
+                                /* translators: %d: number of abilities in the domain. */
+                                _n('%d ability', '%d abilities', count($rows), 'wpmcp'),
+                                count($rows)
+                            ) . ', ' . sprintf(
+                                /* translators: %d: number of abilities in the domain that are disabled. */
+                                __('%d disabled', 'wpmcp'),
+                                $disabled_count
+                            ));
+                            ?>
+                        </span>
+                    </summary>
                 <form method="post" style="margin: 0.25em 0 0.5em;">
                     <input type="hidden" name="wpmcp_grid_action" value="toggle_domain">
                     <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($nonce); ?>">
@@ -365,7 +385,7 @@ class Ability_Grid_Page
                     </tr></thead>
                     <tbody>
                     <?php foreach ($rows as $row) : ?>
-                        <tr>
+                        <tr class="wpmcp-ability-row" data-name="<?php echo esc_attr($row['name']); ?>" data-state="<?php echo $row['enabled'] ? 'enabled' : 'disabled'; ?>" data-risk="<?php echo esc_attr(self::risk_tokens($row)); ?>">
                             <td><code><?php echo esc_html($row['name']); ?></code></td>
                             <td>
                                 <?php if ('pro' === $row['tier']) : ?>
@@ -437,8 +457,167 @@ class Ability_Grid_Page
                     <?php endforeach; ?>
                     </tbody>
                 </table>
+                </details>
             <?php endforeach; ?>
+            <?php $this->render_filter_script(); ?>
         </div>
+        <?php
+    }
+
+    /**
+     * The domain the posted action touched, so that section renders open
+     * after the page reloads and the admin sees the result in place
+     * (issue #880). Null when nothing was posted or the action failed.
+     */
+    private function acted_domain(?array $result): ?string
+    {
+        if (null === $result || isset($result['error'])) {
+            return null;
+        }
+        if ('toggle_domain' === ($result['action'] ?? '')) {
+            return (string) $result['domain'];
+        }
+        if ('toggle_ability' === ($result['action'] ?? '')) {
+            $ability = $this->declared_by_name()[ $result['ability'] ] ?? null;
+            return $ability instanceof Ability ? $ability->domain : null;
+        }
+        return null;
+    }
+
+    /**
+     * Space-separated risk tokens the client-side risk filter matches on.
+     */
+    private static function risk_tokens(array $row): string
+    {
+        $tokens = [];
+        if ($row['destructive']) {
+            $tokens[] = 'destructive';
+        }
+        if ($row['dangerous']) {
+            $tokens[] = 'default-off';
+        }
+        return implode(' ', $tokens);
+    }
+
+    /**
+     * Search box, state and risk filters, expand/collapse controls and a
+     * live region (issue #880). Rendered hidden: the filter script reveals
+     * them, so without JavaScript the screen is the plain list of
+     * collapsible domains, which still works with the keyboard.
+     */
+    private function render_filters(): void
+    {
+        ?>
+        <div id="wpmcp-ability-filters" class="wpmcp-ability-filters" hidden style="flex-wrap: wrap; gap: 0.75em 1.25em; align-items: flex-end; margin: 1em 0;">
+            <p style="margin: 0;">
+                <label for="wpmcp-ability-search" style="display: block; font-weight: 600;"><?php echo esc_html__('Search abilities', 'wpmcp'); ?></label>
+                <input type="search" id="wpmcp-ability-search" class="regular-text" autocomplete="off" aria-describedby="wpmcp-ability-status" placeholder="<?php echo esc_attr__('Part of an ability name', 'wpmcp'); ?>">
+            </p>
+            <p style="margin: 0;">
+                <label for="wpmcp-ability-state" style="display: block; font-weight: 600;"><?php echo esc_html__('State', 'wpmcp'); ?></label>
+                <select id="wpmcp-ability-state">
+                    <option value=""><?php echo esc_html__('All states', 'wpmcp'); ?></option>
+                    <option value="enabled"><?php echo esc_html__('Enabled', 'wpmcp'); ?></option>
+                    <option value="disabled"><?php echo esc_html__('Disabled', 'wpmcp'); ?></option>
+                </select>
+            </p>
+            <p style="margin: 0;">
+                <label for="wpmcp-ability-risk" style="display: block; font-weight: 600;"><?php echo esc_html__('Risk', 'wpmcp'); ?></label>
+                <select id="wpmcp-ability-risk">
+                    <option value=""><?php echo esc_html__('Any risk', 'wpmcp'); ?></option>
+                    <option value="destructive"><?php echo esc_html__('Destructive', 'wpmcp'); ?></option>
+                    <option value="default-off"><?php echo esc_html__('Default-off', 'wpmcp'); ?></option>
+                </select>
+            </p>
+            <p style="margin: 0;">
+                <button type="button" class="button" id="wpmcp-ability-expand"><?php echo esc_html__('Expand all', 'wpmcp'); ?></button>
+                <button type="button" class="button" id="wpmcp-ability-collapse"><?php echo esc_html__('Collapse all', 'wpmcp'); ?></button>
+            </p>
+            <p id="wpmcp-ability-status" role="status" aria-live="polite" style="margin: 0; flex-basis: 100%;"></p>
+        </div>
+        <?php
+    }
+
+    /**
+     * Vanilla, dependency-free filter (issue #880). It only shows and hides
+     * rows and sections: no request, no state written, so the toggles and
+     * the governance audit log behave exactly as before.
+     */
+    private function render_filter_script(): void
+    {
+        $i18n = [
+            /* translators: %d: number of matching abilities. */
+            'matches' => __('%d abilities match.', 'wpmcp'),
+            'none'    => __('No abilities match.', 'wpmcp'),
+        ];
+        ?>
+        <script>
+        (function () {
+            var box = document.getElementById('wpmcp-ability-filters');
+            if (! box) {
+                return;
+            }
+            var i18n = <?php echo wp_json_encode($i18n); ?>;
+            var search = document.getElementById('wpmcp-ability-search');
+            var state = document.getElementById('wpmcp-ability-state');
+            var risk = document.getElementById('wpmcp-ability-risk');
+            var status = document.getElementById('wpmcp-ability-status');
+            var sections = Array.prototype.slice.call(document.querySelectorAll('details.wpmcp-domain'));
+            var timer = null;
+            box.hidden = false;
+            box.style.display = 'flex';
+
+            function apply() {
+                var q = search.value.trim().toLowerCase();
+                var s = state.value;
+                var r = risk.value;
+                var active = '' !== q || '' !== s || '' !== r;
+                var total = 0;
+                sections.forEach(function (section) {
+                    var shown = 0;
+                    section.querySelectorAll('tr.wpmcp-ability-row').forEach(function (row) {
+                        var ok = (! q || -1 !== row.dataset.name.toLowerCase().indexOf(q))
+                            && (! s || row.dataset.state === s)
+                            && (! r || -1 !== (' ' + row.dataset.risk + ' ').indexOf(' ' + r + ' '));
+                        row.hidden = ! ok;
+                        if (ok) {
+                            shown++;
+                        }
+                    });
+                    total += shown;
+                    section.hidden = active && 0 === shown;
+                    if (active && shown > 0 && ! section.open) {
+                        section.open = true;
+                        section.dataset.filterOpened = '1';
+                    } else if (! active && '1' === section.dataset.filterOpened) {
+                        section.open = false;
+                        delete section.dataset.filterOpened;
+                    }
+                });
+                status.textContent = ! active ? '' : (0 === total ? i18n.none : i18n.matches.replace('%d', total));
+            }
+
+            search.addEventListener('input', function () {
+                clearTimeout(timer);
+                timer = setTimeout(apply, 150);
+            });
+            state.addEventListener('change', apply);
+            risk.addEventListener('change', apply);
+            document.getElementById('wpmcp-ability-expand').addEventListener('click', function () {
+                sections.forEach(function (section) {
+                    if (! section.hidden) {
+                        section.open = true;
+                    }
+                });
+            });
+            document.getElementById('wpmcp-ability-collapse').addEventListener('click', function () {
+                sections.forEach(function (section) {
+                    section.open = false;
+                    delete section.dataset.filterOpened;
+                });
+            });
+        }());
+        </script>
         <?php
     }
 }
