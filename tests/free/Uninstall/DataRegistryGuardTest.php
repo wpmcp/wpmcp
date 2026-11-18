@@ -93,6 +93,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // Post SMTP's settings, whose from address and name the
             // set-post-smtp-from op changes (issue #696).
             'postman_options',
+            // GTranslate's settings, whose language lists the
+            // gtranslate-set-languages op changes (issue #690).
+            'GTranslate',
         ],
         'transient'      => [
             'scrape_key_*',
