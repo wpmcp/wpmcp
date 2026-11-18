@@ -65,12 +65,16 @@ class ReleasedAdapterSeamsTest extends \WP_UnitTestCase
         $this->assertSame($other, $tools[1], 'another server\'s tool passes through untouched');
     }
 
-    public function test_a_record_that_already_declares_a_schema_or_a_schema_that_fails_is_kept(): void
+    public function test_a_declared_schema_is_kept_and_a_schema_that_fails_keeps_the_record(): void
     {
         $declared = Released_Adapter_Tool_Record::from([ 'name' => 'wpmcp-get-page', 'outputSchema' => [ 'type' => 'object', 'title' => 'theirs' ] ]);
         $plain    = Released_Adapter_Tool_Record::from([ 'name' => 'wpmcp-get-page' ]);
 
-        $this->assertSame([ $declared ], (new Output_Schemas())->filter_tools_list([ $declared ], null, new Released_Adapter_Schema()));
+        // Issue #630: the record is still rebuilt for its annotations, but
+        // the outputSchema it declared is kept.
+        $rebuilt = (new Output_Schemas())->filter_tools_list([ $declared ], null, new Released_Adapter_Schema())[0];
+        $this->assertSame('theirs', $rebuilt->getOutputSchema()->title);
+        $this->assertTrue($rebuilt->jsonSerialize()->annotations->readOnlyHint);
         $this->assertSame([ $plain ], (new Output_Schemas())->filter_tools_list([ $plain ], null, new Released_Adapter_Schema(true)));
         $this->assertSame([ $plain ], (new Output_Schemas())->filter_tools_list([ $plain ], null, null), 'without the schema a record cannot be rebuilt');
     }

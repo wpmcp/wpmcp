@@ -3,6 +3,7 @@
 namespace WPMCP\MCP;
 
 use WPMCP\Memory\Memory_Store;
+use WPMCP\Plugin;
 use WPMCP\Safety\Operation_Context;
 
 if (! defined('ABSPATH')) {
@@ -547,7 +548,7 @@ class Stdio_Transport
                 continue;
             }
 
-            $tools[] = [
+            $tool = [
                 'name'        => self::tool_name($name),
                 'description' => is_object($ability) && method_exists($ability, 'get_description')
                     ? (string) $ability->get_description()
@@ -564,6 +565,9 @@ class Stdio_Transport
                 // Issue #387; see Output_Schemas for why these live at the wire.
                 'outputSchema' => Wire_Schema::schema(Output_Schemas::for_ability($name)),
             ];
+            // Annotations and the requirement note (issue #630), as on HTTP.
+            $registered = Plugin::instance()->registrar()->get($name);
+            $tools[]    = null !== $registered ? Tool_Annotations::apply($tool, $registered) : $tool;
         }
 
         $trimmed = (new Tool_Exposure())->filter_tools_list($tools);

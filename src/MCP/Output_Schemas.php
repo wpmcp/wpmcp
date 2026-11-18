@@ -62,7 +62,8 @@ final class Output_Schemas
 
     /**
      * Callback for the adapter's mcp_adapter_tools_list filter: adds the
-     * outputSchema to every wpmcp tool that has none. Other servers' tools
+     * outputSchema to every wpmcp tool that has none, and the annotations
+     * and requirement note of Tool_Annotations::apply(). Other servers' tools
      * and entries that cannot be read pass through untouched, as in
      * Tool_Exposure, and a DTO that cannot be rebuilt is kept as it was.
      *
@@ -83,7 +84,7 @@ final class Output_Schemas
 
         $ours = [];
         foreach (Plugin::instance()->registrar()->all() as $ability) {
-            $ours[ Tool_Exposure::tool_name($ability->name) ] = $ability->name;
+            $ours[ Tool_Exposure::tool_name($ability->name) ] = $ability;
         }
 
         foreach ($tools as $i => $tool) {
@@ -95,18 +96,15 @@ final class Output_Schemas
 
     /**
      * @param mixed                $tool
-     * @param array<string,string> $ours   Tool name => ability name.
-     * @param mixed                $schema The adapter's selected schema, if passed.
+     * @param array<string,Ability> $ours   Tool name => ability.
+     * @param mixed                 $schema The adapter's selected schema, if passed.
      * @return mixed
      */
     private static function with_schema($tool, array $ours, $schema = null)
     {
         if (is_array($tool)) {
             $name = isset($tool['name']) && is_string($tool['name']) ? $tool['name'] : null;
-            if (null !== $name && isset($ours[ $name ]) && ! isset($tool['outputSchema'])) {
-                $tool['outputSchema'] = self::for_ability($ours[ $name ]);
-            }
-            return $tool;
+            return null !== $name && isset($ours[ $name ]) ? self::decorate($tool, $ours[ $name ]) : $tool;
         }
 
         if (is_object($tool) && ! method_exists($tool, 'toArray') && $tool instanceof \JsonSerializable) {
@@ -122,9 +120,6 @@ final class Output_Schemas
             if (! is_string($name) || ! isset($ours[ $name ])) {
                 return $tool;
             }
-            if (method_exists($tool, 'getOutputSchema') && null !== $tool->getOutputSchema()) {
-                return $tool;
-            }
 
             // Round-tripped through JSON: toArray() serializes an empty
             // properties map as stdClass, which fromArray() does not take
@@ -133,9 +128,12 @@ final class Output_Schemas
             if (! is_array($data)) {
                 return $tool;
             }
-            $data['outputSchema'] = self::for_ability($ours[ $name ]);
+            $decorated = self::decorate($data, $ours[ $name ]);
+            if ($decorated === $data) {
+                return $tool;
+            }
 
-            return $tool::fromArray($data);
+            return $tool::fromArray($decorated);
         } catch (\Throwable $e) {
             // A foreign or changed DTO must never be able to break tools/list.
             return $tool;
@@ -148,9 +146,9 @@ final class Output_Schemas
      * projected like every other record. Anything that cannot be read or
      * rebuilt is kept as it was.
      *
-     * @param \JsonSerializable    $tool
-     * @param array<string,string> $ours   Tool name => ability name.
-     * @param mixed                $schema The adapter's selected schema.
+     * @param \JsonSerializable     $tool
+     * @param array<string,Ability> $ours   Tool name => ability.
+     * @param mixed                 $schema The adapter's selected schema.
      * @return mixed
      */
     private static function record_with_schema(\JsonSerializable $tool, array $ours, $schema)
@@ -164,22 +162,56 @@ final class Output_Schemas
             if (! is_string($name) || ! isset($ours[ $name ])) {
                 return $tool;
             }
-            if (method_exists($tool, 'getOutputSchema') && null !== $tool->getOutputSchema()) {
-                return $tool;
-            }
 
             // Round-tripped as objects, so an empty properties map stays {}.
             $data = json_decode((string) wp_json_encode($tool));
             if (! $data instanceof \stdClass) {
                 return $tool;
             }
-            $data->outputSchema = json_decode((string) wp_json_encode(self::for_ability($ours[ $name ])));
+
+            // Only the flat fields go through the array form; the schemas
+            // stay objects. outputSchema is not one of them: it is set as
+            // an object here, and only when the record has none.
+            $flat = [];
+            foreach ([ 'description', 'annotations', '_meta' ] as $key) {
+                if (isset($data->$key)) {
+                    $flat[ $key ] = json_decode((string) wp_json_encode($data->$key), true);
+                }
+            }
+            $decorated = Tool_Annotations::apply($flat, $ours[ $name ]);
+            $changed   = $decorated !== $flat;
+            foreach ($decorated as $key => $value) {
+                $data->$key = json_decode((string) wp_json_encode($value));
+            }
+            if (! isset($data->outputSchema)) {
+                $data->outputSchema = json_decode((string) wp_json_encode(self::for_ability($ours[ $name ]->name)));
+                $changed            = true;
+            }
+            if (! $changed) {
+                return $tool;
+            }
 
             return $schema->fromJson(get_class($tool), (string) wp_json_encode($data));
         } catch (\Throwable $e) {
             // A foreign or changed record must never be able to break tools/list.
             return $tool;
         }
+    }
+
+    /**
+     * One array tool entry with its outputSchema (unless it has one) and
+     * the Tool_Annotations additions.
+     *
+     * @param array<string,mixed> $tool
+     * @return array<string,mixed>
+     */
+    private static function decorate(array $tool, Ability $ability): array
+    {
+        if (! isset($tool['outputSchema'])) {
+            $tool['outputSchema'] = self::for_ability($ability->name);
+        }
+
+        return Tool_Annotations::apply($tool, $ability);
     }
 
     /** @return array<string, array<string,mixed>> ability name => detailed schema. */
