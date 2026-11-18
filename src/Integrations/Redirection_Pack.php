@@ -497,7 +497,7 @@ final class Redirection_Pack
         $row = self::must_row($id);
         if ('url' !== $row['match_type'] || 0 !== (int) $row['regex'] || ! in_array($row['action_type'], [ 'url', 'error' ], true)) {
             // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-            throw new Operation_Error('unsupported_redirect', sprintf('Redirection redirect %d is a %s-matched %s redirect%s; only plain URL redirects can be updated here. Enable, disable or delete still work, or edit it under Tools > Redirection.', $id, (string) $row['match_type'], (string) $row['action_type'], 0 !== (int) $row['regex'] ? ' with a regular expression' : ''), [ 'redirect_id' => $id ]);
+            throw new Operation_Error('unsupported_redirect', sprintf('Redirection redirect %d has match type "%s" and action type "%s"%s; only plain URL redirects can be updated here. Enable, disable or delete still work, or edit it under Tools > Redirection.', $id, (string) $row['match_type'], (string) $row['action_type'], 0 !== (int) $row['regex'] ? ' and uses a regular expression' : ''), [ 'redirect_id' => $id ]);
         }
 
         $fields = [];
@@ -643,7 +643,7 @@ final class Redirection_Pack
         }
         if (! in_array($code, $allowed, true)) {
             // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
-            throw new Operation_Error('invalid_action_code', sprintf('Code %d is not valid for a %s action (%s).', $code, $type, implode(', ', $allowed)));
+            throw new Operation_Error('invalid_action_code', sprintf('Code %d is not valid for the "%s" action type (%s).', $code, $type, implode(', ', $allowed)));
         }
         return $code;
     }

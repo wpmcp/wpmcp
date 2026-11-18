@@ -377,7 +377,7 @@ final class Core_Site_Pack
             return self::refusal('page_not_found', sprintf('Page %d does not exist.', $page_id));
         }
         if ('page' !== $page->post_type) {
-            return self::refusal('not_a_page', sprintf('Post %d is a %s, not a page.', $page_id, $page->post_type), [ 'post_type' => $page->post_type ]);
+            return self::refusal('not_a_page', sprintf('Post %d is not a page: its post type is "%s".', $page_id, $page->post_type), [ 'post_type' => $page->post_type ]);
         }
         if ('publish' !== $page->post_status) {
             return self::refusal('page_not_published', sprintf('Page %d is %s; only a published page can be shown here.', $page_id, $page->post_status), [ 'status' => $page->post_status ]);
