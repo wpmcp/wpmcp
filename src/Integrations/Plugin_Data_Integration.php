@@ -41,6 +41,13 @@ if (! defined('ABSPATH')) {
  *    placements listed and read, ads created as drafts, changed, enabled
  *    and disabled, and placements pointed at an ad or group (off until
  *    wpmcp_enable_advanced_ads_write), each write under a post snapshot.
+ *  - Issue #898 adds the popup ops: Popup Builder popups listed and read
+ *    with their display rules, triggers and views, and changed (title,
+ *    content, display rules) and switched on or off (off until
+ *    wpmcp_enable_popup_builder_write), each write under a post snapshot
+ *    (Popup_Builder_Pack); Hustle modules and Depicter documents listed and
+ *    read with their schedule, display conditions and counts (Hustle_Pack,
+ *    Depicter_Pack, read-only).
  *  - Issue #687 adds the Site Reviews ops (Site_Reviews_Pack): reviews
  *    listed (reviewer emails and IPs masked), read one at a time and
  *    summarised, and approved, unapproved, trashed or replied to (off until
@@ -131,7 +138,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Popup_Builder_Pack::active() || Hustle_Pack::active() || Depicter_Pack::active() || Site_Reviews_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || Offload_Media_Pack::active()
             || TablePress_Pack::active()
@@ -152,7 +159,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Popup Builder, Hustle and Depicter popups, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', WP Offload Media status'
             . ', FluentCRM and MailPoet'
@@ -185,6 +192,9 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'Pretty Links', false, Pretty_Links_Pack::operations() ],
             [ 'ThirstyAffiliates', false, Thirsty_Affiliates_Pack::operations() ],
             [ 'Advanced Ads', false, Advanced_Ads_Pack::operations() ],
+            [ 'Popup Builder', false, Popup_Builder_Pack::operations() ],
+            [ 'Hustle', false, Hustle_Pack::operations() ],
+            [ 'Depicter', false, Depicter_Pack::operations() ],
             [ 'Site Reviews', false, Site_Reviews_Pack::operations() ],
             [ 'WP Simple Pay', false, Simple_Pay_Pack::operations() ],
             [ 'Paid Member Subscriptions', false, Paid_Member_Subscriptions_Pack::operations() ],
@@ -235,6 +245,9 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Pretty_Links_Pack::operations(),
             Thirsty_Affiliates_Pack::operations(),
             Advanced_Ads_Pack::operations(),
+            Popup_Builder_Pack::operations(),
+            Hustle_Pack::operations(),
+            Depicter_Pack::operations(),
             Site_Reviews_Pack::operations(),
             Simple_Pay_Pack::operations(),
             Paid_Member_Subscriptions_Pack::operations(),

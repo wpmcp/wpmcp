@@ -50,6 +50,8 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
         'plugin-data:actionscheduler-get-action:action_id' => 'an Action Scheduler queue action in its own store (database or posts), behind manage_options (the capability the Action Scheduler admin screen takes)',
         'plugin-data:actionscheduler-cancel-action:action_id' => 'an Action Scheduler queue action in its own store (database or posts), behind manage_options (the capability the Action Scheduler admin screen takes)',
         'plugin-data:actionscheduler-run-action:action_id' => 'an Action Scheduler queue action in its own store (database or posts), behind manage_options (the capability the Action Scheduler admin screen takes)',
+        'plugin-data:hustle-get-module:module_id' => 'a Hustle module row in its own table, behind manage_options or hustle_edit_module (Hustle\'s own capability)',
+        'plugin-data:depicter-get-document:document_id' => 'a Depicter document row in its own table, behind manage_options or access_depicter (Depicter\'s own capability)',
         'plugin-data:prettylinks-get-link:link_id' => 'a Pretty Links link row in its own table, behind manage_options (Pretty Links gates its admin behind it)',
         'plugin-data:prettylinks-get-link-clicks:link_id' => 'a Pretty Links link row in its own table, behind manage_options (Pretty Links gates its admin behind it)',
         'plugin-data:prettylinks-update-link:link_id' => 'a Pretty Links link row in its own table, behind manage_options (Pretty Links gates its admin behind it)',
