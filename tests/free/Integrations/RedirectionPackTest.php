@@ -208,6 +208,24 @@ class RedirectionPackTest extends \WP_UnitTestCase
         $this->assertNull($out['result']['redirect']['target'], 'Serialized match data is never unserialized or echoed');
     }
 
+    public function test_a_never_hit_redirect_reports_null_last_access(): void
+    {
+        // Issue #1051: Redirection stores 1970-01-01 for a redirect that was never hit.
+        $id = wpmcp_test_redirection_item('/never-1051', '/there', $this->group);
+        $this->assertSame('1970-01-01 00:00:00', wpmcp_test_redirection_row($id)['last_access']);
+
+        $out = $this->read('get-redirection-redirect', [ 'id' => $id ]);
+        $this->assertSame(0, $out['result']['redirect']['hits']);
+        $this->assertNull($out['result']['redirect']['last_access']);
+
+        $list = $this->read('list-redirection-redirects', [ 'search' => 'never-1051' ]);
+        $this->assertNull($list['result']['redirects'][0]['last_access']);
+
+        $hit = wpmcp_test_redirection_item('/hit-1051', '/there', $this->group, [ 'last_count' => 3, 'last_access' => '2026-02-03 04:05:06' ]);
+        $out = $this->read('get-redirection-redirect', [ 'id' => $hit ]);
+        $this->assertSame('2026-02-03 04:05:06', $out['result']['redirect']['last_access']);
+    }
+
     public function test_get_unknown_redirect_is_a_top_level_error(): void
     {
         $out = $this->read('get-redirection-redirect', [ 'id' => 999999 ]);
