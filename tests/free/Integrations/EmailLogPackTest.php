@@ -215,6 +215,30 @@ class EmailLogPackTest extends \WP_UnitTestCase
         $this->assertSame('password: [redacted]', Email_Log_Pack::redact_links('password: Hunter2'));
     }
 
+    /** #953: a word after "password" is only a secret after a label (":", "=", "is") or when it carries a digit. */
+    public function test_password_reset_wording_stays_readable_and_labelled_values_are_still_redacted(): void
+    {
+        $this->assertSame('[WP MCP Test] Password Reset', Email_Log_Pack::redact_links('[WP MCP Test] Password Reset'));
+        $body = "Someone has requested a password reset for the following account:\n\n"
+            . "To reset your password, visit the following address:\n\n"
+            . "https://x.test/wp-login.php?action=rp&key=SENTINEL-KEY&login=ada\n\n"
+            . "This password reset request originated from the IP address 203.0.113.9.\n"
+            . "Your password: Hunter2secret\nYour code token reset";
+        $this->assertSame(
+            "Someone has requested a password reset for the following account:\n\n"
+            . "To reset your password, visit the following address:\n\n"
+            . "[redacted-link]\n\n"
+            . "This password reset request originated from the IP address 203.0.113.9.\n"
+            . "Your password: [redacted]\nYour code token reset",
+            Email_Log_Pack::redact_links($body)
+        );
+        $this->assertSame('password=[redacted] next', Email_Log_Pack::redact_links('password=s3cret next'));
+        $this->assertSame('Your secret is [redacted]', Email_Log_Pack::redact_links('Your secret is opensesame'));
+        $this->assertSame('Use code [redacted] to log in', Email_Log_Pack::redact_links('Use code 482913 to log in'));
+        $this->assertSame('Use PIN [redacted] today', Email_Log_Pack::redact_links('Use PIN A9Z7 today'));
+        $this->assertSame('Password protected post', Email_Log_Pack::redact_links('Password protected post'));
+    }
+
     public function test_filters_search_recipient_and_subject_escape_like_wildcards_and_page(): void
     {
         wpmcp_test_wpml_mail([ 'receiver' => 'ada@example.com', 'subject' => 'Order 100% received', 'timestamp' => '2026-11-10 09:00:00' ]);
