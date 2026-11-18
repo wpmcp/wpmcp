@@ -120,7 +120,7 @@ class CRM_FunnelKit
                 'handler'      => fn (array $args): array => [ 'automation' => $this->automation((int) $args['id']) ],
             ],
             'fka-set-automation-status' => $write + [
-                'description'  => "Set a {$label} automation active or inactive through {$label}." . $off,
+                'description'  => 'Set a FunnelKit Automations automation active or inactive through FunnelKit Automations.' . $off,
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -176,8 +176,8 @@ class CRM_FunnelKit
             ];
             $ops[ "fka-update-contact-{$plural}" ] = $write + [
                 'description'  => ('list' === $kind
-                    ? "Add a {$label} contact to lists (add) and remove it from lists (remove), by list id, through {$label} so its hooks and automations run. A contact who unsubscribed, bounced or complained is never added."
-                    : "Tag (add) and untag (remove) a {$label} contact by tag id, through {$label} so its hooks and automations run.") . $off,
+                    ? 'Add a FunnelKit Automations contact to lists (add) and remove it from lists (remove), by list id, through FunnelKit so its hooks and automations run. A contact who unsubscribed, bounced or complained is never added.'
+                    : 'Tag (add) and untag (remove) a FunnelKit Automations contact by tag id, through FunnelKit so its hooks and automations run.') . $off,
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [
@@ -257,7 +257,7 @@ class CRM_FunnelKit
         if ([] !== $missing) {
             return [
                 'code'    => $kind . '_not_found',
-                'message' => sprintf('Not a %s %s: %s.', $this->label(), $kind, implode(', ', $missing)),
+                'message' => sprintf('No such %s %s: %s.', $this->label(), $kind, implode(', ', $missing)),
                 'data'    => [ 'missing' => $missing ],
             ];
         }
