@@ -61,10 +61,22 @@ class Set_Template_Conditions
             return new \WP_Error('mutation_failed', 'The write failed mid-save and was rolled back: ' . $e->getMessage());
         }
 
-        return [
+        $saved = Elementor_Template_Data::conditions($post_id);
+        $out   = [
             'operation_id' => $operation_id,
             'post_id'      => $post_id,
-            'conditions'   => Elementor_Template_Data::conditions($post_id),
+            'conditions'   => $saved,
         ];
+
+        // Issue #870: only a site-wide header or footer is flagged here.
+        if (Theme_Header_Builder_Clash::is_site_wide($saved)) {
+            $type     = (string) get_post_meta($post_id, '_elementor_template_type', true);
+            $warnings = Theme_Header_Builder_Clash::warnings($type, true);
+            if ([] !== $warnings) {
+                $out['warnings'] = $warnings;
+            }
+        }
+
+        return $out;
     }
 }

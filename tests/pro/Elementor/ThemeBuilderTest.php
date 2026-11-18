@@ -170,4 +170,107 @@ class ThemeBuilderTest extends Structural_Harness
         $this->assertInstanceOf(\WP_Error::class, $out);
         $this->assertSame('not_a_template', $out->get_error_code());
     }
+    // ---- theme header builder clash (issue #870) -----------------------------
+
+    private function use_parent_theme(string $template): void
+    {
+        add_filter('template', static fn () => $template);
+    }
+
+    public function test_create_header_warns_when_divi_is_the_active_theme(): void
+    {
+        $this->use_parent_theme('Divi');
+
+        $out = (new Create_Theme_Template())->handle([
+            'title'         => 'Site Header',
+            'template_type' => 'header',
+            'conditions'    => ['include/general'],
+        ]);
+
+        $this->assertIsArray($out);
+        $this->assertArrayHasKey('warnings', $out);
+        $this->assertCount(1, $out['warnings']);
+        $this->assertStringContainsString('Divi', $out['warnings'][0]);
+        $this->assertStringContainsString('500', $out['warnings'][0]);
+        // A warning, not a refusal: the template exists.
+        $this->assertSame('header', get_post_meta($out['template_id'], '_elementor_template_type', true));
+    }
+
+    public function test_create_footer_warns_under_extra(): void
+    {
+        $this->use_parent_theme('Extra');
+
+        $out = (new Create_Theme_Template())->handle([
+            'title'         => 'Site Footer',
+            'template_type' => 'footer',
+        ]);
+
+        $this->assertStringContainsString('Extra', $out['warnings'][0] ?? '');
+    }
+
+    public function test_create_non_header_template_does_not_warn_under_divi(): void
+    {
+        $this->use_parent_theme('Divi');
+
+        $out = (new Create_Theme_Template())->handle([
+            'title'         => 'Single Post',
+            'template_type' => 'single',
+        ]);
+
+        $this->assertArrayNotHasKey('warnings', $out);
+    }
+
+    public function test_create_header_does_not_warn_without_a_theme_header_builder(): void
+    {
+        $this->use_parent_theme('generatepress');
+
+        $out = (new Create_Theme_Template())->handle([
+            'title'         => 'Site Header',
+            'template_type' => 'header',
+            'conditions'    => ['include/general'],
+        ]);
+
+        $this->assertArrayNotHasKey('warnings', $out);
+    }
+
+    public function test_set_conditions_warns_when_header_goes_site_wide_under_divi(): void
+    {
+        $this->use_parent_theme('Divi');
+        $tid = $this->make_theme_template('header');
+
+        $out = (new Set_Template_Conditions())->handle([
+            'post_id'    => $tid,
+            'conditions' => ['include/general'],
+        ]);
+
+        $this->assertIsArray($out);
+        $this->assertStringContainsString('Divi', $out['warnings'][0] ?? '');
+        $this->assertContains('include/general', get_post_meta($tid, '_elementor_conditions', true));
+    }
+
+    public function test_set_conditions_does_not_warn_for_narrow_header_conditions_under_divi(): void
+    {
+        $this->use_parent_theme('Divi');
+        $tid = $this->make_theme_template('header');
+
+        $out = (new Set_Template_Conditions())->handle([
+            'post_id'    => $tid,
+            'conditions' => ['include/singular/page'],
+        ]);
+
+        $this->assertArrayNotHasKey('warnings', $out);
+    }
+
+    public function test_set_conditions_does_not_warn_without_a_theme_header_builder(): void
+    {
+        $this->use_parent_theme('generatepress');
+        $tid = $this->make_theme_template('footer');
+
+        $out = (new Set_Template_Conditions())->handle([
+            'post_id'    => $tid,
+            'conditions' => ['include/general'],
+        ]);
+
+        $this->assertArrayNotHasKey('warnings', $out);
+    }
 }
