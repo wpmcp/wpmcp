@@ -263,6 +263,11 @@ return [
         // only. strip.php takes out the lines in Plugin_Data_Integration that
         // merge the ops and count the pack towards availability.
         'src/Integrations/Offload_Media_Pack.php',
+        // Thrive Leads (issue #825), paid-tier. strip.php takes out the lines
+        // in Plugin_Data_Integration that merge the ops and count the pack
+        // towards availability. Its two plugin_table_rows kinds stay: they act
+        // on Thrive Leads' own tables and need no Thrive Leads class.
+        'src/Integrations/Thrive_Leads_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

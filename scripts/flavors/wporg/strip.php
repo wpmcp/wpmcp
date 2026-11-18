@@ -1469,6 +1469,21 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Thrive Leads ops (issue #825) are the paid add-on's, removed by
+    // policy.php. Their lines go first, so every edit below matches the file
+    // as it was before them.
+    [
+        " *  - Issue #825 adds the paid-tier Thrive Leads ops (Thrive_Leads_Pack):\n"
+            . " *    lead groups, opt-in forms, shortcodes and conversion counts read, and\n"
+            . " *    form triggers and display, form switches and group display rules\n"
+            . " *    written (off until wpmcp_enable_thrive_leads_write), each undoable.\n",
+        '',
+        1,
+    ],
+    [ "            || Thrive_Leads_Pack::active()\n", '', 1 ],
+    [ "            . ', Thrive Leads forms'\n", '', 1 ],
+    [ "        \$groups[] = [ 'Thrive Leads', false, Thrive_Leads_Pack::operations() ];\n", '', 1 ],
+    [ "            Thrive_Leads_Pack::operations(),\n", '', 1 ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.

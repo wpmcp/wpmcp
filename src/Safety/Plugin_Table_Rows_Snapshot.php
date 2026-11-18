@@ -56,6 +56,14 @@ if (! defined('ABSPATH')) {
  * "links") are keyed by their own id. A create reserves its id before the
  * snapshot, so the restore removes the row the write inserted.
  *
+ * Thrive Leads (issue #825) keeps a lead group's display rules as one row of
+ * `tve_leads_group_options` (kind tve_leads_options, the one suffix
+ * "group_options"), keyed by the `group` column because Thrive Leads saves
+ * them by deleting the group's row and inserting a new one, and a form
+ * design as a row of `tve_leads_form_variations` (kind tve_leads_variations,
+ * the one suffix "form_variations"), keyed and ordered by its `key` column.
+ * Restoring either takes manage_options or Thrive Leads' own tve-use-tl.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
  * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
@@ -72,6 +80,8 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'mepr_rule_access_',
         'rank_math'        => 'rank_math_',
         'prli'             => 'prli_',
+        'tve_leads_options'    => 'tve_leads_',
+        'tve_leads_variations' => 'tve_leads_',
     ];
 
     /**
@@ -87,6 +97,13 @@ final class Plugin_Table_Rows_Snapshot
     private const KEY_COLUMNS = [
         'mepr_rule_access' => 'rule_id',
         'wordfence_blocks' => 'IP',
+        'tve_leads_options'    => 'group',
+        'tve_leads_variations' => 'key',
+    ];
+
+    /** kind => the column its rows are read in order of, for a table with no `id` column. */
+    private const ORDER_COLUMNS = [
+        'tve_leads_variations' => 'key',
     ];
 
     /** kind => the only suffixes it allows, for a kind with a fixed table. */
@@ -94,6 +111,8 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => [ 'conditions' ],
         'rank_math'        => [ 'redirections' ],
         'prli'             => [ 'links' ],
+        'tve_leads_options'    => [ 'group_options' ],
+        'tve_leads_variations' => [ 'form_variations' ],
     ];
 
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
@@ -216,7 +235,7 @@ final class Plugin_Table_Rows_Snapshot
      * @param int[] $ids
      * @return array<int, array<string, string|null>>
      */
-    public static function rows(string $table, array $ids, string $column = 'id'): array
+    public static function rows(string $table, array $ids, string $column = 'id', string $order = 'id'): array
     {
         global $wpdb;
 
@@ -227,7 +246,7 @@ final class Plugin_Table_Rows_Snapshot
         $in = implode(',', array_fill(0, count($ids), '%d'));
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of a third-party table; $in holds only %d placeholders.
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY id ASC", $table, $column, ...$ids), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY %i ASC", $table, $column, ...$ids, ...[ $order ]), ARRAY_A);
 
         return array_values((array) $rows);
     }
@@ -335,7 +354,7 @@ final class Plugin_Table_Rows_Snapshot
     private static function kind_rows(string $kind, string $table, array $ids): array
     {
         if (! isset(self::BINARY_COLUMNS[ $kind ])) {
-            return self::rows($table, $ids, self::key_column($kind));
+            return self::rows($table, $ids, self::key_column($kind), self::ORDER_COLUMNS[ $kind ] ?? 'id');
         }
         if ([] === $ids) {
             return [];
@@ -456,6 +475,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('trp_dictionary' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring TranslatePress translations requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('tve_leads_options' === $kind || 'tve_leads_variations' === $kind) {
+            if (! current_user_can('manage_options') && ! current_user_can('tve-use-tl')) {
+                throw new Mutation_Failed('Rollback refused: restoring Thrive Leads settings requires the manage_options or tve-use-tl capability.');
             }
             return;
         }
