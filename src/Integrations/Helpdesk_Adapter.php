@@ -21,7 +21,10 @@ if (! defined('ABSPATH')) {
  * Tickets carry personal data. Reads take the plugin's own ticket access
  * (an agent sees the tickets the plugin lets them see), and list-tickets
  * returns each customer's email masked (j***@example.com); get-ticket, a
- * read of one ticket the caller may open, returns it in full.
+ * read of one ticket the caller may open, returns it in full, with the
+ * files on the ticket and on each thread entry (issue #874: name, MIME
+ * type, size and the link the plugin guards with its own ticket access;
+ * never the file contents, a signed link or the storage path).
  *
  * Writes are off until a site opts in with wpmcp_enable_helpdesk_write, and
  * each is snapshotted first as a 'helpdesk_ticket' image whose undo takes
@@ -163,7 +166,7 @@ abstract class Helpdesk_Adapter
             "{$p}-get-ticket"        => $base + [
                 'mode'         => 'read',
                 'objects'      => $this->ticket_objects('read'),
-                'description'  => "Read one {$label} ticket with its customer (email in full) and its thread oldest first, paged (per_page up to 100). Personal data",
+                'description'  => "Read one {$label} ticket with its customer (email in full) and its thread oldest first, paged (per_page up to 100); the ticket and each entry list their attachments (name, type, size, url). Personal data",
                 'input_schema' => [ 'type' => 'object', 'properties' => [ 'ticket_id' => $id ] + $paging, 'required' => [ 'ticket_id' ] ],
                 'validate'     => fn (array $args): ?array => $this->ticket_refusal((int) $args['ticket_id'], false),
                 'handler'      => fn (array $args): array => [ 'ticket' => $this->ticket_detail((int) $args['ticket_id'], (int) ($args['page'] ?? 1), (int) ($args['per_page'] ?? 50)) ],
