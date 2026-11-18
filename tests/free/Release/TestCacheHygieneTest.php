@@ -364,6 +364,36 @@ SH);
         $this->assertDirectoryDoesNotExist($this->cache . '/locks/run-2', 'the targeted run took no slot');
     }
 
+    /**
+     * Targeted runs queue among themselves (WPMCP_TEST_MAX_TARGETED), never
+     * behind a gate: ten agents each testing a fix once held the load at 42
+     * on 12 cores.
+     */
+    public function test_targeted_runs_queue_among_themselves_and_give_up_after_the_timeout(): void
+    {
+        $this->hold_the_slot();
+        mkdir($this->cache . '/locks/targeted-1', 0777, true);
+        file_put_contents($this->cache . '/locks/targeted-1/pid', (string) getmypid());
+
+        [$status, $out] = $this->run_gate(['--', '--filter', 'Foo'], ['WPMCP_TEST_MAX_TARGETED' => '1', 'WPMCP_TEST_TARGETED_TIMEOUT' => '2']);
+
+        $this->assertNotSame(0, $status);
+        $this->assertStringContainsString('Waiting for a targeted slot', $out);
+        $this->assertStringContainsString('WPMCP_TEST_MAX_TARGETED=1', $out);
+        $this->assertStringContainsString('timed out', $out);
+        $this->assertFileDoesNotExist($this->tmp . '/db.log', 'a targeted run without a slot starts nothing');
+        $this->assertSame((string) getmypid(), file_get_contents($this->cache . '/locks/targeted-1/pid'), 'the slot stays with its holder');
+    }
+
+    public function test_a_targeted_run_takes_a_free_targeted_slot_and_releases_it(): void
+    {
+        [, $out] = $this->run_gate(['--', '--filter', 'Foo'], ['WPMCP_TEST_MAX_TARGETED' => '2']);
+
+        $this->assertStringNotContainsString('Waiting', $out);
+        $this->assertFileExists($this->tmp . '/db.log', 'the targeted run went on to the database');
+        $this->assertDirectoryDoesNotExist($this->cache . '/locks/targeted-1', 'the slot is released on exit');
+    }
+
     public function test_a_targeted_multisite_run_does_not_wait_either(): void
     {
         $this->hold_the_slot();
@@ -458,10 +488,25 @@ SH);
             sleep(1);
         } finally {
             proc_terminate($process, 15);
-            $status = proc_close($process);
+            // Wait for the run to finish its exit trap before looking at what
+            // it left.
+            $status = -1;
+            for ($i = 0; $i < 300; $i++) {
+                $info = proc_get_status($process);
+                if (! $info['running']) {
+                    $status = $info['exitcode'];
+                    break;
+                }
+                usleep(100000);
+            }
+            proc_close($process);
         }
 
         $out = (string) file_get_contents($this->tmp . '/out.log');
+        // The loop above asked is_dir() about this slot while it existed, and
+        // PHP 8.1 answers from its stat cache until told to forget (it failed
+        // on CI's PHP 8.1 shard while the slot was long gone).
+        clearstatcache();
         $this->assertNotSame(0, $status, $out);
         $this->assertDirectoryDoesNotExist($this->cache . '/locks/run-2', 'the slot is released on TERM: ' . $out);
         $this->assertDirectoryExists($this->cache . '/locks/run-1', 'another run\'s slot is left alone');
