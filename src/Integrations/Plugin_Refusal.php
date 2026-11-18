@@ -40,6 +40,8 @@ final class Plugin_Refusal
         'Fluent Support'   => [ 'file' => 'fluent-support/fluent-support.php', 'slug' => 'fluent-support' ],
         'Awesome Support'  => [ 'file' => 'awesome-support/awesome-support.php', 'slug' => 'awesome-support' ],
         'BetterDocs'       => [ 'file' => 'betterdocs/betterdocs.php', 'slug' => 'betterdocs' ],
+        'Restrict Content' => [ 'file' => 'restrict-content/restrictcontent.php', 'slug' => 'restrict-content' ],
+        'Ultimate Member'  => [ 'file' => 'ultimate-member/ultimate-member.php', 'slug' => 'ultimate-member' ],
         'Wordfence'        => [ 'file' => 'wordfence/wordfence.php', 'slug' => 'wordfence' ],
         'MonsterInsights'  => [ 'file' => 'google-analytics-for-wordpress/googleanalytics.php', 'slug' => 'google-analytics-for-wordpress' ],
         'W3 Total Cache'   => [ 'file' => 'w3-total-cache/w3-total-cache.php', 'slug' => 'w3-total-cache' ],

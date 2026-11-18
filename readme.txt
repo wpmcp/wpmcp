@@ -37,6 +37,8 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm, WS Form (forms, fields, actions and notifications, submissions listed with values masked and read one at a time, undoable status changes and deletes off until the site turns them on); with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
 * Events, donations, memberships (read)
 * BuddyPress: groups, group members, activity moderation and extended profile fields
+* Restrict Content and Restrict Content Pro: membership levels with member counts, memberships listed with names and emails masked, and undoable level changes (off until the site turns them on)
+* Ultimate Member: roles, members (masked), forms and member directories, and an undoable member role change that asks for confirmation (off until the site turns it on)
 * Activity logs (read): WP Activity Log and Simple History events listed with IP addresses and emails masked and read one at a time in full
 * Action Scheduler (WooCommerce and many plugins use it): queue actions listed by hook, group, status and date with emails, IPs and tokens masked, read one at a time with their log, and pending actions canceled (undoable) or run now (not undoable, asks for confirmation); both writes are off until the site turns them on
 * Email logs (read): WP Mail Logging, Check and Log Email and Email Log emails listed with recipients masked and no bodies, and read one at a time with the body cut and reset or login links removed

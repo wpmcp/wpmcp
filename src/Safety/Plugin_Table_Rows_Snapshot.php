@@ -56,9 +56,16 @@ if (! defined('ABSPATH')) {
  * "links") are keyed by their own id. A create reserves its id before the
  * snapshot, so the restore removes the row the write inserted.
  *
+ * Restrict Content membership levels (issue #669, the
+ * `restrict_content_pro` table the plugin names its levels table, so kind
+ * rcp_levels with the prefix "restrict_content_" and the one suffix
+ * "pro") are keyed by their own id. After a restore the plugin's cached
+ * copies of the rows are dropped (its BerlinDB cache group
+ * rcp-membership_levels), as its own query does after a write.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
- * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
+ * for a dictionary row, a Pretty Links link or a Restrict Content level, and Wordfence's own admin capability (manage_options,
  * manage_network on a multisite network) for a Wordfence row.
  */
 final class Plugin_Table_Rows_Snapshot
@@ -72,6 +79,7 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'mepr_rule_access_',
         'rank_math'        => 'rank_math_',
         'prli'             => 'prli_',
+        'rcp_levels'       => 'restrict_content_',
     ];
 
     /**
@@ -94,6 +102,7 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => [ 'conditions' ],
         'rank_math'        => [ 'redirections' ],
         'prli'             => [ 'links' ],
+        'rcp_levels'       => [ 'pro' ],
     ];
 
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
@@ -308,7 +317,25 @@ final class Plugin_Table_Rows_Snapshot
         if ('rank_math' === $kind) {
             self::purge_rank_math_cache($ids);
         }
+        if ('rcp_levels' === $kind) {
+            self::flush_rcp_level_cache($ids);
+        }
         self::after_wordfence_restore($kind);
+    }
+
+    /**
+     * Drop Restrict Content's cached copies of the given membership level
+     * rows and move its level query cache on, as its own BerlinDB query does
+     * after a write (cache group rcp-membership_levels).
+     *
+     * @param array<int, int|string> $ids
+     */
+    public static function flush_rcp_level_cache(array $ids): void
+    {
+        foreach ($ids as $id) {
+            wp_cache_delete((int) $id, 'rcp-membership_levels');
+        }
+        wp_cache_set('last_changed', microtime(), 'rcp-membership_levels');
     }
 
     /**
@@ -462,6 +489,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('prli' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring Pretty Links links requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('rcp_levels' === $kind) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring a Restrict Content membership level requires the manage_options capability.');
             }
             return;
         }
