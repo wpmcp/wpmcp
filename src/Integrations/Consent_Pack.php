@@ -322,7 +322,7 @@ final class Consent_Pack
             if (! isset($keys[ (string) $key ])) {
                 return [
                     'code'    => 'invalid_args',
-                    'message' => sprintf('%s is not a %s banner text.', $key, $adapter->label()),
+                    'message' => sprintf('"%s" is not one of the banner texts of %s.', $key, $adapter->label()),
                     'data'    => [ 'writable_texts' => array_keys($keys) ],
                 ];
             }
