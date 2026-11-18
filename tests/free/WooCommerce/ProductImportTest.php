@@ -37,6 +37,15 @@ class ProductImportTest extends \WP_UnitTestCase
         Governance::reset_for_tests();
         $user = self::factory()->user->create_and_get(['role' => 'administrator']);
         $user->add_cap('manage_woocommerce');
+        // The product capabilities (edit_products and the rest) come from
+        // WooCommerce's role setup, which the test install never runs; the
+        // suite passed only when an earlier test had granted them (seen
+        // alone and on the WP 6.9 shard, the parallel gate baseline).
+        foreach (\WC_Install::get_core_capabilities() as $group) {
+            foreach ($group as $cap) {
+                $user->add_cap($cap);
+            }
+        }
         wp_set_current_user($user->ID);
         $this->http_calls = 0;
         add_filter('pre_http_request', [$this, 'serve_image'], 10, 3);
