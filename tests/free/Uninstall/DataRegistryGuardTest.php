@@ -78,6 +78,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // the Site_Gate_Pack ops on the theme pair (issue #903).
             'seedprod_settings',
             'ucp_options',
+            // Otter Blocks' feature switches and disabled blocks, set by
+            // update-otter-settings on the block-suites pair (issue #647).
+            'themeisle_blocks_settings_*',
+            'themeisle_disabled_blocks',
             // Avada's global options, written by the Avada design_system
             // scope on the builder pair (issue #637).
             'fusion_options',

@@ -82,6 +82,32 @@ final class Block_Suite_Patterns
         ];
     }
 
+    /**
+     * One pattern's block markup (issue #647), by a name list-patterns
+     * returned: its title and categories when registered, the suites its
+     * blocks use and its remote images, so an agent can inspect a pattern
+     * before import-pattern inserts it.
+     *
+     * @param array<string,mixed> $args
+     */
+    public static function get_pattern(array $args): array
+    {
+        $name    = (string) $args['name'];
+        $content = self::content($name);
+        $pattern = \WP_Block_Patterns_Registry::get_instance()->get_registered($name);
+        $suites  = array_keys(self::suites_in($content));
+        sort($suites, SORT_STRING);
+
+        return [
+            'name'          => $name,
+            'title'         => is_array($pattern) ? (string) ($pattern['title'] ?? '') : null,
+            'categories'    => is_array($pattern) ? array_values(array_map('strval', (array) ($pattern['categories'] ?? []))) : [],
+            'suites'        => $suites,
+            'remote_images' => self::remote_images($content),
+            'content'       => $content,
+        ];
+    }
+
     /** Refuse, before any request, a list-patterns call a remote source cannot serve. */
     public static function refuse_remote(array $args): ?array
     {
