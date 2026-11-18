@@ -207,8 +207,12 @@ phase_bump() {
 	fi
 	# The changelog prose is written by hand (or by the release skill) before
 	# this phase; the script only checks it is there and clean.
-	awk '/^== Changelog ==/ { on = 1; next } /^== / { on = 0 } on' readme.txt | grep -q "^= $VER" \
-		|| die "readme.txt has no '= $VER' entry under == Changelog ==; write it, then run bump again"
+	# Captured first: with pipefail, grep -q closing the pipe early made awk
+	# die of SIGPIPE and the check fail on a changelog that has the entry.
+	local changelog
+	changelog=$(awk '/^== Changelog ==/ { on = 1; next } /^== / { on = 0 } on' readme.txt)
+	grep -q "^= $VER =" <<<"$changelog" \
+		|| die "readme.txt has no '= $VER =' entry under == Changelog ==; write it, then run bump again"
 	no_dashes readme.txt
 	info "fast checks ..."
 	run composer lint
