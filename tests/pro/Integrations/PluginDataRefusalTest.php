@@ -37,6 +37,10 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
         'wpmcp_weglot_active',
         'wpmcp_gtranslate_active',
         'wpmcp_wpgraphql_active',
+        'wpmcp_gtm4wp_active',
+        'wpmcp_pixelyoursite_active',
+        'wpmcp_meta_pixel_active',
+        'wpmcp_clarity_active',
     ];
 
     private Registrar $original;

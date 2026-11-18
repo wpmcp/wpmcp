@@ -96,6 +96,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // GTranslate's settings, whose language lists the
             // gtranslate-set-languages op changes (issue #690).
             'GTranslate',
+            // GTM4WP's settings and Microsoft Clarity's project id, changed
+            // by gtm4wp-set-settings and clarity-set-project-id (issue #899).
+            'gtm4wp-options',
+            'clarity_project_id',
             // FiboSearch's settings, changed by update-fibosearch-settings
             // on the theme pair (issue #700).
             'dgwt_wcas_settings',

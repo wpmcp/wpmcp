@@ -70,6 +70,10 @@ final class Plugin_Refusal
         'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
+        'GTM4WP'           => [ 'file' => 'duracelltomi-google-tag-manager/duracelltomi-google-tag-manager-for-wordpress.php', 'slug' => 'duracelltomi-google-tag-manager' ],
+        'PixelYourSite'    => [ 'file' => 'pixelyoursite/pixelyoursite.php', 'slug' => 'pixelyoursite' ],
+        'Meta Pixel for WordPress' => [ 'file' => 'official-facebook-pixel/facebook-for-wordpress.php', 'slug' => 'official-facebook-pixel' ],
+        'Microsoft Clarity' => [ 'file' => 'microsoft-clarity/clarity.php', 'slug' => 'microsoft-clarity' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
