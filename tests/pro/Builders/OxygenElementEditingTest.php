@@ -322,6 +322,38 @@ class OxygenElementEditingTest extends \WP_UnitTestCase
         $this->assertSame([], get_posts(['post_type' => 'oxygen_block', 'post_status' => 'any']));
     }
 
+    /**
+     * Issue #947: Oxygen publishes a Component as soon as it is saved and the
+     * type uses the post caps, so saving one needs publish_posts. A
+     * Contributor who may edit the source page is refused before anything is
+     * written or snapshotted; an Editor still saves it.
+     */
+    public function test_save_template_needs_publish_posts_for_the_component_type(): void
+    {
+        $this->register_component_type();
+        $contributor = self::factory()->user->create(['role' => 'contributor']);
+        wp_set_current_user($contributor);
+        $post_id = self::factory()->post->create(['post_type' => 'post', 'post_status' => 'draft', 'post_author' => $contributor]);
+        $this->raw_meta($post_id, '_oxygen_data', OxygenAdapterTest::fixture_meta());
+        $this->assertTrue(current_user_can('edit_post', $post_id), 'The Contributor may edit the source page.');
+        $before    = $this->state($post_id);
+        $snapshots = Snapshot_Store::row_count();
+
+        $out = $this->update($post_id, ['operation' => 'save_template', 'element' => ['title' => 'Site-wide']]);
+
+        $this->assertWPError($out);
+        $this->assertSame('forbidden', $out->get_error_code());
+        $this->assertStringContainsString('publish_posts', $out->get_error_message());
+        $this->assertSame([], get_posts(['post_type' => 'oxygen_block', 'post_status' => 'any']));
+        $this->assertSame($before, $this->state($post_id));
+        $this->assertSame($snapshots, Snapshot_Store::row_count(), 'No snapshot is taken for a refused save.');
+
+        wp_set_current_user(self::factory()->user->create(['role' => 'editor']));
+        $out = $this->update($post_id, ['operation' => 'save_template', 'element' => ['title' => 'Site-wide']]);
+        $this->assertIsArray($out, is_wp_error($out) ? $out->get_error_message() : '');
+        $this->assertSame('publish', get_post_status($out['template_id']));
+    }
+
     // -------------------------------------------------------------- restore
 
     public function test_restore_puts_back_a_revisions_layout_and_rolls_back(): void
