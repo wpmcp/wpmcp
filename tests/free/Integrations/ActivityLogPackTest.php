@@ -6,6 +6,7 @@ use WPMCP\Integrations\Activity_Log_Pack;
 use WPMCP\Integrations\Plugin_Data_Integration;
 
 require_once __DIR__ . '/../../support/activity-log-stubs.php';
+require_once __DIR__ . '/../../support/wsal-alert-stub.php';
 
 /**
  * Activity logs (issue #698): read-only free-tier ops on the plugin-data
@@ -187,6 +188,71 @@ class ActivityLogPackTest extends \WP_UnitTestCase
         $code = $out['error']['code'] ?? $out['code'] ?? null;
         $this->assertContains($code, [ 'plugin_missing', 'plugin_inactive' ], (string) wp_json_encode($out));
         $this->assertStringContainsString('WP Activity Log', (string) wp_json_encode($out));
+    }
+
+    /** Issue #948: a failed login's username in a Simple History message is masked in a list, full alone. */
+    public function test_simple_history_failed_login_username_is_masked_in_a_list(): void
+    {
+        remove_all_filters('wpmcp_wp_activity_log_active');
+        add_filter('wpmcp_wp_activity_log_active', '__return_false');
+        add_filter('wpmcp_simple_history_active', '__return_true');
+        $id = wpmcp_test_simple_history_event(
+            [ 'message' => 'Failed to login with username "{login}" (incorrect password entered)', 'logger' => 'SimpleUserLogger', 'level' => 'warning', 'initiator' => 'web_user' ],
+            [ 'login' => 'jane.doe', 'login_user_id' => '7', '_message_key' => 'user_login_failed', '_server_remote_addr' => '203.0.113.9' ]
+        );
+        wpmcp_test_simple_history_event(
+            [ 'message' => 'Failed to login with username "{failed_username}" (username does not exist)', 'logger' => 'SimpleUserLogger' ],
+            [ 'failed_username' => 'mallory', '_message_key' => 'user_unknown_login_failed' ]
+        );
+        wpmcp_test_simple_history_event(
+            [ 'message' => 'Created user {created_user_login} ({created_user_email}) with role {created_user_role}', 'logger' => 'SimpleUserLogger' ],
+            [ 'created_user_login' => 'newbie', 'created_user_email' => 'newbie@example.com', 'created_user_role' => 'editor' ]
+        );
+
+        $list     = $this->ok($this->read('activitylog-list-activity', [ 'event' => 'SimpleUserLogger' ]));
+        $messages = array_column($list['events'], 'message', 'id');
+        $this->assertSame('Failed to login with username "j***" (incorrect password entered)', $messages[ $id ]);
+        $json = (string) wp_json_encode($list);
+        $this->assertStringNotContainsString('jane.doe', $json);
+        $this->assertStringNotContainsString('mallory', $json);
+        $this->assertStringNotContainsString('newbie', $json);
+        $this->assertContains('Created user n*** (n***@example.com) with role editor', $messages, 'the role stays readable');
+
+        $one = $this->ok($this->read('activitylog-get-activity', [ 'id' => $id ]))['event'];
+        $this->assertSame('Failed to login with username "jane.doe" (incorrect password entered)', $one['message']);
+    }
+
+    /** Issue #949: a 2000 (post created) event reads as the Log viewer shows it. */
+    public function test_wp_activity_log_post_created_message_has_the_post_fields_one_per_line(): void
+    {
+        $id = wpmcp_test_wsal_event(
+            [ 'alert_id' => 2000, 'post_id' => 657, 'post_type' => 'post', 'post_status' => 'draft', 'event_type' => 'created' ],
+            [ 'PostTitle' => 'H6 draft', 'EditorLinkPost' => 'http://example.org/wp-admin/post.php?post=657&action=edit' ]
+        );
+
+        $expected = "Created the post H6 draft.\nPost ID: 657\nPost type: post\nPost status: draft\nView the post in editor: http://example.org/wp-admin/post.php?post=657&action=edit";
+        $list     = $this->ok($this->read('activitylog-list-activity', [ 'object_id' => 657 ]));
+        $this->assertSame($expected, $list['events'][0]['message']);
+        $one = $this->ok($this->read('activitylog-get-activity', [ 'id' => $id ]))['event'];
+        $this->assertSame($expected, $one['message']);
+        $this->assertStringNotContainsString('NULL', $one['message']);
+    }
+
+    /** Issue #949: the free version's upsell and tip links are left out of a message. */
+    public function test_wp_activity_log_messages_leave_out_upsell_and_tip_text(): void
+    {
+        $failed  = wpmcp_test_wsal_event([ 'alert_id' => 1002, 'object' => 'user', 'event_type' => 'failed-login', 'post_id' => 0 ], [ 'LoginPageURL' => 'http://example.org/wp-login.php' ]);
+        $blocked = wpmcp_test_wsal_event([ 'alert_id' => 1004, 'object' => 'user', 'event_type' => 'blocked', 'post_id' => 0 ]);
+
+        $one = $this->ok($this->read('activitylog-get-activity', [ 'id' => $failed ]))['event'];
+        $this->assertSame("Failed login attempt - wrong password.\nLogin URL: http://example.org/wp-login.php", $one['message']);
+        $two = $this->ok($this->read('activitylog-get-activity', [ 'id' => $blocked ]))['event'];
+        $this->assertSame("Login blocked because other session(s) already exist for this user.\nIP address: 203.0.113.7", $two['message']);
+
+        $list = (string) wp_json_encode($this->ok($this->read('activitylog-list-activity')));
+        $this->assertStringNotContainsString('Premium', $list);
+        $this->assertStringNotContainsString('Melapress', $list);
+        $this->assertStringContainsString('IP address: 203.0.*.*', $list, 'the list still masks the IP inside a message');
     }
 
     public function test_masks(): void
