@@ -174,7 +174,7 @@ abstract class Helpdesk_Adapter
             "{$p}-reply-to-ticket"   => $write + [
                 'mode'            => 'destructive',
                 'objects'         => $this->ticket_objects('write'),
-                'description'     => "Post an agent reply to a {$label} ticket as you; {$label} emails it to the customer. Off unless " . self::ENABLE_FILTER . '; asks for confirmation naming the recipient. Undo (rollback-operation) removes the reply and puts the ticket back, but the email stays sent',
+                'description'     => "Post an agent reply to one {$label} ticket as you; {$label} emails it to the customer. Off unless " . self::ENABLE_FILTER . '; asks for confirmation naming the recipient. Undo (rollback-operation) removes the reply and puts the ticket back, but the email stays sent',
                 'input_schema'    => [ 'type' => 'object', 'properties' => [ 'ticket_id' => $id, 'content' => $text ], 'required' => [ 'ticket_id', 'content' ] ],
                 'validate'        => fn (array $args): ?array => $this->ticket_refusal((int) $args['ticket_id'], true),
                 'confirm_preview' => fn (array $args): array => $this->reply_preview((int) $args['ticket_id']),
@@ -184,7 +184,7 @@ abstract class Helpdesk_Adapter
             "{$p}-set-ticket-status" => $write + [
                 'mode'         => 'write',
                 'objects'      => $this->ticket_objects('write'),
-                'description'  => "Set a {$label} ticket's status (" . implode(', ', $this->statuses()) . ") through {$label}, without its closing email to the customer. Off unless " . self::ENABLE_FILTER . '. Undo: rollback-operation',
+                'description'  => "Set one {$label} ticket's status (" . implode(', ', $this->statuses()) . ") through {$label}, without its closing email to the customer. Off unless " . self::ENABLE_FILTER . '. Undo: rollback-operation',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'ticket_id' => $id, 'status' => [ 'type' => 'string', 'enum' => $this->statuses() ] ],
@@ -199,7 +199,7 @@ abstract class Helpdesk_Adapter
             $ops[ "{$p}-add-ticket-note" ] = $write + [
                 'mode'         => 'write',
                 'objects'      => $this->ticket_objects('write'),
-                'description'  => "Add an internal note to a {$label} ticket as you: only agents see it and nothing is mailed to the customer. Off unless " . self::ENABLE_FILTER . '. Undo: rollback-operation',
+                'description'  => "Add an internal note to one {$label} ticket as you: only agents see it and nothing is mailed to the customer. Off unless " . self::ENABLE_FILTER . '. Undo: rollback-operation',
                 'input_schema' => [ 'type' => 'object', 'properties' => [ 'ticket_id' => $id, 'content' => $text ], 'required' => [ 'ticket_id', 'content' ] ],
                 'validate'     => fn (array $args): ?array => $this->ticket_refusal((int) $args['ticket_id'], true),
                 'snapshot'     => fn (array $args): array => $target($args),

@@ -302,6 +302,10 @@ class OptimizeMediaTest extends \WP_UnitTestCase
         $out = (new Optimize_Media())->handle(['media_id' => $id, 'quality' => 40]);
         $this->assertSame(['Acme Image Compressor'], $out['deferred_to']);
         $this->assertSame([], $out['items']);
+        // The hand-off (issue #693): the theme pair ops that work through the plugin.
+        $this->assertSame('theme-write', $out['handoff']['tool']);
+        $this->assertSame('optimize-attachment', $out['handoff']['optimize']);
+        $this->assertSame('get-image-optimizer-status', $out['handoff']['status']);
         clearstatcache();
         $this->assertSame($before, $this->hashes($id));
 
