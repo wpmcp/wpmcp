@@ -1469,6 +1469,22 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The WPCode ops (issue #697) are the paid add-on's, removed by
+    // policy.php. Each line stands alone, so these go first and match
+    // wherever the lines around them are edited below.
+    [
+        " *  - Issue #697 adds the paid-tier WPCode ops (WPCode_Pack): snippets and\n"
+            . " *    the global header and footer scripts read, snippets created inactive,\n"
+            . " *    changed, activated behind the PHP execution or code injection gate and\n"
+            . " *    deactivated, and the global scripts replaced, each write off until\n"
+            . " *    wpmcp_enable_wpcode_write and undoable.\n",
+        '',
+        1,
+    ],
+    [ "            || WPCode_Pack::active()\n", '', 1 ],
+    [ "            . ', WPCode snippets'\n", '', 1 ],
+    [ "        \$groups[] = [ 'WPCode', false, WPCode_Pack::operations() ];\n", '', 1 ],
+    [ "            WPCode_Pack::operations(),\n", '', 1 ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.
@@ -1726,6 +1742,16 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
 // them into the theme pair and their rollback refresher leave with them.
 $edits['src/Integrations/Theme_Integration.php'][] = [
     "            Cache_Settings_Pack::operations(),\n",
+    '',
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "        // An undo of a WPCode snippet write never leaves the snippet active\n"
+        . "        // and rebuilds WPCode's cache of active snippets; an undo of\n"
+        . "        // set-header-footer clears page caches as WPCode's save does (#697).\n"
+        . "        [\\WPMCP\\Integrations\\WPCode_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],\n"
+        . "        [\\WPMCP\\Integrations\\WPCode_Pack::class, 'after_trash', 'trashed_post'],\n"
+        . "        [\\WPMCP\\Integrations\\WPCode_Pack::class, 'after_options_restored'],\n",
     '',
     1,
 ];

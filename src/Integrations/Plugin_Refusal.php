@@ -49,6 +49,7 @@ final class Plugin_Refusal
         'Limit Login Attempts Reloaded' => [ 'file' => 'limit-login-attempts-reloaded/limit-login-attempts-reloaded.php', 'slug' => 'limit-login-attempts-reloaded' ],
         'UpdraftPlus'      => [ 'file' => 'updraftplus/updraftplus.php', 'slug' => 'updraftplus' ],
         'Code Snippets'    => [ 'file' => 'code-snippets/code-snippets.php', 'slug' => 'code-snippets' ],
+        'WPCode'           => [ 'file' => 'insert-headers-and-footers/ihaf.php', 'slug' => 'insert-headers-and-footers' ],
         'bbPress'          => [ 'file' => 'bbpress/bbpress.php', 'slug' => 'bbpress' ],
         'BuddyPress'       => [ 'file' => 'buddypress/bp-loader.php', 'slug' => 'buddypress' ],
         'BuddyBoss Platform' => [ 'file' => 'buddyboss-platform/bp-loader.php', 'url' => 'https://www.buddyboss.com/platform/' ],

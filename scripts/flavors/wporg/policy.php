@@ -263,6 +263,12 @@ return [
         // only. strip.php takes out the lines in Plugin_Data_Integration that
         // merge the ops and count the pack towards availability.
         'src/Integrations/Offload_Media_Pack.php',
+        // WPCode snippets and global scripts (issue #697), paid-tier.
+        // strip.php takes out the lines in Plugin_Data_Integration that merge
+        // the ops and count the pack towards availability, and its rollback
+        // refreshers in Plugin. The post and option_set snapshots its writes
+        // take are generic and need no WPCode class.
+        'src/Integrations/WPCode_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration
