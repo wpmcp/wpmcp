@@ -44,12 +44,12 @@ final class Post_Status_Guard
         }
 
         if ($creating && ! current_user_can($type->cap->create_posts)) {
-            return sprintf('Creating a %s needs the %s capability.', $post_type, $type->cap->create_posts);
+            return sprintf('Creating a post of type "%s" needs the %s capability.', $post_type, $type->cap->create_posts);
         }
 
         if (in_array($status, self::PUBLISHING, true) && ! current_user_can($type->cap->publish_posts)) {
             return sprintf(
-                'Setting a %s to %s needs the %s capability. Save it as a draft, or as pending to submit it for review.',
+                'Setting a post of type "%s" to %s needs the %s capability. Save it as a draft, or as pending to submit it for review.',
                 $post_type,
                 $status,
                 $type->cap->publish_posts
