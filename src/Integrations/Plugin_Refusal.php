@@ -70,6 +70,7 @@ final class Plugin_Refusal
         'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
+        'WPS Hide Login'   => [ 'file' => 'wps-hide-login/wps-hide-login.php', 'slug' => 'wps-hide-login' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */

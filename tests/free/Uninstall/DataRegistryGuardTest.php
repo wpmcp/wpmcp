@@ -78,6 +78,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // the Site_Gate_Pack ops on the theme pair (issue #903).
             'seedprod_settings',
             'ucp_options',
+            // WPS Hide Login's login and redirect slugs, written by the
+            // Login_Url_Pack ops on the theme pair (issue #896).
+            'whl_page',
+            'whl_redirect_admin',
             // Avada's global options, written by the Avada design_system
             // scope on the builder pair (issue #637).
             'fusion_options',

@@ -290,6 +290,8 @@ class Theme_Integration extends Integration_Dispatcher
      * its plugin is not loaded.
      * Issue #903 adds the site gate status read and the SeedProd and Under
      * Construction toggles (Site_Gate_Pack).
+     * Issue #896 adds the WPS Hide Login login URL read and the guarded,
+     * snapshotted login and redirect slug write (Login_Url_Pack).
      * Issues #713 and #717 add WordPress core's own site identity, homepage
      * and permalink settings (Core_Site_Pack): logo, icon, front page and
      * posts page, the permalink structure with its bases, a URL resolver
@@ -310,6 +312,7 @@ class Theme_Integration extends Integration_Dispatcher
             Core_Patterns_Pack::operations(),
             Ops_Status_Packs::operations(),
             Site_Gate_Pack::operations(),
+            Login_Url_Pack::operations(),
             Cache_Settings_Pack::operations(),
             Redirection_Pack::operations(),
             Rank_Math_Redirects_Pack::operations(),
