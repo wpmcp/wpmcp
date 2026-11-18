@@ -252,7 +252,6 @@ final class WPCode_Pack
             'paged'            => $page,
             'orderby'          => 'ID',
             'order'            => 'ASC',
-            'suppress_filters' => true,
         ];
         if ([] !== $tax) {
             $query_args['tax_query'] = $tax; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query -- the filters are WPCode's own taxonomies.
