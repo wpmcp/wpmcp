@@ -268,7 +268,7 @@ final class Cpt_Builder_Pack
         }
         $slug = (string) $args['slug'];
         if (1 !== preg_match('/^[a-z0-9_-]+$/', $slug) || strlen($slug) > self::MAX_SLUG[ $kind ]) {
-            return self::refusal('invalid_slug', sprintf('A %s slug is lowercase letters, digits, dashes and underscores, at most %d characters.', 'post_type' === $kind ? 'post type' : 'taxonomy', self::MAX_SLUG[ $kind ]));
+            return self::refusal('invalid_slug', sprintf('Slugs of this kind (%s) are lowercase letters, digits, dashes and underscores, at most %d characters.', $kind, self::MAX_SLUG[ $kind ]));
         }
         if (post_type_exists($slug) || taxonomy_exists($slug) || null !== self::find('post_type', $slug) || null !== self::find('taxonomy', $slug)) {
             return self::refusal('slug_taken', sprintf('"%s" is already a post type or taxonomy on this site; pick another slug.', $slug));
@@ -318,7 +318,7 @@ final class Cpt_Builder_Pack
         if ([] === $unknown) {
             return null;
         }
-        return self::refusal('unknown_' . $other, sprintf('Not a %s on this site: %s.', 'taxonomy' === $other ? 'taxonomy' : 'post type', implode(', ', $unknown)), [ 'unknown' => $unknown ]);
+        return self::refusal('unknown_' . $other, sprintf('Unknown on this site (%s): %s.', 'taxonomy' === $other ? 'taxonomies' : 'post types', implode(', ', $unknown)), [ 'unknown' => $unknown ]);
     }
 
     // ---------------------------------------------------------------
