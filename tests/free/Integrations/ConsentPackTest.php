@@ -20,6 +20,7 @@ class ConsentPackTest extends \WP_UnitTestCase
     public static function wpSetUpBeforeClass(): void
     {
         global $wpdb;
+        self::real_ddl();
         self::drop_tables();
         $p = $wpdb->prefix;
         $c = $wpdb->get_charset_collate();
@@ -35,7 +36,30 @@ class ConsentPackTest extends \WP_UnitTestCase
 
     public static function wpTearDownAfterClass(): void
     {
+        self::real_ddl();
         self::drop_tables();
+    }
+
+    /**
+     * The plugin tables must be real ones: Database_Guard finds tables with
+     * SHOW TABLES, which does not list temporary tables. Drop any test
+     * case's temporary table rewrite still on the query filter (an earlier
+     * class in the same shard can leave one behind); setUp adds its own.
+     */
+    private static function real_ddl(): void
+    {
+        global $wp_filter;
+        if (! isset($wp_filter['query'])) {
+            return;
+        }
+        foreach ($wp_filter['query']->callbacks as $priority => $callbacks) {
+            foreach ($callbacks as $callback) {
+                $fn = $callback['function'];
+                if (is_array($fn) && in_array($fn[1] ?? '', [ '_create_temporary_tables', '_drop_temporary_tables' ], true)) {
+                    remove_filter('query', $fn, $priority);
+                }
+            }
+        }
     }
 
     private static function drop_tables(): void
