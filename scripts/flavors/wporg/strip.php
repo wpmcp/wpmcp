@@ -1474,6 +1474,22 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Thrive Automator ops (issue #830) are the paid add-on's, removed by
+    // policy.php. Their lines go first, so every edit below matches the file
+    // as it was before them.
+    [
+        " *  - Issue #830 adds the paid-tier Thrive Automator ops\n"
+            . " *    (Thrive_Automator_Pack): automations listed and read with credentials\n"
+            . " *    redacted, the trigger and action catalog, and automations turned on\n"
+            . " *    (confirm:true) or off (off until wpmcp_enable_thrive_automator_write),\n"
+            . " *    each under a post snapshot.\n",
+        '',
+        1,
+    ],
+    [ "            || Thrive_Automator_Pack::active()\n", '', 1 ],
+    [ "            . ', Thrive Automator automations'\n", '', 1 ],
+    [ "        \$groups[] = [ 'Thrive Automator', false, Thrive_Automator_Pack::operations() ];\n", '', 1 ],
+    [ "            Thrive_Automator_Pack::operations(),\n", '', 1 ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.
@@ -1731,6 +1747,13 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
 // them into the theme pair and their rollback refresher leave with them.
 $edits['src/Integrations/Theme_Integration.php'][] = [
     "            Cache_Settings_Pack::operations(),\n",
+    '',
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "        // An undo of a Thrive Automator status change resets its scheduled\n"
+        . "        // trigger events, as the forward write did (#830).\n"
+        . "        [\\WPMCP\\Integrations\\Thrive_Automator_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],\n",
     '',
     1,
 ];
