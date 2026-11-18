@@ -774,6 +774,7 @@ fi
 # baselines compared anew), without a slot, a database or a run.
 if [ -n "$parallel" ] && [ -n "${WPMCP_PARALLEL_REUSE_LOGS:-}" ]; then
 	WPMCP_PARALLEL_LEGS=$(printf '%s\n' "${LEGS[@]}") WPMCP_PARALLEL_WORKERS="$parallel" \
+		WPMCP_DEFAULT_WP="$default_wp" WPMCP_FLOOR_WP="$floor_wp" \
 		WPMCP_COVERAGE_FLOOR="$COVERAGE_FLOOR" WPMCP_TEST_CACHE="$CACHE" \
 		"$PHP" "$ROOT/bin/parallel-gate.php"
 	exit $?
@@ -2581,6 +2582,7 @@ if [ -n "$parallel" ]; then
 	export WPMCP_PRUNE_COUNT_RECENT_ONLY=1
 	status=0
 	WPMCP_PARALLEL_LEGS=$(printf '%s\n' "${LEGS[@]}") WPMCP_PARALLEL_WORKERS="$parallel" \
+		WPMCP_DEFAULT_WP="$default_wp" WPMCP_FLOOR_WP="$floor_wp" \
 		WPMCP_PARALLEL_COVERAGE="$want_coverage" WPMCP_COVERAGE_FLOOR="$COVERAGE_FLOOR" \
 		WPMCP_TEST_CACHE="$CACHE" WPMCP_MARIADB_BIN="$BIN" WPMCP_PARALLEL_PHP="$PHP" \
 		"$PHP" bin/parallel-gate.php || status=$?

@@ -122,10 +122,24 @@ function leg_table(string $root): array
 }
 
 /** The key a leg's baseline and timings are filed under: "phpunit-7.1", "live-forms". */
+/**
+ * The key a leg's baseline, timings and shard plan are filed under: its id in
+ * bin/legs.tsv, the one CI uses too (phpunit-default, phpunit-floor,
+ * multisite, live-forms), or phpunit-<version> for the other versions --all
+ * runs.
+ */
 function leg_key(string $spec): string
 {
     $p = preg_split('/\s+/', $spec);
-    return in_array($p[0], ['phpunit', 'multisite'], true) ? $p[0] . '-' . $p[1] : $p[0];
+    $default = (string) getenv('WPMCP_DEFAULT_WP');
+    $floor   = (string) getenv('WPMCP_FLOOR_WP');
+    if ($p[0] === 'phpunit') {
+        return ($p[1] ?? '') === $default ? 'phpunit-default' : (($p[1] ?? '') === $floor ? 'phpunit-floor' : 'phpunit-' . ($p[1] ?? ''));
+    }
+    if ($p[0] === 'multisite') {
+        return ($p[1] ?? '') === $default ? 'multisite' : 'multisite-' . ($p[1] ?? '');
+    }
+    return $p[0];
 }
 
 /** Every test file of the suite, in the order PHPUnit runs them serially. */

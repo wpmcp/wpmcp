@@ -1,4 +1,4 @@
-# Known failing tests of the phpunit-7.1 leg, one Class::test per line (data sets
+# Known failing tests of the phpunit-default leg, one Class::test per line (data sets
 # stripped), sorted. The parallel gate (bin/test-local.sh --parallel) fails
 # only on a failing test that is not listed here, and reports listed tests
 # that pass again.
