@@ -121,6 +121,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new Advanced Ads ad post.',
         ],
+        'Integrations/Popup_Maker_Pack.php'           => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new Popup Maker popup post.',
+        ],
         'Integrations/MemberPress_Pack.php'           => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new MemberPress membership or rule post.',
