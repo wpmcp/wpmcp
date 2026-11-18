@@ -584,6 +584,13 @@ class Rollback_Service
         if (Action_Scheduler_Snapshot::TYPE === $type) {
             return [ [ 'manage_options' ] ];
         }
+        // FunnelKit Automations contact tags and lists and automation
+        // statuses (issue #831): FunnelKit's own access check, which
+        // FunnelKit_Automations_Snapshot::restore() asks, is manage_options
+        // by default.
+        if (FunnelKit_Automations_Snapshot::TYPE === $type) {
+            return [ [ 'manage_options' ] ];
+        }
         if ('crm_rows' === $type) {
             $kind = (string) ($snapshot['data']['kind'] ?? '');
             if ('mailpoet' === Crm_Rows_Snapshot::plugin($kind)) {
@@ -1103,7 +1110,7 @@ class Rollback_Service
      */
     private static function is_session_reverse_snapshot(array $snapshot): bool
     {
-        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'amelia_rows', 'helpdesk_ticket', 'action_scheduler', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
+        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'funnelkit_automations', 'amelia_rows', 'helpdesk_ticket', 'action_scheduler', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
             || self::is_compiled_widget_snapshot($snapshot);
     }
 
@@ -1947,6 +1954,7 @@ class Rollback_Service
             'buddypress_rows',
             'bbpress_posts',
             'crm_rows',
+            'funnelkit_automations',
             'helpdesk_ticket',
             'action_scheduler',
             'funnelkit_funnel',
@@ -2259,6 +2267,12 @@ class Rollback_Service
         // Crm_Rows_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('crm_rows' === $snapshot['object_type']) {
             self::warn_if(Crm_Rows_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // FunnelKit_Automations_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('funnelkit_automations' === $snapshot['object_type']) {
+            self::warn_if(FunnelKit_Automations_Snapshot::restore($snapshot));
             return;
         }
 

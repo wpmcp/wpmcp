@@ -214,6 +214,9 @@ return [
         'src/Integrations/CRM_Adapter.php',
         'src/Integrations/CRM_FluentCRM.php',
         'src/Integrations/CRM_MailPoet.php',
+        // FunnelKit Automations contacts, lists, tags and automations
+        // (issue #831), merged only by CRM_Pack.
+        'src/Integrations/CRM_FunnelKit.php',
         // Amelia bookings (issue #499), paid-tier. strip.php takes out the
         // lines in Plugin_Data_Integration that merge the ops and count the
         // pack towards availability. Its snapshot type and the Amelia

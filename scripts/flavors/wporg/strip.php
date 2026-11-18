@@ -1513,11 +1513,11 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "            . ', FluentCRM and MailPoet'\n"
+        "            . ', FluentCRM and MailPoet, FunnelKit Automations'\n"
             . "            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'\n"
             . "            . ', BetterDocs docs, Fluent Support and Awesome Support tickets'\n"
             . "            . ', Weglot and GTranslate language settings';\n",
-        "            . ', FluentCRM and MailPoet';\n",
+        "            . ', FluentCRM and MailPoet, FunnelKit Automations';\n",
         1,
     ],
     // The translation settings ops (issue #690) are the paid add-on's too,
@@ -1678,7 +1678,7 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
     ],
     [
         "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'\n"
-            . "            . ', FluentCRM and MailPoet';\n",
+            . "            . ', FluentCRM and MailPoet, FunnelKit Automations';\n",
         "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
         1,
     ],
