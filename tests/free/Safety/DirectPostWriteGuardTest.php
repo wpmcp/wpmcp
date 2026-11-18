@@ -117,6 +117,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new ThirstyAffiliates link post.',
         ],
+        'Integrations/Advanced_Ads_Pack.php'          => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new Advanced Ads ad post.',
+        ],
         'Integrations/MemberPress_Pack.php'           => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new MemberPress membership or rule post.',

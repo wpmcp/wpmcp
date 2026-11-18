@@ -245,6 +245,11 @@ return [
         'src/Integrations/Helpdesk_Adapter.php',
         'src/Integrations/Helpdesk_Fluent_Support.php',
         'src/Integrations/Helpdesk_Awesome_Support.php',
+        // Weglot and GTranslate language settings (issue #690), paid-tier.
+        // strip.php takes out the lines in Plugin_Data_Integration that merge
+        // the ops and count the pack towards availability. The option
+        // snapshot it writes is generic and needs no plugin class.
+        'src/Integrations/Translation_Settings_Pack.php',
         // Cache and performance plugin settings (issue #692), paid-tier.
         // strip.php takes out the line in Theme_Integration that merges the
         // ops and the rollback refresher in Plugin.
@@ -254,6 +259,10 @@ return [
         'src/Integrations/Cache_Settings_Perfmatters.php',
         'src/Integrations/Cache_Settings_FlyingPress.php',
         'src/Integrations/Cache_Settings_LiteSpeed.php',
+        // WP Offload Media offload status (issue #701), paid-tier and read
+        // only. strip.php takes out the lines in Plugin_Data_Integration that
+        // merge the ops and count the pack towards availability.
+        'src/Integrations/Offload_Media_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration
@@ -273,6 +282,8 @@ return [
         // Its Spectra library source (issue #364), the only path that
         // reaches websitedemos.net.
         'src/Integrations/Block_Suite_Spectra_Library.php',
+        // Its Kadence Blocks and Spectra settings and page CSS ops (issue #648).
+        'src/Integrations/Block_Suite_Settings.php',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
         // two handlers, the sanitizer, the store and the front-end renderer
         // all go. Named file by file rather than by directory because

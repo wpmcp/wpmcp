@@ -36,17 +36,20 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * WooCommerce, ACF, Meta Box, JetEngine, Pods, TranslatePress, Yoast, Rank Math, SEOPress, The SEO Framework, SureRank, Slim SEO, Redirection; with Pro, All in One SEO
 * Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm, WS Form (forms, fields, actions and notifications, submissions listed with values masked and read one at a time, undoable status changes and deletes off until the site turns them on); with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
 * Events, donations, memberships (read)
-* BuddyPress: groups, group members, activity moderation and extended profile fields
+* BuddyPress and BuddyBoss Platform: groups (with their linked forums), group members, activity moderation and extended profile fields; BuddyBoss forums through the bbPress tools
 * Activity logs (read): WP Activity Log and Simple History events listed with IP addresses and emails masked and read one at a time in full
 * Action Scheduler (WooCommerce and many plugins use it): queue actions listed by hook, group, status and date with emails, IPs and tokens masked, read one at a time with their log, and pending actions canceled (undoable) or run now (not undoable, asks for confirmation); both writes are off until the site turns them on
 * Email logs (read): WP Mail Logging, Check and Log Email and Email Log emails listed with recipients masked and no bodies, and read one at a time with the body cut and reset or login links removed
-* Site operations status (read): UpdraftPlus, Duplicator, Solid Security, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
+* Site operations status (read): UpdraftPlus, Duplicator, Solid Security, Sucuri Security, All In One WP Security, Limit Login Attempts Reloaded, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
+* Image optimization: Smush, ShortPixel, EWWW Image Optimizer and Imagify status (compression level, WebP and AVIF, images optimized and pending, cached quota, API keys never returned), and one image optimized through the plugin itself, undoable (off until the site turns it on)
 * WP Mail SMTP: the active mailer and from identity with credentials never returned, the Pro email log, a test send to your own address, and an undoable from name and address change
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
 * With Pro, Tutor LMS, LifterLMS and LearnDash: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read); LearnDash also lists a learner's courses with progress and can enroll, unenroll or reset progress (off until the site turns them on), each undoable
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * With Pro, BetterDocs: knowledge base docs and categories (read, and undoable doc creates and edits)
+* With Pro, WP Offload Media (read): the storage provider, bucket and offload switches with credentials never returned, how many attachments are offloaded, and per attachment whether it is in the bucket, its object key and the URL the site serves
 * With Pro, Fluent Support and Awesome Support: tickets and their threads (read, customer emails masked in lists), and undoable replies, notes and status changes, off until the site turns them on
+* With Pro, Weglot and GTranslate: languages and URL exclusions read (Weglot API keys never returned), and undoable GTranslate language list changes (off until the site turns them on)
 * With Pro, cache and performance settings for WP Rocket, Perfmatters, FlyingPress and LiteSpeed Cache: lazy load, minify, delay JS, CDN and preload read with license and CDN keys never returned, undoable settings changes, a cache preload and a LiteSpeed purge for one post or URL (off until the site turns them on)
 * With Pro, Elementor Pro forms: forms found in pages, and form submissions listed, read and exported as CSV, with undoable status changes and deletes (off until the site turns them on)
 * With Pro, Elementor addon packs: Essential Addons, Premium Addons, Ultimate Addons and JetElements widgets listed with their controls, and each pack's modules switched on or off, every toggle undoable

@@ -1047,6 +1047,14 @@ final class Plugin
     private const MENU_ICON = 'data:image/svg+xml;base64,'
         . 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjQ4IDQ0IDE2MCAxNjAiPjxwYXRoIGZpbGw9ImJsYWNrIiBkPSJNMTU1LjMgNjAuM0E3MyA3MyAwIDEgMSAxMDAuNyA2MC4zTDEwOC45IDgwLjdBNTEgNTEgMCAxIDAgMTQ3LjEgODAuN0ExMSAxMSAwIDAgMSAxNTUuMyA2MC4zWiIvPjxwYXRoIGZpbGw9ImJsYWNrIiBkPSJNNzQgNzAuNUwxMTIgNDdWOTRaIi8+PC9zdmc+';
 
+    /**
+     * Top-level menu slot (issue #1026). Without one, WordPress appends the
+     * menu after every other plugin's. Core puts Settings at 80 and its last
+     * separator at 99; a decimal just below Settings keeps the menu next to
+     * the core admin menus and clear of the integer slots plugins pick.
+     */
+    public const MENU_POSITION = 80.5;
+
     public function register_admin_menu(): void
     {
         // Pending agent memory proposals (issue #131) are surfaced as the
@@ -1068,7 +1076,8 @@ final class Plugin
             Management_Access::CAPABILITY,
             'wpmcp',
             [new History_Page(), 'render'],
-            self::MENU_ICON
+            self::MENU_ICON,
+            self::MENU_POSITION
         );
 
         // The history screen, added explicitly rather than left to the
@@ -3739,7 +3748,14 @@ final class Plugin
                     $host = $integration->host_plugin();
                     $ops  = $integration->operation_hosts();
                     foreach ($integration->abilities() as $ability) {
-                        $registrar->hold_for_plugin($ability, $host['name'], $host['several'], $ops);
+                        $channel = 'read' === $ability->operation ? 'read' : 'write';
+                        $registrar->hold_for_plugin(
+                            $ability,
+                            $host['name'],
+                            $host['several'],
+                            $ops,
+                            static fn (string $op): ?array => $integration->unknown_operation_refusal($channel, $op)
+                        );
                     }
                 }
                 continue;
