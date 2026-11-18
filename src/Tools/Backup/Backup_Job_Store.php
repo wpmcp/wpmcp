@@ -172,6 +172,14 @@ class Backup_Job_Store
     public static function stale_after(array $job = []): int
     {
         $default = is_array($job['progress'] ?? null) ? self::STALE_HEARTBEAT_AFTER : self::STALE_RUNNING_AFTER;
+        // A chunked build (issue #783) waits between steps for the next
+        // WP-Cron request, which on a quiet site is the next visitor. Its
+        // saved step stays good however long that takes, and a step that
+        // dies is retried by the watchdog event, so silence between steps
+        // is not death: the long limit applies.
+        if (is_array($job['build'] ?? null)) {
+            $default = self::STALE_RUNNING_AFTER;
+        }
 
         return max(MINUTE_IN_SECONDS, (int) apply_filters('wpmcp_backup_job_stale_after', $default, $job));
     }
@@ -213,6 +221,7 @@ class Backup_Job_Store
                     'error'      => self::stale_error($job, $now),
                     'updated_at' => $now,
                 ]);
+                unset($stored['jobs'][ $id ]['build']);
                 $failed[] = $job;
             }
             if ([] !== $failed) {
@@ -288,15 +297,15 @@ class Backup_Job_Store
      * knows to discard what it produced. Otherwise update(): a job the stale
      * sweep marked failed still records the archive its run produced.
      */
-    public static function finish(int $id, array $fields): ?array
+    public static function finish(int $id, array $fields, array $drop = []): ?array
     {
-        return self::locked(static function (array $stored) use ($id, $fields): ?array {
+        return self::locked(static function (array $stored) use ($id, $fields, $drop): ?array {
             $current = $stored['jobs'][ $id ] ?? null;
             if (! is_array($current) || 'canceled' === ($current['status'] ?? null)) {
                 return null;
             }
 
-            $job                   = array_merge($current, $fields);
+            $job = array_diff_key(array_merge($current, $fields), array_flip($drop));
             $job['updated_at']     = self::now();
             $stored['jobs'][ $id ] = $job;
             self::save($stored);
@@ -447,15 +456,76 @@ class Backup_Job_Store
      * job record, or null if $id does not exist (nothing is written in that
      * case).
      */
-    public static function update(int $id, array $fields): ?array
+    public static function update(int $id, array $fields, array $drop = []): ?array
     {
-        return self::locked(static function (array $stored) use ($id, $fields): ?array {
+        return self::locked(static function (array $stored) use ($id, $fields, $drop): ?array {
             if (! isset($stored['jobs'][ $id ])) {
                 return null;
             }
 
-            $job                   = array_merge($stored['jobs'][ $id ], $fields);
+            $job = array_diff_key(array_merge($stored['jobs'][ $id ], $fields), array_flip($drop));
             $job['updated_at']     = self::now();
+            $stored['jobs'][ $id ] = $job;
+            self::save($stored);
+
+            return $job;
+        });
+    }
+
+    /**
+     * Claim the next step of a chunked build (issue #783), in one locked
+     * read and write so two deliveries of the step event cannot both run
+     * it. The job must be running with a saved build. A step still marked
+     * running that reported within $idle seconds is alive: the claim is
+     * refused and the refusal recorded without touching updated_at (which
+     * is the live step's heartbeat). One silent for longer died (the host
+     * ended its request); the claim takes over and says so in 'died', and
+     * the build's attempts count goes up.
+     *
+     * @return array{job: ?array, died: bool, busy: bool}
+     */
+    public static function claim_step(int $id, int $idle): array
+    {
+        return self::locked(static function (array $stored) use ($id, $idle): array {
+            $current = $stored['jobs'][ $id ] ?? null;
+            if (! is_array($current) || 'running' !== ($current['status'] ?? null) || ! is_array($current['build'] ?? null)) {
+                return ['job' => null, 'died' => false, 'busy' => false];
+            }
+
+            $build = $current['build'];
+            $now   = self::now();
+            if (! empty($build['step_running']) && $now - (int) ($current['updated_at'] ?? 0) < $idle) {
+                $stored['jobs'][ $id ]['last_refusal'] = 'A step was refused because another step of this job is still running.';
+                self::save($stored);
+                return ['job' => null, 'died' => false, 'busy' => true];
+            }
+
+            $died                  = ! empty($build['step_running']);
+            $build['step_running'] = true;
+            $build['attempts']     = (int) ($build['attempts'] ?? 0) + ($died ? 1 : 0);
+
+            $job                   = array_merge($current, ['build' => $build, 'updated_at' => $now]);
+            $stored['jobs'][ $id ] = $job;
+            self::save($stored);
+
+            return ['job' => $job, 'died' => $died, 'busy' => false];
+        });
+    }
+
+    /**
+     * Save a chunked build's state and progress after (or at the start of)
+     * a step. Null when the job is no longer running (canceled from another
+     * request, or gone): nothing is written and the caller stops.
+     */
+    public static function save_step(int $id, array $build, array $progress): ?array
+    {
+        return self::locked(static function (array $stored) use ($id, $build, $progress): ?array {
+            $current = $stored['jobs'][ $id ] ?? null;
+            if (! is_array($current) || 'running' !== ($current['status'] ?? null)) {
+                return null;
+            }
+
+            $job                   = array_merge($current, ['build' => $build, 'progress' => $progress, 'updated_at' => self::now()]);
             $stored['jobs'][ $id ] = $job;
             self::save($stored);
 

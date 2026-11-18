@@ -284,11 +284,13 @@ class Site_Archive_Builder
     /**
      * Remove what an unfinished build left in the backup directory: the
      * partial archive, libzip's temporary output beside it (it writes
-     * `<partial>.XXXXXX` during close() and renames on success) and the
-     * scratch dump. $progress is the record build() reported, as stored on
-     * the job; every path in it is checked to be inside the backup
-     * directory, because the record comes out of an option and a tampered
-     * one must not be able to delete anything else.
+     * `<partial>.XXXXXX`, or `<partial>.XXXXXX.part` from libzip 1.10 on,
+     * during close() and renames on success; issue #783), the scratch dump
+     * and a chunked build's file list and directory queue. $progress is the
+     * record build() reported, as stored on the job; every path in it is
+     * checked to be inside the backup directory, because the record comes
+     * out of an option and a tampered one must not be able to delete
+     * anything else.
      */
     public static function discard_partial(array $progress): void
     {
@@ -303,7 +305,7 @@ class Site_Archive_Builder
             return false !== $dir && trailingslashit($dir) === $root;
         };
 
-        foreach (['partial_file', 'scratch_file'] as $key) {
+        foreach (['partial_file', 'scratch_file', 'list_file', 'dirs_file'] as $key) {
             $path = $progress[ $key ] ?? null;
             if (! is_string($path) || '' === $path || ! $inside($path)) {
                 continue;
@@ -312,11 +314,30 @@ class Site_Archive_Builder
                 wp_delete_file($path);
             }
             if ('partial_file' === $key) {
-                foreach (glob($path . '.??????') ?: [] as $temp) {
-                    if (is_file($temp)) {
-                        wp_delete_file($temp);
-                    }
+                self::discard_zip_temp($path);
+                continue;
+            }
+            // What a chunked build writes beside a scratch file before
+            // renaming it over (Chunked_Archive_Build).
+            foreach (['.next', '.cut'] as $suffix) {
+                if (is_file($path . $suffix)) {
+                    wp_delete_file($path . $suffix);
                 }
+            }
+        }
+    }
+
+    /**
+     * Remove libzip's temporary output for $partial: what a close() that
+     * was killed or canceled left beside the archive. The archive itself
+     * is untouched, which is what lets a chunked build retry its last step.
+     */
+    public static function discard_zip_temp(string $partial): void
+    {
+        $temps = array_merge(glob($partial . '.??????') ?: [], glob($partial . '.??????.part') ?: []);
+        foreach ($temps as $temp) {
+            if (is_file($temp)) {
+                wp_delete_file($temp);
             }
         }
     }
@@ -328,8 +349,25 @@ class Site_Archive_Builder
 
         switch ($phase) {
             case 'dump':
+                if (isset($progress['tables_total'])) {
+                    return sprintf(
+                        'dumping the database, %s written, %d of %d tables done',
+                        size_format((int) ($progress['dump_bytes'] ?? 0)),
+                        (int) ($progress['tables_done'] ?? 0),
+                        (int) $progress['tables_total']
+                    );
+                }
                 return sprintf('dumping the database, %s written', size_format((int) ($progress['dump_bytes'] ?? 0)));
+            case 'scan':
+                return sprintf('listing files, %d found', (int) ($progress['files_total'] ?? 0));
             case 'files':
+                if (isset($progress['files_total'])) {
+                    return sprintf(
+                        'adding files, %d of %d added',
+                        (int) ($progress['files_added'] ?? 0),
+                        (int) $progress['files_total']
+                    );
+                }
                 return sprintf('adding files, %d added', (int) ($progress['files_added'] ?? 0));
             case 'finalise':
                 return sprintf(
@@ -469,7 +507,7 @@ class Site_Archive_Builder
      * The origin description a restore or migration reads before touching
      * anything.
      */
-    private function manifest(string $scope, array $dump_result, int $file_count): array
+    public function manifest(string $scope, array $dump_result, int $file_count): array
     {
         global $wpdb, $wp_version;
 
@@ -514,7 +552,7 @@ class Site_Archive_Builder
      * anyone who guesses it, and the archive contains every password hash on
      * the site.
      */
-    private function archive_path(string $dir, string $scope): string
+    public function archive_path(string $dir, string $scope): string
     {
         return $dir . '/wpmcp-' . $scope . '-' . gmdate('Ymd-His') . '-' . wp_generate_password(8, false) . '.zip';
     }
