@@ -133,6 +133,31 @@ class CodeSnippetsLiveTest extends \WP_UnitTestCase
         $this->assertSame(0, $GLOBALS['wpmcp_cs_live_runs']);
     }
 
+    /** Issue #881: an HTML snippet takes name, tags and priority changes, never code. */
+    public function test_an_html_snippet_takes_detail_changes_through_save_snippet_and_refuses_code(): void
+    {
+        $saved = \Code_Snippets\save_snippet(new \Code_Snippets\Model\Snippet([ 'name' => 'wpmcp live html', 'code' => '<p>wpmcp</p>', 'scope' => 'footer-content', 'tags' => [ 'wpmcp-live' ], 'active' => false, 'network' => false ]));
+        $id    = (int) $saved->id;
+        $this->assertSame('html', $this->snippet($id)->type);
+        $before = Code_Snippet_Snapshot::row($id);
+        sleep(1); // Code Snippets stamps modified to the second.
+        $out = $this->call('write', 'code-snippets-update-snippet', [ 'id' => $id, 'name' => 'wpmcp live html renamed', 'tags' => [ 'wpmcp-live', 'tidy' ], 'priority' => 4 ]);
+
+        $s = $this->snippet($id);
+        $this->assertSame('wpmcp live html renamed', $s->name);
+        $this->assertSame(4, $s->priority);
+        $this->assertSame([ 'wpmcp-live', 'tidy' ], array_values((array) $s->tags));
+        $this->assertSame('<p>wpmcp</p>', $s->code);
+
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame($before, Code_Snippet_Snapshot::row($id));
+
+        $refused = ( new Plugin_Data_Integration() )->handle_write([ 'operation' => 'code-snippets-update-snippet', 'args' => [ 'id' => $id, 'code' => '<p>other</p>' ] ]);
+        $this->assertSame('unsupported_snippet_type', $refused['error']['code'] ?? null);
+        $this->assertSame($before, Code_Snippet_Snapshot::row($id));
+        \Code_Snippets\delete_snippet($id, false);
+    }
+
     public function test_activation_through_code_snippets_and_its_rollback_switches_the_snippet_off_exactly(): void
     {
         $id     = (int) $this->create('wpmcp live activate')['result']['snippet']['id'];
