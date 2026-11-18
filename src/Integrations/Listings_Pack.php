@@ -276,14 +276,14 @@ final class Listings_Pack
             ],
             "{$prefix}-create-listing"          => $write + [
                 'self_snapshotting' => true,
-                'description'       => "Create a {$label} listing (status defaults to draft): {$what}. Undo: rollback-session trashes it",
+                'description'       => "Create one {$label} listing (status defaults to draft): {$what}. Undo: rollback-session trashes it",
                 'input_schema'      => [ 'type' => 'object', 'properties' => $create, 'required' => [ 'title' ] ],
                 'validate'          => static fn (array $args): ?array => self::create_refusal($prefix, $args),
                 'handler'           => static fn (array $args, array $context): array => self::create_listing($prefix, $args, $context),
             ],
             "{$prefix}-update-listing"          => $write + [
                 'objects'      => $own('write'),
-                'description'  => "Change a {$label} listing: {$what}. Only the args given change; term lists replace the listing's set. Undo: rollback-operation",
+                'description'  => "Change one {$label} listing: {$what}. Only the args given change; term lists replace the listing's set. Undo: rollback-operation",
                 'input_schema' => [ 'type' => 'object', 'properties' => [ 'id' => $id ] + $fields, 'required' => [ 'id' ], 'minProperties' => 2 ],
                 'validate'     => static fn (array $args): ?array => self::update_refusal($prefix, $args),
                 'snapshot'     => static fn (array $args): array => [ 'object_type' => 'post', 'object_id' => (int) $args['id'] ],
@@ -291,7 +291,7 @@ final class Listings_Pack
             ],
             "{$prefix}-set-listing-status"      => $write + [
                 'objects'      => $own('write'),
-                'description'  => "Set a {$label} listing's status (" . implode(', ', $p['write_statuses']) . '). Undo: rollback-operation',
+                'description'  => "Set the status of one {$label} listing (" . implode(', ', $p['write_statuses']) . '). Undo: rollback-operation',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'id' => $id, 'status' => [ 'type' => 'string', 'enum' => $p['write_statuses'] ] ],
@@ -335,7 +335,7 @@ final class Listings_Pack
         if (! isset($args['post_type']) || in_array((string) $args['post_type'], self::post_types($prefix), true)) {
             return null;
         }
-        return self::refusal('unknown_post_type', sprintf('%s is not a %s listing type. Types: %s.', (string) $args['post_type'], self::label($prefix), implode(', ', self::post_types($prefix))), [ 'post_types' => self::post_types($prefix) ]);
+        return self::refusal('unknown_post_type', sprintf('"%s" is not one of the %s listing types: %s.', (string) $args['post_type'], self::label($prefix), implode(', ', self::post_types($prefix))), [ 'post_types' => self::post_types($prefix) ]);
     }
 
     /** @return array<int, array{id: int, name: string, slug: string}> */
@@ -499,7 +499,7 @@ final class Listings_Pack
         $label = self::label($prefix);
         $post  = get_post($id);
         if (! $post instanceof \WP_Post || ! in_array($post->post_type, self::post_types($prefix), true)) {
-            return self::refusal('listing_not_found', sprintf('%d is not a %s listing.', $id, $label), [ 'id' => $id ]);
+            return self::refusal('listing_not_found', sprintf('No %2$s listing has id %1$d.', $id, $label), [ 'id' => $id ]);
         }
         if (! current_user_can($write ? 'edit_post' : 'read_post', $id)) {
             return self::refusal('operation_denied', sprintf('You are not allowed to %s listing %d.', $write ? 'edit' : 'read', $id), [ 'reason' => 'capability', 'id' => $id ]);
@@ -576,7 +576,7 @@ final class Listings_Pack
                 }
             }
             if ([] !== $missing) {
-                return self::refusal('unknown_term', sprintf('Not a %s term: %s.', $taxonomy, implode(', ', $missing)), [ 'taxonomy' => $taxonomy, 'unknown' => $missing ]);
+                return self::refusal('unknown_term', sprintf('Not terms of %s: %s.', $taxonomy, implode(', ', $missing)), [ 'taxonomy' => $taxonomy, 'unknown' => $missing ]);
             }
             $tax = get_taxonomy($taxonomy);
             if ($tax && ! current_user_can($tax->cap->assign_terms)) {
@@ -598,7 +598,7 @@ final class Listings_Pack
         $fields  = (array) ($args['fields'] ?? []);
         $unknown = array_values(array_diff(array_map('strval', array_keys($fields)), array_keys($defs)));
         if ([] !== $unknown) {
-            return self::refusal('unknown_field', sprintf('Not a %s listing field: %s.', self::label($prefix), implode(', ', $unknown)), [ 'unknown' => $unknown, 'fields' => array_keys($defs) ]);
+            return self::refusal('unknown_field', sprintf('Not one of the %s listing fields: %s.', self::label($prefix), implode(', ', $unknown)), [ 'unknown' => $unknown, 'fields' => array_keys($defs) ]);
         }
         foreach ($fields as $name => $value) {
             [ , $kind, $cap ] = $defs[ $name ];
