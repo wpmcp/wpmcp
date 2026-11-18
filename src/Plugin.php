@@ -2122,15 +2122,17 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/moderate-comment',
             'free',
-            'Set a comment\'s status: approve, unapprove, spam, not_spam (Akismet learns), trash or untrash. Reversible',
+            'Set a comment\'s status: approve, unapprove, spam, not_spam (Akismet learns), trash, untrash, or recheck (Akismet rechecks pending; confirm:true). ids[] for up to 100. Reversible',
             [
                 'type'       => 'object',
                 'properties' => [
                     'id'         => [ 'type' => 'integer' ],
+                    'ids'        => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
                     'status'     => [ 'type' => 'string' ],
+                    'confirm'    => [ 'type' => 'boolean' ],
                     'session_id' => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'id', 'status' ],
+                'required'   => [ 'status' ],
             ],
             [$moderate_comment, 'handle'],
             'moderate_comments',
