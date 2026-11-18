@@ -320,6 +320,12 @@ class Formidable_Integration extends Forms_Integration
             'post_status'  => $status ?? $post->post_status,
             'menu_order'   => $post->menu_order,
             'post_content' => $settings,
+            // FrmDb::save_settings() updates through wp_insert_post(), which
+            // stamps an update without a date with the current time. The
+            // creation date is what rollback recognises the post by, so a
+            // changed one made every undo fail (issue #984).
+            'post_date'     => $post->post_date,
+            'post_date_gmt' => $post->post_date_gmt,
         ];
         if (class_exists('FrmDb') && method_exists('FrmDb', 'save_settings')) {
             $result = \FrmDb::save_settings($record, 'frm_actions');
