@@ -18,6 +18,12 @@
  * is recorded in $calls and every message that was not skipped in
  * $delivered.
  *
+ * With $queues_new_appointments on, a new appointment's messages go the way
+ * Amelia 2.4.15 sends them (issue #962): queued through Action Scheduler's
+ * as_enqueue_async_action() and sent later from a loopback request, unless
+ * the pre_as_enqueue_async_action filter answers 0, in which case Amelia
+ * sends them inline. A queued appointment lands in $queued, unsent.
+ *
  * The real controllers run in the live Amelia group (AmeliaLiveTest).
  */
 
@@ -35,6 +41,12 @@ if ( ! class_exists( Fake_Amelia_Api::class ) ) {
 		public static array $delivered = [];
 
 		public static string $edition = 'Lite';
+
+		/** Whether a new appointment's messages are queued the way Amelia 2.4.15 queues them. */
+		public static bool $queues_new_appointments = false;
+
+		/** @var int[] appointments whose messages were queued for a later request */
+		public static array $queued = [];
 
 		public function active(): bool {
 			return true;
@@ -405,7 +417,11 @@ if ( ! class_exists( Fake_Amelia_Api::class ) ) {
 					$appointment = (int) $wpdb->insert_id;
 					$wpdb->insert( self::t( 'customer_bookings' ), [ 'appointmentId' => $appointment, 'customerId' => (int) $booking['customerId'], 'status' => $booking['status'], 'price' => 50, 'persons' => (int) $booking['persons'], 'duration' => $seconds, 'customFields' => '[]', 'created' => gmdate( 'Y-m-d H:i:s' ) ] );
 					$wpdb->insert( self::t( 'payments' ), [ 'customerBookingId' => (int) $wpdb->insert_id, 'amount' => 0, 'dateTime' => $start->format( 'Y-m-d H:i:s' ), 'status' => 'pending', 'gateway' => 'onSite', 'entity' => 'appointment' ] );
-					self::notify( $appointment, (string) $booking['status'] );
+					if ( self::$queues_new_appointments && 0 !== apply_filters( 'pre_as_enqueue_async_action', null, 'amelia_process_appointment_added', [ [ 'appointmentId' => $appointment ] ], 'amelia', 10, false ) ) {
+						self::$queued[] = $appointment;
+					} else {
+						self::notify( $appointment, (string) $booking['status'] );
+					}
 					return [ 'appointment' => self::row( 'appointments', $appointment ) ];
 
 				case 'Booking\\Appointment\\UpdateAppointmentTimeController':

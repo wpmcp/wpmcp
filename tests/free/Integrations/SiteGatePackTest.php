@@ -23,6 +23,8 @@ class SiteGatePackTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Snapshot_Store::install();
+        // Start from an empty undo history, whatever an earlier test left (issue #963).
+        $GLOBALS['wpdb']->query('DELETE FROM ' . Snapshot_Store::table_name());
         add_filter('pre_http_request', [ $this, 'serve' ], 1, 3);
         update_option('active_plugins', []);
         wp_set_current_user(self::factory()->user->create([ 'role' => 'administrator' ]));

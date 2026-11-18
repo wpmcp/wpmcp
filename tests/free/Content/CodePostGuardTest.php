@@ -17,6 +17,8 @@ use WPMCP\Safety\Snapshot_Store;
  */
 class CodePostGuardTest extends \WP_UnitTestCase
 {
+    private int $admin = 0;
+
     private const SCRIPT = '<script>document.documentElement.dataset.wpmcpKad="ran";</script>';
 
     public static function wpSetUpBeforeClass(): void
@@ -35,7 +37,15 @@ class CodePostGuardTest extends \WP_UnitTestCase
         add_filter('wpmcp_rate_limit', fn() => 100000);
         register_post_type('kadence_element', ['public' => false, 'show_ui' => true, 'supports' => ['title', 'editor', 'custom-fields', 'revisions']]);
         register_post_type('astra-advanced-hook', ['public' => false, 'show_ui' => true, 'supports' => ['title', 'editor', 'custom-fields', 'revisions']]);
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        $this->admin = $admin = self::factory()->user->create(['role' => 'administrator']);
+        if (is_multisite()) {
+            // On a network only a super admin has unfiltered_html, so kses would
+            // strip the fixture's script for a site admin (issue #963). A super
+            // admin is who can put code in a code layout there, as a site
+            // administrator can on a single site.
+            grant_super_admin($admin);
+        }
+        wp_set_current_user($admin);
     }
 
     protected function tearDown(): void
@@ -45,6 +55,9 @@ class CodePostGuardTest extends \WP_UnitTestCase
         Governance::reset_for_tests();
         unregister_post_type('kadence_element');
         unregister_post_type('astra-advanced-hook');
+        if (is_multisite() && $this->admin > 0) {
+            revoke_super_admin($this->admin);
+        }
         wp_set_current_user(0);
         parent::tearDown();
     }

@@ -1569,8 +1569,19 @@ final class Amelia_Pack
             return $data;
         };
 
+        // Amelia 2.4.15 queues some of a write's side effects (a new
+        // appointment's messages) through Action Scheduler and runs them
+        // from a loopback request, outside the hold above (issue #962).
+        // Answering 0 for Amelia's own async actions makes Amelia run them
+        // inline, as it does when Action Scheduler is not ready.
+        $inline = static function ($pre, $hook, $action_args = [], $group = '') {
+            unset($action_args);
+            return 'amelia' === (string) $group && 0 === strpos((string) $hook, 'amelia_') ? 0 : $pre;
+        };
+
         add_filter('amelia_manipulate_email_data', $email, PHP_INT_MAX);
         add_filter('amelia_manipulate_sms_data', $sms, PHP_INT_MAX);
+        add_filter('pre_as_enqueue_async_action', $inline, PHP_INT_MAX, 4);
         try {
             $result = Amelia_Rows_Snapshot::tracked($operation_id, $write, $id_of);
         } catch (Operation_Error $e) {
@@ -1582,6 +1593,7 @@ final class Amelia_Pack
         } finally {
             remove_filter('amelia_manipulate_email_data', $email, PHP_INT_MAX);
             remove_filter('amelia_manipulate_sms_data', $sms, PHP_INT_MAX);
+            remove_filter('pre_as_enqueue_async_action', $inline, PHP_INT_MAX);
         }
         return [ $result, [ 'sent' => $sent, 'held' => $held ] ];
     }

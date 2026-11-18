@@ -131,6 +131,14 @@ class_ref_gates() {
   # never name a class this zip prunes (Php_Snippet_Store was the case).
   php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src/Safety \
     || { echo "ERROR: the $SLUG safety core names a class the build does not ship" >&2; exit 1; }
+  # Every other shipped file too (issue #935): a plain `use` of a pruned
+  # class in shared code (src/MCP, src/Governance, ...) passed the two scans
+  # here and fataled only where the class was first used. Plugin.php is left
+  # to the hook scan below, whose references sit in branches gated on ability
+  # groups this flavor never enables; the allowlist names the few files that
+  # reach a pruned class only behind a runtime check.
+  php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --exclude=src/Plugin.php --allow="$ROOT/scripts/flavors/woocommerce/class-ref-allow.php" \
+    || { echo "ERROR: a file in the $SLUG build names a class the build does not ship" >&2; exit 1; }
   # Every hook callback in the whole tree, Plugin.php included, must name a
   # shipped class unless the branch it sits in cannot run in this flavor.
   php "$ROOT/scripts/lib/class-ref-gate.php" "$STAGE" src --hooks --flavor=woocommerce \

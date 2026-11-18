@@ -1,18 +1,36 @@
 name: PHPUnit
 
-# The WordPress integration suite and the free live legs on every pull request
-# and every push to main, split across parallel jobs for the fastest feedback
-# (handoff/2026-11-18/gate-strategy.md, Tier 1):
+# The WordPress integration suite and the free live legs, split across
+# parallel jobs for the fastest feedback (handoff/2026-11-18/gate-strategy.md,
+# Tier 1).
 #
-#   plan      shards the suite by the per-file times of earlier runs and pins
-#             the test plugin versions, once, so every job of a run agrees
-#   unit      the suite in shards: WP 7.1 with coverage (4), the WP 6.9 floor
-#             (3), WP 7.1 multisite (3), and the PHP 8.1 floor (readme.txt
-#             "Requires PHP") on WP 6.9 (2)
-#   report    merges the coverage of the 7.1 shards and holds it to the floor
-#             in bin/test-local.sh, and saves the timings for the next plan
-#   live      the free live legs (bin/legs.tsv, tier "free"), in 3 groups, each
-#             through bin/test-local.sh against a MariaDB service
+# Two modes, chosen by the plan job:
+#
+#   full    every push to main, the nightly run, a manual run, and a pull
+#           request that changes a core file, carries the label full-ci, or
+#           cannot be mapped (.github/ci/impact.php lists the rules)
+#   impact  any other pull request: only the tests that exercise the changed
+#           files (the impact map, built from per-test coverage of main's full
+#           runs, plus naming conventions), the tests the PR changes, and the
+#           always-run guard, flavor and hardening tests, on WP 7.1 and on the
+#           PHP 8.1 / WP 6.9 floor; plus only the free live legs whose tests
+#           or groups the change touches
+#
+#   plan      decides the mode, shards the selection by the per-file times of
+#             earlier runs and pins the test plugin versions, once, so every
+#             job of a run agrees
+#   unit      full: the suite in shards: WP 7.1 with coverage (4), the WP 6.9
+#             floor (3), WP 7.1 multisite (3), and the PHP 8.1 floor
+#             (readme.txt "Requires PHP") on WP 6.9 (2); impact: the selection,
+#             one or two jobs per environment
+#   report    full only: merges the coverage of the 7.1 shards and holds it to
+#             the floor in bin/test-local.sh, saves the timings for the next
+#             plan, and on main rebuilds the impact map (cache impact-map-*,
+#             artifact impact-map; bin/update-impact-map.sh commits it as the
+#             fallback tests/impact-map.json)
+#   live      the free live legs (bin/legs.tsv, tier "free"), in 3 groups in
+#             full mode or the selected legs in one job, each through
+#             bin/test-local.sh against a MariaDB service
 #
 # Licensed live legs never run here: they need commercial copies that stay on
 # the owner's Mac. .github/ci/licensed-guard.sh (CI workflow, static job) fails
@@ -23,15 +41,26 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Nightly full run at 21:30 UTC (02:30 PKT), and by hand.
+  schedule:
+    - cron: '30 21 * * *'
+  workflow_dispatch:
 
-# One run per branch or PR: a new push cancels the run it replaces. Runs on
-# main are left to finish, so main's timings and caches stay current.
+# Pull requests: one run per PR, a new push cancels the run it replaces.
+# Everything else (push to main, nightly, manual) gets a group of its own run
+# id, so it is never cancelled or displaced: GitHub keeps only one PENDING run
+# per group and cancels the older one, which with several merges an hour
+# meant main's full run, its coverage merge and the impact map build could
+# never finish. Every main run now finishes and the newest map wins.
 concurrency:
-  group: phpunit-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: phpunit-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
+  # The plan job reads the PR's current labels (full-ci), so a re-run after
+  # adding the label takes the full path.
+  pull-requests: read
 
 # pipefail: a failing command before a pipe (check-coverage | tee) fails the step.
 defaults:
@@ -50,8 +79,15 @@ jobs:
     outputs:
       plugins: ${{ steps.plugins.outputs.versions }}
       plugins-key: ${{ steps.plugins.outputs.key }}
+      mode: ${{ steps.select.outputs.mode }}
+      unit-matrix: ${{ steps.matrix.outputs.unit-matrix }}
+      live-matrix: ${{ steps.matrix.outputs.live-matrix }}
     steps:
+      # Depth 2: on a pull request the checkout is GitHub's merge commit, and
+      # its first parent is the base branch tip the change is diffed against.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
 
       # The newest timings from any earlier run this ref can see (its own
       # branch first, then main). None yet: shard.php balances by file size.
@@ -61,8 +97,51 @@ jobs:
           key: phpunit-timings-${{ github.run_id }}
           restore-keys: phpunit-timings-
 
+      # The newest impact map from main's full runs. impact.php takes the
+      # newer of it and the committed tests/impact-map.json.
+      - uses: actions/cache/restore@v4
+        if: github.event_name == 'pull_request'
+        with:
+          path: impact-map.json
+          key: impact-map-${{ github.run_id }}
+          restore-keys: impact-map-
+
+      - name: Select tests (full or impact)
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "### Test impact selection: full (${{ github.event_name }})" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          labels=$(gh api "repos/${{ github.repository }}/issues/$PR/labels" --jq '[.[].name] | join(",")' 2>/dev/null || echo "${{ join(github.event.pull_request.labels.*.name, ',') }}")
+          # A selector crash must never shrink the run: it falls back to full.
+          mkdir -p impact
+          if php .github/ci/impact.php --base HEAD^1 --head HEAD --labels "$labels" \
+              --map impact-map.json --map tests/impact-map.json \
+              --timings "$( [ -f timings.json ] && echo timings.json || echo - )" \
+              --out impact > impact/outputs.txt && grep -qE '^mode=(full|impact)$' impact/outputs.txt; then
+            cat impact/outputs.txt | tee -a "$GITHUB_OUTPUT"
+            cat impact/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::the impact selector failed; running the full suite"
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Shard the suite
-        run: php .github/ci/shard.php shards "$( [ -f timings.json ] && echo timings.json || echo - )" 4 3 2
+        id: matrix
+        run: |
+          timings=$( [ -f timings.json ] && echo timings.json || echo - )
+          if [ "${{ steps.select.outputs.mode }}" = impact ]; then
+            SHARD_ONLY=impact/tests.txt php .github/ci/shard.php shards "$timings" "${{ steps.select.outputs.shards }}"
+            php .github/ci/unit-matrix.php impact "${{ steps.select.outputs.shards }}" "${{ steps.select.outputs.legs }}" >> "$GITHUB_OUTPUT"
+          else
+            php .github/ci/shard.php shards "$timings" 4 3 2
+            php .github/ci/unit-matrix.php full >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -90,20 +169,9 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
+      # Rows from .github/ci/unit-matrix.php: the 12 shards, or the impact jobs.
       matrix:
-        include:
-          - { label: 'WP 7.1 coverage', leg: phpunit-default, wp: '7.1', php: '8.3', multisite: false, coverage: true, of: 4, shard: 1 }
-          - { label: 'WP 7.1 coverage', leg: phpunit-default, wp: '7.1', php: '8.3', multisite: false, coverage: true, of: 4, shard: 2 }
-          - { label: 'WP 7.1 coverage', leg: phpunit-default, wp: '7.1', php: '8.3', multisite: false, coverage: true, of: 4, shard: 3 }
-          - { label: 'WP 7.1 coverage', leg: phpunit-default, wp: '7.1', php: '8.3', multisite: false, coverage: true, of: 4, shard: 4 }
-          - { label: 'WP 6.9', leg: phpunit-floor, wp: '6.9', php: '8.3', multisite: false, coverage: false, of: 3, shard: 1 }
-          - { label: 'WP 6.9', leg: phpunit-floor, wp: '6.9', php: '8.3', multisite: false, coverage: false, of: 3, shard: 2 }
-          - { label: 'WP 6.9', leg: phpunit-floor, wp: '6.9', php: '8.3', multisite: false, coverage: false, of: 3, shard: 3 }
-          - { label: 'WP 7.1 multisite', leg: multisite, wp: '7.1', php: '8.3', multisite: true, coverage: false, of: 3, shard: 1 }
-          - { label: 'WP 7.1 multisite', leg: multisite, wp: '7.1', php: '8.3', multisite: true, coverage: false, of: 3, shard: 2 }
-          - { label: 'WP 7.1 multisite', leg: multisite, wp: '7.1', php: '8.3', multisite: true, coverage: false, of: 3, shard: 3 }
-          - { label: 'PHP 8.1 WP 6.9', leg: phpunit-floor, wp: '6.9', php: '8.1', multisite: false, coverage: false, of: 2, shard: 1 }
-          - { label: 'PHP 8.1 WP 6.9', leg: phpunit-floor, wp: '6.9', php: '8.1', multisite: false, coverage: false, of: 2, shard: 2 }
+        include: ${{ fromJSON(needs.plan.outputs.unit-matrix) }}
     services:
       mysql:
         image: mariadb:10.11
@@ -213,7 +281,9 @@ jobs:
   report:
     name: Coverage floor and timings
     needs: [plan, unit]
-    if: always() && needs.plan.result == 'success'
+    # Full runs only: an impact run has no coverage, and its partial timings
+    # would unbalance the next full plan.
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -282,14 +352,40 @@ jobs:
           path: timings.json
           key: phpunit-timings-${{ github.run_id }}
 
+      # The impact map for pull requests, from the per-test coverage of the
+      # 7.1 shards: main's full runs only (a PR's coverage is of its own code).
+      - name: Impact map
+        id: impact-map
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          mapfile -t dirs < <(find reports -maxdepth 1 -type d -name 'unit-phpunit-default-*' | sort)
+          [ "${#dirs[@]}" -eq 4 ] || { echo "::warning::impact map skipped: ${#dirs[@]} coverage shards"; exit 0; }
+          php -d memory_limit=-1 .github/ci/impact-map.php impact-map.json "$GITHUB_SHA" "PHPUnit run ${{ github.run_id }} (${{ github.event_name }})" "${dirs[@]}"
+
+      - uses: actions/cache/save@v4
+        if: always() && github.event_name != 'pull_request' && hashFiles('impact-map.json') != ''
+        with:
+          path: impact-map.json
+          key: impact-map-${{ github.run_id }}
+
+      - uses: actions/upload-artifact@v4
+        if: always() && github.event_name != 'pull_request' && hashFiles('impact-map.json') != ''
+        with:
+          name: impact-map
+          path: impact-map.json
+          retention-days: 30
+
   live:
-    name: Live legs (group ${{ matrix.group }} of 3)
+    name: Live legs (${{ matrix.label }})
+    needs: plan
+    if: needs.plan.outputs.live-matrix != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
+      # Full: 3 groups (.github/ci/live-legs.sh). Impact: the selected legs.
       matrix:
-        group: [1, 2, 3]
+        include: ${{ fromJSON(needs.plan.outputs.live-matrix) }}
     services:
       mysql:
         image: mariadb:10.11
@@ -345,6 +441,7 @@ jobs:
           restore-keys: |
             live-downloads-${{ matrix.group }}-${{ hashFiles('bin/install-wp-tests.sh', 'bin/install-test-plugins.sh', 'bin/download-cache.sh', 'bin/legs.tsv') }}-
             live-downloads-${{ matrix.group }}-
+            live-downloads-
 
       - run: composer install --no-interaction --prefer-dist --no-progress
 
@@ -368,10 +465,14 @@ jobs:
             sudo apt-get update -qq && sudo apt-get install -y -qq "${need[@]}"
           fi
 
-      - name: Legs of group ${{ matrix.group }}
+      - name: Legs (${{ matrix.label }})
         id: legs
         run: |
-          mapfile -t legs < <(bash .github/ci/live-legs.sh --list --group "${{ matrix.group }}")
+          if [ -n "${{ matrix.legs }}" ]; then
+            read -r -a legs <<<"${{ matrix.legs }}"
+          else
+            mapfile -t legs < <(bash .github/ci/live-legs.sh --list --group "${{ matrix.group }}")
+          fi
           [ "${#legs[@]}" -gt 0 ] || { echo "::error::group ${{ matrix.group }} has no legs"; exit 1; }
           printf '%s\n' "${legs[@]}"
           echo "flags=$(printf -- '--%s ' "${legs[@]}")" >> "$GITHUB_OUTPUT"

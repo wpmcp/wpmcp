@@ -35,7 +35,7 @@
  *
  * Usage:
  *
- *   php scripts/lib/class-ref-gate.php <stage> <subdir> [--strings]
+ *   php scripts/lib/class-ref-gate.php <stage> <subdir> [--strings] [--exclude=<file>]... [--allow=<file.php>]
  *   php scripts/lib/class-ref-gate.php <stage> <subdir> --hooks [--flavor=<name>]
  *
  * Prints each missing reference to STDERR and exits 1 when any is found, 2
@@ -114,9 +114,17 @@ final class Class_Ref_Gate
      * References under $stage/$subdir to classes missing from the stage's
      * composer classmap, as "path -> Class" lines.
      *
+     * $exclude lists stage-relative files to skip (src/Plugin.php in a flavor
+     * build, whose references sit in flavor-gated branches the --hooks scan
+     * reads). $allow maps a stage-relative file to the classes it may name
+     * although the build prunes them, each because the file only reaches
+     * them behind a runtime check (issue #935).
+     *
+     * @param string[]                $exclude
+     * @param array<string, string[]> $allow
      * @return string[]
      */
-    public static function missing(string $stage, string $subdir, bool $include_strings = false): array
+    public static function missing(string $stage, string $subdir, bool $include_strings = false, array $exclude = [], array $allow = []): array
     {
         $classmap = $stage . '/vendor/composer/autoload_classmap.php';
         $root     = $stage . '/' . $subdir;
@@ -135,15 +143,55 @@ final class Class_Ref_Gate
             if ('php' !== $file->getExtension()) {
                 continue;
             }
-            $src = (string) file_get_contents($file->getPathname());
+            $relative = self::relative($stage, $file->getPathname());
+            if (in_array($relative, $exclude, true)) {
+                continue;
+            }
+            $allowed = array_map('strtolower', $allow[ $relative ] ?? []);
+            $src     = (string) file_get_contents($file->getPathname());
             foreach (self::named_classes($src, $include_strings) as $class) {
-                if (! isset($known[strtolower($class)])) {
+                if (! isset($known[strtolower($class)]) && ! in_array(strtolower($class), $allowed, true)) {
                     $missing[] = $file->getPathname() . ' -> ' . $class;
                 }
             }
         }
 
         return array_values(array_unique($missing));
+    }
+
+    /**
+     * $allow entries that no longer excuse anything: the file is gone from
+     * the stage, skipped, or no longer names the class as a pruned one. An
+     * entry left behind would excuse a future reference nobody reviewed.
+     *
+     * @param string[]                $exclude
+     * @param array<string, string[]> $allow
+     * @return string[] "path -> Class" lines
+     */
+    public static function stale_allowances(string $stage, string $subdir, array $exclude, array $allow): array
+    {
+        $still = [];
+        foreach (self::missing($stage, $subdir, false, $exclude) as $line) {
+            [$path, $class] = explode(' -> ', $line, 2);
+            $still[ self::relative($stage, $path) . ' -> ' . strtolower($class) ] = true;
+        }
+
+        $stale = [];
+        foreach ($allow as $file => $classes) {
+            foreach ($classes as $class) {
+                if (! isset($still[ $file . ' -> ' . strtolower($class) ])) {
+                    $stale[] = $file . ' -> ' . $class;
+                }
+            }
+        }
+
+        return $stale;
+    }
+
+    /** A path under $stage, relative to it with forward slashes. */
+    private static function relative(string $stage, string $path): string
+    {
+        return ltrim(str_replace('\\', '/', substr($path, strlen(rtrim($stage, '/')))), '/');
     }
 
     /**
@@ -528,14 +576,24 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === realpath(__F
     $strings = in_array('--strings', $args, true);
     $hooks   = in_array('--hooks', $args, true);
     $flavor  = null;
+    $exclude = [];
+    $allow   = [];
     foreach ($args as $arg) {
         if (0 === strpos($arg, '--flavor=')) {
             $flavor = substr($arg, 9);
+        } elseif (0 === strpos($arg, '--exclude=')) {
+            $exclude[] = substr($arg, 10);
+        } elseif (0 === strpos($arg, '--allow=')) {
+            $allow = require substr($arg, 8);
+            if (! is_array($allow)) {
+                fwrite(STDERR, "class-ref-gate: the --allow file must return an array\n");
+                exit(2);
+            }
         }
     }
     $args = array_values(array_filter($args, static fn (string $a): bool => 0 !== strpos($a, '--')));
     if (count($args) !== 2) {
-        fwrite(STDERR, "usage: class-ref-gate.php <stage> <subdir> [--strings | --hooks [--flavor=<name>]]\n");
+        fwrite(STDERR, "usage: class-ref-gate.php <stage> <subdir> [--strings] [--exclude=<file>]... [--allow=<file.php>] | --hooks [--flavor=<name>]\n");
         exit(2);
     }
 
@@ -550,7 +608,10 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === realpath(__F
             }
             $missing = Class_Ref_Gate::dangling_hooks($args[0], $args[1], $live);
         } else {
-            $missing = Class_Ref_Gate::missing($args[0], $args[1], $strings);
+            $missing = Class_Ref_Gate::missing($args[0], $args[1], $strings, $exclude, $allow);
+            foreach (Class_Ref_Gate::stale_allowances($args[0], $args[1], $exclude, $allow) as $stale) {
+                $missing[] = 'stale --allow entry, remove it: ' . $stale;
+            }
         }
     } catch (RuntimeException $e) {
         fwrite(STDERR, $e->getMessage() . "\n");

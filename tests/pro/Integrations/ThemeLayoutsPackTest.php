@@ -625,6 +625,12 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
         $filter = 'kadence' === $family ? 'wpmcp_allow_js_injection' : 'wpmcp_allow_php_exec';
         add_filter($filter, '__return_true');
         \WPMCP\Tools\Code\Php_Snippet_Guard::set_environment_override('local');
+        if (is_multisite()) {
+            // On a network the opt-in alone is not enough: code execution also
+            // needs a network administrator (Code_Exec_Network_Gate, issue
+            // #562), so act as one there (issue #963).
+            grant_super_admin(get_current_user_id());
+        }
         try {
             $this->ok($this->write('update-{f}-layout', [ 'layout_id' => $id, 'status' => 'publish' ]));
             $this->ok($this->write('set-{f}-layout-display-rules', [ 'layout_id' => $id, 'rules' => self::site_rules($family) ]));
@@ -632,6 +638,9 @@ class ThemeLayoutsPackTest extends \WP_UnitTestCase
         } finally {
             remove_filter($filter, '__return_true');
             \WPMCP\Tools\Code\Php_Snippet_Guard::set_environment_override(null);
+            if (is_multisite()) {
+                revoke_super_admin(get_current_user_id());
+            }
         }
     }
 
