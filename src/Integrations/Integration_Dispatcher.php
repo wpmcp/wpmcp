@@ -912,6 +912,7 @@ abstract class Integration_Dispatcher
                 sprintf('To switch on this operation alone instead, use %s', $per_op)
             ),
             [ 'operation' => $op, 'filter' => $pack_filter, 'per_operation_filter' => 'wpmcp_integration_op_enabled' ]
+            + (Opt_In_Required::admin_setting($pack_filter) ?? [])
         );
     }
 
