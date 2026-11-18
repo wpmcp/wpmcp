@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 0.9.1
+Stable tag: 1.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -126,6 +126,60 @@ OAuth is off by default. Clients configured with an application password (Claude
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 1.0.0 =
+The first full release. It closes the gaps found in the manual test pass: actions that cannot be undone need an explicit confirm in the call, writes refuse arguments they do not understand, and refusals say what is missing.
+
+Changes you will notice:
+* Destructive actions that cannot be undone run only when the call itself carries confirm:true. A client's own confirmation answer no longer counts, because a client set to skip permission prompts answers it by itself. This covers irreversible integration operations, the Wordfence IP block, unblock and scan issue ignore operations, delete-menu, delete-plugin, delete-theme, update-plugin, update-theme, import-content, call-rest writes, gateway-revoke, incident-response and the site health mail test (#886).
+* Integration write operations refuse arguments their schema does not list, with invalid_args naming the unknown and the accepted keys, instead of ignoring them and writing anyway (#956, #889).
+* delete-media (permanent deletes) and resize-media refuse when a file could not be backed up, naming the files. Pass allow_unrecoverable_files:true to go ahead; the result then reports files_recoverable:false and lists the files.
+* Elementor page writes refuse a page that has WordPress editor content and was never built in Elementor (not_an_elementor_page), because Elementor would hide that content. Blank pages are now marked as Elementor pages, so the write shows on the site (#868).
+* Theme layouts that run code (GeneratePress Premium elements with Execute PHP, Astra code editor layouts, Kadence HTML elements) cannot be published or given a location unless the site allows that code, and update-post, duplicate-post and the builder publish operations cannot publish them either (#890, #893).
+* New WP MCP > Opt-in operations screen (and a network screen on multisite) switches on the operation groups that are off by default, which could only be enabled in code before. All toggles start off, every change is audited, and a group already set in code shows as such (#823).
+
+Security fixes:
+* Generic post, meta and revision tools withhold the code stored in Kadence HTML elements and Astra code editor layouts and refuse to change it (code_layout), pointing to the layout operation instead (#893).
+* Oxygen Components need the publish permission, so a Contributor can no longer publish a site-wide Component (#947).
+* Elementor templates created by a user without the publish permission are saved as pending (#940).
+
+Privacy fixes:
+* get-option masks the logins of WP Mail SMTP and every UpdraftPlus remote storage, not only the passwords (#939).
+* BuddyPress activity lists mask every member an item names: friends, mentions, member links and member URLs (#941).
+* WooCommerce order lists mask refund reasons (#943).
+* Simple History list messages mask the usernames they contain; single reads stay complete (#948).
+* Form entry delete confirmations say the delete is not an erasure, because the undo snapshot keeps a copy until it is pruned. Contact Form 7 (Flamingo) and MetForm delete confirmations now carry this preview too (#946).
+
+Fixes:
+* Refusals name what is missing: the capability and the roles that carry it, the plugin to install or activate with a link, or that Application Passwords are switched off (#875, #876, #877, #883, #951). Anonymous callers are not told plugin or role names. WordPress 7.1 no longer logs an incorrect-usage notice for a denied call.
+* A full backup on a host with a PHP time limit is built in resumable steps, so large sites can finish a backup. get-backup-status shows its progress (#783).
+* A stopped restore no longer blocks the recovery restore it recommends, and a restore that completes after a stopped one says so (#860, #871).
+* Undo saves the restored builder layout on the revision it creates, so restoring that revision no longer brings the undone change back (#872).
+* Avada pages that also carry the WPBakery flag are detected as Avada (#861).
+* Elementor add-on widget summaries list shared controls once, so five JetElements widgets drop from about 259 KB to about 60 KB (#862, #878).
+* Elementor Pro header and footer templates warn when Divi or Extra's theme builder may clash with them (#870).
+* Divi 5: empty layouts read as empty, and catalog modules that need another plugin say which one and whether it is active (#836).
+* SureForms entry lists are scoped to the requested form, and Fluent Forms entry, form and notification lists return their rows (#944, #945).
+* WooCommerce list-orders no longer fails on refunds, and the sales report no longer counts refunds as orders (#942).
+* Email log redaction keeps ordinary words such as "Password Reset" readable while still hiding labelled values and codes (#953).
+* Action Scheduler: undoing a cancel keeps an identical twin action, and canceled actions report their scheduled time (#954, #955).
+* Pretty Links refuses a slug it would rewrite and suggests one instead (#950).
+* BetterDocs reports a trashed doc as trashed, with how to restore it (#873).
+* Code Snippets: update-snippet can rename and edit the details of HTML, CSS and JS snippets; code stays PHP only (#881).
+* Synced pattern operations use the block permissions, so Authors and Editors can use them on patterns they may edit (#952).
+* list-astra-hooks works over REST with Astra Pro (#894), module_disabled names the toggle Kadence Pro and Astra Pro show (#891), and draft theme layouts report their modified time (#888).
+* send-wp-mail-smtp-test without a recipient reports the transport and names the recipient argument (#887).
+* WP Activity Log messages read as plain text with the post fields filled in (#949).
+* MemberPress results say whether a rule is enforced, and undo lists posts it moved to the Trash (#822).
+* A WooCommerce write that cannot be fully undone says what undo restores and what it does not (#823).
+
+New:
+* Abilities screen: collapsible domains, search by name, and state and risk filters (#880).
+* WP MCP has its own icon in the wp-admin menu (#879).
+* Helpdesk get-ticket lists ticket and reply attachments for Fluent Support and Awesome Support: name, type, size and the plugin's own protected link, never file contents (#874).
+* bbPress topic tags on get-topic and list-topics, with a tag filter (#882).
+* Kadence element expiry settings in the layout operations (#892).
+* MemberPress update-rule adds or removes one access condition, and create-membership fills in the same defaults as wp-admin (#822).
 
 = 0.9.1 =
 This update tightens privacy and credential handling across many integrations and adds a dozen new ones.
@@ -941,6 +995,9 @@ Admin and tooling:
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 1.0.0 =
+First full release. Irreversible actions now need confirm:true in the call, writes refuse unknown arguments, and media deletes refuse when files cannot be backed up. Recommended for all sites.
 
 = 0.9.1 =
 Security update: masks personal data and credentials in many more reads, tightens permission checks and adds a dozen integrations. Recommended for all sites.
