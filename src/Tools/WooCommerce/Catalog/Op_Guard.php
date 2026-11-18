@@ -42,12 +42,23 @@ final class Op_Guard
     /**
      * Plugins a catalog row may need beside WooCommerce (its 'plugin'
      * key), by slug: the name a refusal gives and the plugin's main file,
-     * which tells an installed but inactive plugin from a missing one.
+     * which tells an installed but inactive plugin from a missing one
+     * ('files' lists every main file when any one of several plugins will do).
      */
     public const PLUGINS = [
         'woocommerce-subscriptions' => [ 'name' => 'WooCommerce Subscriptions', 'file' => 'woocommerce-subscriptions/woocommerce-subscriptions.php' ],
         'woocommerce-bookings'      => [ 'name' => 'WooCommerce Bookings', 'file' => 'woocommerce-bookings/woocommerce-bookings.php' ],
         'woocommerce-memberships'   => [ 'name' => 'WooCommerce Memberships', 'file' => 'woocommerce-memberships/woocommerce-memberships.php' ],
+        // Any one of three gateway plugins (issue #661), detected by its gateway id.
+        'payment-gateway-plugins'   => [
+            'name'  => 'WooCommerce Stripe, WooPayments or WooCommerce PayPal Payments',
+            'file'  => 'woocommerce-gateway-stripe/woocommerce-gateway-stripe.php',
+            'files' => [
+                'woocommerce-gateway-stripe/woocommerce-gateway-stripe.php',
+                'woocommerce-payments/woocommerce-payments.php',
+                'woocommerce-paypal-payments/woocommerce-paypal-payments.php',
+            ],
+        ],
     ];
 
     /** Whether the host plugin is loaded, mirroring Integration_Dispatcher. */
@@ -87,6 +98,9 @@ final class Op_Guard
         if ('woocommerce-memberships' === $plugin) {
             return Wc_User_Membership_Snapshot::is_active();
         }
+        if ('payment-gateway-plugins' === $plugin) {
+            return Gateway_Health::is_available();
+        }
         return false;
     }
 
@@ -102,7 +116,10 @@ final class Op_Guard
     {
         $slug      = (string) ($def['plugin'] ?? '');
         $plugin    = self::PLUGINS[ $slug ] ?? [ 'name' => $slug, 'file' => '' ];
-        $installed = '' !== $plugin['file'] && file_exists(WP_PLUGIN_DIR . '/' . $plugin['file']);
+        $installed = false;
+        foreach ($plugin['files'] ?? [ $plugin['file'] ] as $file) {
+            $installed = $installed || ('' !== $file && file_exists(WP_PLUGIN_DIR . '/' . $file));
+        }
 
         return self::error(
             $installed ? 'plugin_inactive' : 'plugin_missing',

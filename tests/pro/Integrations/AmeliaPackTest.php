@@ -90,6 +90,8 @@ class AmeliaPackTest extends \WP_UnitTestCase
     {
         parent::setUp();
         Snapshot_Store::install();
+        // Start from an empty undo history, whatever an earlier test left (issue #963).
+        $GLOBALS['wpdb']->query('DELETE FROM ' . Snapshot_Store::table_name());
         Gate::set_pro_for_tests(true);
         Amelia_Pack::use_api_for_tests(new Fake_Amelia_Api());
         Fake_Amelia_Api::$calls     = [];

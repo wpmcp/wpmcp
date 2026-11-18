@@ -293,15 +293,15 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
             if (in_array($ability->name, RegisteredAbilities::NETWORK_ONLY, true)) {
                 continue;
             }
+            // The description as the wire sends it: with the requirement
+            // suffix Tool_Annotations adds (issue #630), so the note is
+            // counted. _meta, like outputSchema, is for the client and is
+            // not counted.
             $tools[] = [
                 'name'        => $ability->name,
-                'description' => $ability->description,
+                'description' => \WPMCP\MCP\Tool_Annotations::described($ability->description, \WPMCP\MCP\Tool_Annotations::requires($ability)),
                 'inputSchema' => $ability->input_schema,
-                'annotations' => [
-                    'readOnlyHint'    => $ability->read_only_hint,
-                    'destructiveHint' => $ability->destructive_hint,
-                    'idempotentHint'  => $ability->idempotent_hint,
-                ],
+                'annotations' => \WPMCP\MCP\Tool_Annotations::annotations($ability),
             ];
         }
         return $tools;
