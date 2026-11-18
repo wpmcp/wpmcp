@@ -8,4 +8,3 @@
 # `bin/test-local.sh --parallel --prune-baseline`; it only ever removes.
 #
 # Seeded from a parallel run on 52f990d9, 2026-11-18 20:35 PKT.
-WPMCP\Tests\Free\Packages\DeactivatePluginTest::test_deactivates_normal_plugin_and_is_snapshotted

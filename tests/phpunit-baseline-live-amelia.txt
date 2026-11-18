@@ -8,12 +8,3 @@
 # `bin/test-local.sh --parallel --prune-baseline`; it only ever removes.
 #
 # Seeded from a parallel run on 52f990d9, 2026-11-18 20:35 PKT.
-WPMCP\Tests\Pro\Integrations\AmeliaLiveTest::test_a_booking_holds_the_customer_email_runs_ameliass_slot_checks_and_rolls_back_exactly
-WPMCP\Tests\Pro\Integrations\AmeliaLiveTest::test_amelias_customer_and_employee_roles_see_only_what_amelia_itself_shows_them
-WPMCP\Tests\Pro\Integrations\AmeliaLiveTest::test_an_erasure_reaches_amelias_rows_in_undo_snapshots_and_an_undo_keeps_them_erased
-WPMCP\Tests\Pro\Integrations\AmeliaLiveTest::test_customer_records_export_and_erase_on_ameliass_own_tables
-WPMCP\Tests\Pro\Integrations\AmeliaLiveTest::test_deletes_are_refused_while_in_use_and_otherwise_go_through_amelia_and_roll_back
-WPMCP\Tests\Pro\Integrations\AmeliaLiveTest::test_notify_true_lets_amelia_mail_the_customer
-WPMCP\Tests\Pro\Integrations\AmeliaLiveTest::test_reschedule_and_cancel_through_amelia_round_trip_daylight_saving_and_roll_back
-WPMCP\Tests\Pro\Integrations\AmeliaLiveTest::test_undoing_a_cancel_is_refused_once_the_slot_is_booked_again
-WPMCP\Tests\Pro\Integrations\AmeliaLiveTest::test_undoing_a_created_customer_service_category_or_employee_is_refused_once_booked

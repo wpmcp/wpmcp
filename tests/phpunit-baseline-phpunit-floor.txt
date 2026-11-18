@@ -9,8 +9,6 @@
 #
 # Seeded from a parallel run on 52f990d9, 2026-11-18 20:35 PKT.
 
-WPMCP\Tests\Free\Backup\RestoreSiteBackupAsyncTest::test_a_restore_whose_run_is_alive_still_blocks_a_second_one
-WPMCP\Tests\Free\Integrations\PluginDataIntegrationTest::test_jetengine_write_refuses_undefined_and_layout_fields
 WPMCP\Tests\Free\WooCommerce\ProductImportTest::test_a_failing_row_rolls_back_what_the_call_already_wrote
 WPMCP\Tests\Free\WooCommerce\ProductImportTest::test_apply_creates_and_updates_including_a_variable_product
 WPMCP\Tests\Free\WooCommerce\ProductImportTest::test_apply_updates_and_adds_variations_on_an_existing_variable_product
