@@ -1469,6 +1469,20 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The WP Offload Media ops (issue #701) are the paid add-on's, removed
+    // by policy.php. Their lines go first, so every edit below matches the
+    // file as it was before them.
+    [
+        " *  - Issue #701 adds the paid-tier WP Offload Media ops\n"
+            . " *    (Offload_Media_Pack): offload status, bucket and counts, and per\n"
+            . " *    attachment whether it is in the bucket and the URL the site serves.\n",
+        '',
+        1,
+    ],
+    [ "            || Offload_Media_Pack::active()\n", '', 1 ],
+    [ "            . ', WP Offload Media status'\n", '', 1 ],
+    [ "        \$groups[] = [ 'WP Offload Media', false, Offload_Media_Pack::operations() ];\n", '', 1 ],
+    [ "            Offload_Media_Pack::operations(),\n", '', 1 ],
     // The per-op plugin names of the paid packs (issue #815) go with them,
     // and so does their part of the summary; these lines go first, so the
     // pack edits below still match.
@@ -1694,9 +1708,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form and Everest Forms forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans'\n"
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form and Everest Forms forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans'\n"
             . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form and Everest Forms forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form and Everest Forms forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans';\n",
         1,
     ],
     [
