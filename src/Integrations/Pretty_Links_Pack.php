@@ -1,4 +1,5 @@
 <?php
+// Impact selection probe (PR measuring CI time; not to be merged).
 
 namespace WPMCP\Integrations;
 
