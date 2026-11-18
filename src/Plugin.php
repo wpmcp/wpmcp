@@ -1780,6 +1780,8 @@ final class Plugin
                     'media_id'   => [ 'type' => 'integer' ],
                     'sizes'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
                     'session_id' => [ 'type' => 'string' ],
+                    // Resize even when some files could not be backed up.
+                    'allow_unrecoverable_files' => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'media_id', 'sizes' ],
             ],

@@ -16,6 +16,9 @@ class ResizeMediaTest extends \WP_UnitTestCase
 {
     private int $media_id;
 
+    /** @var string[] */
+    private array $cleanup_paths = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -33,6 +36,11 @@ class ResizeMediaTest extends \WP_UnitTestCase
     protected function tearDown(): void
     {
         remove_image_size('wpmcp-spec-size');
+        foreach ($this->cleanup_paths as $path) {
+            if (is_file($path)) {
+                unlink($path);
+            }
+        }
         parent::tearDown();
     }
 
@@ -108,5 +116,79 @@ class ResizeMediaTest extends \WP_UnitTestCase
 
         $after = wp_get_attachment_metadata($this->media_id);
         $this->assertArrayNotHasKey('wpmcp-spec-size', (array) ($after['sizes'] ?? []));
+    }
+
+    /**
+     * Point the uploads base directory under a regular file so File_Backup
+     * cannot create its backup directory. The attachment keeps an absolute
+     * attached-file path, so its files are still found where they are.
+     */
+    private function make_backup_impossible(): void
+    {
+        update_post_meta($this->media_id, '_wp_attached_file', (string) get_attached_file($this->media_id));
+        $blocker               = (string) tempnam(sys_get_temp_dir(), 'wpmcp-blocker-');
+        $this->cleanup_paths[] = $blocker;
+        add_filter('upload_dir', static function (array $dirs) use ($blocker): array {
+            $dirs['basedir'] = $blocker . '/uploads';
+            return $dirs;
+        });
+    }
+
+    public function test_resize_is_refused_when_the_files_cannot_be_backed_up(): void
+    {
+        $main = (string) get_attached_file($this->media_id);
+        $this->make_backup_impossible();
+
+        $refusal = null;
+        try {
+            (new Resize_Media())->handle([
+                'media_id' => $this->media_id,
+                'sizes'    => ['wpmcp-spec-size'],
+            ]);
+        } catch (\RuntimeException $e) {
+            $refusal = $e;
+        }
+
+        $this->assertNotNull($refusal, 'A resize whose files cannot be backed up must be refused.');
+        $this->assertStringContainsString('allow_unrecoverable_files', $refusal->getMessage());
+        $this->assertStringContainsString(basename($main), $refusal->getMessage());
+
+        // Nothing changed: the size is not generated and the metadata is untouched.
+        $meta = wp_get_attachment_metadata($this->media_id);
+        $this->assertArrayNotHasKey('wpmcp-spec-size', (array) ($meta['sizes'] ?? []));
+    }
+
+    public function test_resize_with_failed_backup_reports_files_not_recoverable_when_allowed(): void
+    {
+        $main = (string) get_attached_file($this->media_id);
+        $this->make_backup_impossible();
+
+        $out = (new Resize_Media())->handle([
+            'media_id'                  => $this->media_id,
+            'sizes'                     => ['wpmcp-spec-size'],
+            'allow_unrecoverable_files' => true,
+        ]);
+        $this->cleanup_paths[] = dirname($main) . '/' . $out['sizes']['wpmcp-spec-size']['file'];
+
+        $this->assertArrayHasKey('wpmcp-spec-size', $out['sizes']);
+        $this->assertFalse($out['files_recoverable']);
+        $this->assertContains(basename($main), $out['unrecoverable_files']);
+        $this->assertArrayHasKey('warning', $out);
+
+        // The metadata is still snapshotted and restorable.
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+        $meta = wp_get_attachment_metadata($this->media_id);
+        $this->assertArrayNotHasKey('wpmcp-spec-size', (array) ($meta['sizes'] ?? []));
+    }
+
+    public function test_successful_backup_reports_files_recoverable(): void
+    {
+        $out = (new Resize_Media())->handle([
+            'media_id' => $this->media_id,
+            'sizes'    => ['wpmcp-spec-size'],
+        ]);
+
+        $this->assertTrue($out['files_recoverable']);
+        $this->assertArrayNotHasKey('unrecoverable_files', $out);
     }
 }
