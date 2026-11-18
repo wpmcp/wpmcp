@@ -157,7 +157,6 @@ final class Mailing_List_Remote
             'numberposts'      => Mailing_List_Pack::MAX_PER_PAGE,
             'orderby'          => 'ID',
             'order'            => 'ASC',
-            'suppress_filters' => true,
         ]);
         $out   = [];
         foreach ($posts as $post) {
