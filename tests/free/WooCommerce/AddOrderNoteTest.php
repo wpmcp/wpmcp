@@ -66,4 +66,24 @@ class AddOrderNoteTest extends \WP_UnitTestCase
         $this->expectException(\RuntimeException::class);
         (new Add_Order_Note())->handle(['id' => 999999, 'note' => 'hi']);
     }
+
+    /** #942: a refund id is not an order id; refuse it instead of a TypeError. */
+    public function test_refund_id_is_not_an_order(): void
+    {
+        if (! wpmcp_woocommerce_active()) {
+            $this->markTestSkipped('WooCommerce not active');
+        }
+
+        $order = wc_create_order();
+        $order->set_status('completed');
+        $order->set_total('10.00');
+        $order_id        = $order->save();
+        $this->created[] = $order_id;
+        $refund          = wc_create_refund([ 'order_id' => $order_id, 'amount' => '4.00' ]);
+        $this->assertInstanceOf(\WC_Order_Refund::class, $refund);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Order not found.');
+        (new Add_Order_Note())->handle(['id' => $refund->get_id(), 'note' => 'Hello']);
+    }
 }

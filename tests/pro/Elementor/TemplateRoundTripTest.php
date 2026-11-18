@@ -179,4 +179,56 @@ class TemplateRoundTripTest extends Structural_Harness
             $elements
         );
     }
+
+    /** A header envelope with no conditions, as Imran's #940 repro uses. */
+    private function header_envelope(): array
+    {
+        $source = self::factory()->post->create(['post_type' => 'elementor_library', 'post_title' => 'Header source']);
+        update_post_meta($source, '_elementor_template_type', 'header');
+        update_post_meta($source, '_elementor_data', wp_json_encode($this->default_tree()));
+
+        $export = (new Export_Template())->handle(['template_id' => $source]);
+        $this->assertIsArray($export);
+        unset($export['conditions']);
+        return $export;
+    }
+
+    /** #940: a caller without publish_posts gets a pending template, never a published one. */
+    public function test_contributor_import_creates_a_pending_template(): void
+    {
+        $export = $this->header_envelope();
+        wp_set_current_user(self::factory()->user->create(['role' => 'contributor']));
+
+        $imported = (new Import_Template())->handle(['export' => $export]);
+
+        $this->assertIsArray($imported);
+        $this->assertSame('pending', get_post_status((int) $imported['template_id']));
+        $this->assertSame('pending', $imported['status']);
+    }
+
+    /** #940: an administrator still gets a published template. */
+    public function test_admin_import_still_publishes(): void
+    {
+        $export = $this->header_envelope();
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+
+        $imported = (new Import_Template())->handle(['export' => $export]);
+
+        $this->assertIsArray($imported);
+        $this->assertSame('publish', get_post_status((int) $imported['template_id']));
+        $this->assertSame('publish', $imported['status']);
+    }
+
+    /** #940: the rule lives in create(), so every caller (popup, theme template, save-as) follows it, private included. */
+    public function test_create_without_publish_capability_is_pending_for_every_visibility(): void
+    {
+        wp_set_current_user(self::factory()->user->create(['role' => 'contributor']));
+
+        $public  = Elementor_Template_Data::create('Popup', 'popup', $this->default_tree());
+        $private = Elementor_Template_Data::create('Copy', 'page', $this->default_tree(), ['post_status' => 'private', 'post_password' => 'pw']);
+
+        $this->assertSame('pending', get_post_status((int) $public));
+        $this->assertSame('pending', get_post_status((int) $private));
+        $this->assertSame('pw', get_post((int) $private)->post_password);
+    }
 }

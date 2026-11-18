@@ -132,7 +132,8 @@ class Elementor_Template_Data
      *
      * $visibility is visibility_of() for a template copied from an existing
      * post; a template built from caller-supplied elements leaves it empty
-     * and is published without a password, as before.
+     * and is published without a password, as before. A caller without
+     * publish_posts for the library gets a pending template (issue #940).
      *
      * @param array{post_status?: string, post_password?: string} $visibility
      * @return int|\WP_Error the new template post id.
@@ -145,7 +146,7 @@ class Elementor_Template_Data
         $id = wp_insert_post(
             wp_slash([
                 'post_title'    => '' !== $title ? $title : __('Untitled template', 'wpmcp'),
-                'post_status'   => 'private' === ($visibility['post_status'] ?? '') ? 'private' : 'publish',
+                'post_status'   => self::creation_status($visibility),
                 'post_password' => (string) ($visibility['post_password'] ?? ''),
                 'post_type'     => self::POST_TYPE,
                 'meta_input'  => [
@@ -172,6 +173,25 @@ class Elementor_Template_Data
         }
 
         return $id;
+    }
+
+    /**
+     * The status a new template is created with (issue #940). A caller who
+     * cannot publish elementor_library posts gets `pending`, as wp-admin
+     * offers them only "Submit for review"; private needs the same capability
+     * in core, so it falls back to pending too. Otherwise the requested
+     * visibility: private when asked, publish by default.
+     *
+     * @param array{post_status?: string, post_password?: string} $visibility
+     */
+    private static function creation_status(array $visibility): string
+    {
+        $type = get_post_type_object(self::POST_TYPE);
+        $cap  = $type instanceof \WP_Post_Type ? (string) $type->cap->publish_posts : 'publish_posts';
+        if (! current_user_can($cap)) {
+            return 'pending';
+        }
+        return 'private' === ($visibility['post_status'] ?? '') ? 'private' : 'publish';
     }
 
     /**

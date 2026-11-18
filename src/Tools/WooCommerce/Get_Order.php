@@ -21,7 +21,8 @@ class Get_Order
         }
 
         $order = wc_get_order($id);
-        if (! $order) {
+        // A refund id resolves to a WC_Order_Refund, which is not an order (#942).
+        if (! $order instanceof \WC_Order) {
             throw new \RuntimeException('Order not found.');
         }
 

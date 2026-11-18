@@ -19,7 +19,10 @@ class List_Orders
         $per_page = max(1, min(100, (int) ($args['per_page'] ?? 20)));
         $page     = max(1, (int) ($args['page'] ?? 1));
 
+        // Refunds are stored as orders of type shop_order_refund; without the
+        // type they come back as rows (and break Order_View) and inflate total.
         $query_args = [
+            'type'     => 'shop_order',
             'limit'    => $per_page,
             'page'     => $page,
             'paginate' => true,

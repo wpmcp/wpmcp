@@ -88,4 +88,28 @@ class GetSalesReportTest extends \WP_UnitTestCase
         $this->assertEqualsWithDelta(0.0, (float) $out['gross_sales'], 0.001);
         $this->assertSame([], $out['top_products']);
     }
+
+    /** #942: a refund is not an order, so it must not count as one. */
+    public function test_refund_is_not_counted_as_an_order(): void
+    {
+        if (! wpmcp_woocommerce_active()) {
+            $this->markTestSkipped('WooCommerce not active');
+        }
+
+        $product_id = $this->product('10.00');
+        $order_id   = $this->completed_order($product_id, 2, '10.00');
+        $range      = [
+            'date_from' => gmdate('Y-m-d', strtotime('-1 day')),
+            'date_to'   => gmdate('Y-m-d', strtotime('+1 day')),
+        ];
+        $before = (new Get_Sales_Report())->handle($range);
+
+        $refund = wc_create_refund([ 'order_id' => $order_id, 'amount' => '5.00' ]);
+        $this->assertInstanceOf(\WC_Order_Refund::class, $refund);
+
+        $after = (new Get_Sales_Report())->handle($range);
+        $this->assertSame($before['order_count'], $after['order_count']);
+        $this->assertSame($before['items_sold'], $after['items_sold']);
+        $this->assertEqualsWithDelta((float) $before['gross_sales'], (float) $after['gross_sales'], 0.001);
+    }
 }

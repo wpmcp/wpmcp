@@ -91,6 +91,7 @@ class Import_Template
             'template_id'   => $template_id,
             'title'         => sanitize_text_field($title),
             'template_type' => Elementor_Template_Data::normalize_type($type),
+            'status'        => (string) get_post_status($template_id),
             'conditions'    => $conditions,
             'page_settings' => [] !== $page_settings,
         ];
