@@ -211,4 +211,17 @@ class TestGateTest extends TestCase
             $this->assertNotEmpty($leg['requires'], "licensed leg {$leg['id']} names the variables that enable it");
         }
     }
+
+    /**
+     * --parallel runs the same legs as the serial gate, so its plan is the
+     * serial plan; it refuses a targeted run, which is one process anyway.
+     */
+    public function test_the_parallel_gate_runs_the_serial_plan_and_refuses_a_targeted_run(): void
+    {
+        $this->assertSame($this->plan(), $this->plan('--parallel=4'));
+
+        exec('bash ' . escapeshellarg($this->repository() . '/bin/test-local.sh') . ' --parallel -- --filter Foo 2>&1', $output, $status);
+        $this->assertNotSame(0, $status);
+        $this->assertStringContainsString('targeted run', implode("\n", $output));
+    }
 }
