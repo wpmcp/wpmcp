@@ -298,6 +298,52 @@ class BlockSuitesLiveTest extends \WP_UnitTestCase
         $this->assert_edit_and_rollback('spectra', $id, $unique, '.uagb-block-', [ 'headingColor' => '#5e6f70' ], '#5e6f70', '#2b3c4d', $original);
     }
 
+    /**
+     * Issue #648: get-page-styles reads the CSS Spectra stored for the page,
+     * and rebuild-page-styles drops it so the next view builds it again.
+     */
+    public function test_spectra_page_styles_read_the_stored_css_and_rebuild_regenerates_it(): void
+    {
+        [ $id, $hash ] = $this->page();
+        [ $unique ]    = $this->insert('spectra', $id, $hash,
+            '<!-- wp:uagb/advanced-heading {"headingColor":"#3c4d5e"} -->'
+            . '<div class="wp-block-uagb-advanced-heading uagb-block-__UNIQUE_ID__"><h2 class="uagb-heading-text">Spectra styles</h2></div>'
+            . '<!-- /wp:uagb/advanced-heading -->');
+        $this->render($id);
+
+        $read   = fn (): array => (new Block_Suites_Integration())->handle_read([ 'operation' => 'get-page-styles', 'args' => [ 'suite' => 'spectra', 'id' => $id ] ]);
+        $styles = $read();
+        $this->assertArrayNotHasKey('error', $styles, (string) wp_json_encode($styles));
+        $this->assertTrue($styles['result']['cached'], 'Spectra stored the page assets: ' . (string) wp_json_encode($styles));
+        $this->assertRule((string) $styles['result']['css'], '.uagb-block-' . $unique, '#3c4d5e', 'the stored CSS is Spectra\'s for the block');
+
+        $out = $this->write('rebuild-page-styles', [ 'suite' => 'spectra', 'id' => $id ]);
+        $this->assertFalse($read()['result']['cached'], 'the cache is dropped');
+
+        $this->assertRule($this->css($this->render($id)), '.uagb-block-' . $unique, '#3c4d5e', 'the next view builds the CSS again');
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+    }
+
+    /**
+     * Issue #648: the settings ops use the option names the real plugins
+     * register and read.
+     */
+    public function test_block_suite_settings_round_trip_through_the_real_plugins(): void
+    {
+        add_filter('wpmcp_enable_block_suite_settings_write', '__return_true');
+        $this->assertArrayHasKey('kadence_blocks_settings', get_registered_settings(), 'Kadence Blocks registers the store');
+        $out = $this->write('update-settings', [ 'suite' => 'kadence-blocks', 'settings' => [ 'settings' => [ 'performance_optimizer_enabled' => false ] ] ]);
+        $read = (new Block_Suites_Integration())->handle_read([ 'operation' => 'get-settings', 'args' => [ 'suite' => 'kadence-blocks' ] ]);
+        $this->assertFalse($read['result']['settings']['settings']['performance_optimizer_enabled']);
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+
+        $out = $this->write('update-settings', [ 'suite' => 'spectra', 'settings' => [ 'enable_templates_button' => 'no' ] ]);
+        $this->assertSame('no', \UAGB_Admin_Helper::get_admin_settings_option('uag_enable_templates_button', 'yes'), 'Spectra reads the written value');
+        $this->assertTrue(Rollback_Service::restore_operation((string) $out['operation_id']));
+        $this->assertSame('yes', \UAGB_Admin_Helper::get_admin_settings_option('uag_enable_templates_button', 'yes'));
+        remove_all_filters('wpmcp_enable_block_suite_settings_write');
+    }
+
     public function test_otter_heading_renders_with_css_keyed_on_its_id_and_follows_edits(): void
     {
         [ $id, $hash ]  = $this->page();

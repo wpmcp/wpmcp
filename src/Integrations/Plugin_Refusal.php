@@ -60,6 +60,8 @@ final class Plugin_Refusal
         'ACF Pro'          => [ 'file' => 'advanced-custom-fields-pro/acf.php', 'url' => 'https://www.advancedcustomfields.com/pro/' ],
         'SeedProd'         => [ 'file' => 'coming-soon/coming-soon.php', 'slug' => 'coming-soon' ],
         'Under Construction' => [ 'file' => 'under-construction-page/under-construction.php', 'slug' => 'under-construction-page' ],
+        'Weglot'           => [ 'file' => 'weglot/weglot.php', 'slug' => 'weglot' ],
+        'GTranslate'       => [ 'file' => 'gtranslate/gtranslate.php', 'slug' => 'gtranslate' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */

@@ -1,0 +1,19 @@
+# The canary of the parallel gate (bin/test-local.sh --parallel): test files
+# run together in ONE PHPUnit process, in this order, on the default
+# WordPress. The gate's shards split the suite across processes, which hides
+# a test that only passes because of state an earlier test left behind (and
+# one that only fails because of it); a serial run hides the first kind for
+# good. Every file here was seen to pass or fail depending on what ran before
+# it; its known failures are in tests/phpunit-baseline-canary.txt.
+#
+# Add a file when a shard and a serial run disagree on it. Remove it once the
+# test sets up and tears down everything it relies on.
+#
+# Fails alone, passes in the serial suite: Akismet's deactivation hook makes
+# an unmocked request unless an earlier test left a mock behind.
+tests/free/Packages/DeactivatePluginTest.php
+# Passes alone and in the serial suite, fails after some shard neighbours.
+tests/free/Integrations/ActionSchedulerPackTest.php
+# Fail alone on multisite, pass in the serial multisite suite.
+tests/free/Content/CodePostGuardTest.php
+tests/pro/Integrations/ThemeLayoutsPackTest.php
