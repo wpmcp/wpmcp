@@ -30,7 +30,7 @@ class ImpactSrcScannersTest extends TestCase
                     }
                 }
             }
-            $found = array_map(static fn (string $p): string => basename($p, '.php'), wpmcp_src_scanning_tests($tests));
+            $found = array_map(static fn (string $p): string => basename($p, '.php'), ci_src_scanning_tests($tests));
         } finally {
             chdir((string) $cwd);
         }
