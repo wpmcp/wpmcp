@@ -150,4 +150,65 @@ class TestGateTest extends TestCase
 
         $this->assertMatchesRegularExpression('#^exec bin/test-local\.sh </dev/null$#m', $hook);
     }
+
+    /**
+     * bin/legs.tsv is the leg list the plain run, the parallel mode and CI all
+     * read: every live group in the tests has a leg, and each leg's tests
+     * column names exactly the files that carry its groups.
+     */
+    public function test_the_leg_table_names_the_files_of_every_live_group(): void
+    {
+        $root  = $this->repository();
+        $files = [];
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/tests', \FilesystemIterator::SKIP_DOTS));
+        foreach ($iterator as $file) {
+            if (! str_ends_with((string) $file, 'Test.php')) {
+                continue;
+            }
+            preg_match_all('/@group\s+([a-z0-9-]+-live)\b/', (string) file_get_contents((string) $file), $m);
+            foreach (array_unique($m[1]) as $group) {
+                $files[$group][] = substr((string) $file, strlen($root) + 1);
+            }
+        }
+
+        $seen = [];
+        foreach (file($root . '/bin/legs.tsv', FILE_IGNORE_NEW_LINES) as $line) {
+            if ($line === '' || $line[0] === '#') {
+                continue;
+            }
+            $cols = explode("\t", $line);
+            $this->assertCount(8, $cols, "bin/legs.tsv row needs 8 tab-separated columns: {$line}");
+            if ($cols[5] === '-') {
+                continue;
+            }
+            $want = [];
+            foreach (explode(',', $cols[5]) as $group) {
+                $this->assertArrayHasKey($group, $files, "leg {$cols[0]} names group {$group}, which no test carries");
+                $want = array_merge($want, $files[$group]);
+                $seen[$group] = true;
+            }
+            $want = array_values(array_unique($want));
+            $have = explode(',', $cols[7]);
+            sort($want);
+            sort($have);
+            $this->assertSame($want, $have, "the tests column of leg {$cols[0]}");
+        }
+
+        foreach (array_keys($files) as $group) {
+            $this->assertArrayHasKey($group, $seen, "no leg in bin/legs.tsv runs the {$group} group");
+        }
+    }
+
+    public function test_the_leg_table_lists_as_json_by_tier(): void
+    {
+        exec('bash ' . escapeshellarg($this->repository() . '/bin/test-local.sh') . ' --list-legs=licensed --json 2>&1', $output, $status);
+        $this->assertSame(0, $status, implode("\n", $output));
+        $legs = json_decode(implode("\n", $output), true);
+        $this->assertIsArray($legs);
+        $this->assertNotEmpty($legs);
+        foreach ($legs as $leg) {
+            $this->assertSame('licensed', $leg['tier']);
+            $this->assertNotEmpty($leg['requires'], "licensed leg {$leg['id']} names the variables that enable it");
+        }
+    }
 }
