@@ -1846,9 +1846,42 @@ $edits['src/Tools/Dispatch/Get_Tool_Schema.php'] = [
     [
         "            // A Pro tool on an unlicensed install says so (issue #631),\n"
             . "            // and a tool whose plugin is not active names it (issue #790).\n"
-            . "            return \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+            . "            \$refusal = \$registrar->pro_required(\$name) ?? \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name);\n",
         "            // A tool whose plugin is not active names it (issue #790).\n"
-            . "            return \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name) ?? new \\WP_Error(\n",
+            . "            \$refusal = \$registrar->governance_disabled(\$name) ?? \$registrar->plugin_inactive(\$name);\n",
+        1,
+    ],
+];
+
+// The availability report (issue #629) has no paid tier to count here: the
+// paid abilities are not in this build, so the bucket and its group go.
+$edits['src/MCP/Tool_Availability.php'] = [
+    [
+        "            if (! Registrar::tier_permitted(\$ability->tier)) {\n"
+            . "                \$pro[ \$ability->domain ] = ( \$pro[ \$ability->domain ] ?? 0 ) + 1;\n"
+            . "                continue;\n"
+            . "            }\n",
+        '',
+        1,
+    ],
+    [
+        "        if ([] !== \$pro) {\n"
+            . "            ksort(\$pro);\n"
+            . "            \$count    = array_sum(\$pro);\n"
+            . "            \$groups[] = [\n"
+            . "                'reason'  => 'pro_required',\n"
+            . "                'label'   => sprintf('%d Pro tools: needs a WP MCP Pro license', \$count),\n"
+            . "                'count'   => \$count,\n"
+            . "                'domains' => \$pro,\n"
+            . "                'action'  => 'Activate a WP MCP Pro license on this site.' . Pro_Refusal::upgrade_sentence(),\n"
+            . "            ];\n"
+            . "        }\n",
+        '',
+        1,
+    ],
+    [
+        "        \$pro         = [];\n",
+        '',
         1,
     ],
 ];

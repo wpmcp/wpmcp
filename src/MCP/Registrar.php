@@ -416,6 +416,16 @@ class Registrar
     }
 
     /**
+     * The plugin a domain's tools need, by name, when it is not loaded, or
+     * null when it is loaded or the domain needs none (issue #629: the
+     * availability report names it).
+     */
+    public static function missing_domain_plugin(string $domain): ?string
+    {
+        return self::plugin_loaded($domain) ? null : self::PLUGIN_DOMAINS[ $domain ]['name'];
+    }
+
+    /**
      * The refusal for a tool whose plugin is not active (issue #631), or
      * null when the plugin is loaded or the tool needs none. Asked twice:
      * after a permission denial, because a plugin never installed leaves no
@@ -630,6 +640,22 @@ class Registrar
     public function hold_for_plugin(Ability $a, string $plugin, bool $several = false, array $operations = [], ?\Closure $unknown_operation = null): void
     {
         $this->held_for_plugin[ $a->name ] = [ 'ability' => $a, 'plugin' => $plugin, 'several' => $several, 'operations' => $operations, 'unknown_operation' => $unknown_operation ];
+    }
+
+    /**
+     * Every ability held back because its plugin is not active (issue
+     * #790), keyed by name, with the plugin to name. Read-only; for the
+     * availability report (issue #629).
+     *
+     * @return array<string, array{ability: Ability, plugin: string, several: bool}>
+     */
+    public function held(): array
+    {
+        $held = [];
+        foreach ($this->held_for_plugin as $name => $entry) {
+            $held[ $name ] = [ 'ability' => $entry['ability'], 'plugin' => $entry['plugin'], 'several' => $entry['several'] ];
+        }
+        return $held;
     }
 
     /**

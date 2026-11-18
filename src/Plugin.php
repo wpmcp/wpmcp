@@ -9670,13 +9670,14 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-tools',
             'free',
-            'List every tool: name, summary, domain, operation, tier. Filters: domain, search (as list-tool-catalog). full:true adds descriptions and MCP annotations; schemas: get-tool-schema. Read-only. Compact mode: finds unlisted tools',
+            'List tools: name, summary, domain, operation, tier. Filters: domain, search. full:true adds descriptions, annotations; include_unavailable:true, what cannot run and why. Schemas: get-tool-schema. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
                     'domain' => [ 'type' => 'string' ],
                     'full'   => [ 'type' => 'boolean' ],
                     'search' => [ 'type' => 'string' ],
+                    'include_unavailable' => [ 'type' => 'boolean' ],
                 ],
             ],
             [$list_tools, 'handle'],
@@ -9687,7 +9688,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-tool-schema',
             'free',
-            'Read one wpmcp tool\'s full contract by name: exact input schema, complete description, MCP annotations and domain/operation/tier. Read-only; list-tools finds names',
+            'One tool\'s contract by name: input schema, description, annotations, domain/operation/tier, availability. Read-only; list-tools finds names',
             [
                 'type'       => 'object',
                 'properties' => [

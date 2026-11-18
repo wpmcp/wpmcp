@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Connect;
 
 use WPMCP\MCP\Registrar;
+use WPMCP\MCP\Tool_Availability;
 use WPMCP\MCP\Tool_Search;
 use WPMCP\Plugin;
 
@@ -29,6 +30,9 @@ if (! defined('ABSPATH')) {
  * search (issue #732) keeps only the tools whose name, description or
  * operation names contain the term (Tool_Search); a dispatcher pair matched
  * through its ops lists them as matched_operations.
+ *
+ * unavailable (issue #629) is the Tool_Availability report list-tools
+ * serves with include_unavailable: what this site cannot run, and why.
  */
 class List_Tool_Catalog
 {
@@ -79,6 +83,7 @@ class List_Tool_Catalog
             'domains' => $domains,
             'summary' => $summary,
             'total'   => array_sum($summary),
+            'unavailable' => Tool_Availability::report($registrar),
         ];
     }
 }

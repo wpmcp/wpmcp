@@ -53,7 +53,7 @@ class Handshake_Instructions
             $parts[] = $admin;
         }
 
-        $parts[] = $this->can_view_site_context() ? $this->auto_summary() : $this->safety_line();
+        $parts[] = $this->can_view_site_context() ? $this->auto_summary() : $this->safety_line() . $this->availability_line();
 
         $memory = $this->memory_block();
         if ('' !== $memory) {
@@ -142,7 +142,22 @@ class Handshake_Instructions
             $name,
             $this->active_builder(),
             $this->safety_line()
-        );
+        ) . $this->availability_line();
+    }
+
+    /**
+     * The one line that tells an agent some tools are unavailable here and
+     * how to find out which (issue #629), with a leading space, or '' when
+     * every declared tool is available. Names no site data, so it rides
+     * along in both the summary and the safety-only answer.
+     */
+    public function availability_line(): string
+    {
+        try {
+            return Tool_Availability::any() ? ' ' . Tool_Availability::HANDSHAKE_LINE : '';
+        } catch (\Throwable $e) {
+            return '';
+        }
     }
 
     /**

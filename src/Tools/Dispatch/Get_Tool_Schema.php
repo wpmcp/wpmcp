@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Dispatch;
 
+use WPMCP\MCP\Tool_Availability;
 use WPMCP\Plugin;
 
 if (! defined('ABSPATH')) {
@@ -15,6 +16,11 @@ if (! defined('ABSPATH')) {
  * annotation hints, and classification - so an agent on the compact surface
  * can fetch a schema on demand instead of paying for 160+ schemas in every
  * tools/list.
+ *
+ * Every answer carries an availability block (issue #629): available, the
+ * plugin a registered tool's domain still needs, hidden_compact in compact
+ * mode, or, for a hidden tool, the refusal's reason code (and plugin) in the
+ * error data next to the refusal itself.
  */
 class Get_Tool_Schema
 {
@@ -34,10 +40,17 @@ class Get_Tool_Schema
             // A tool governance switched off says so (issue #772).
             // A Pro tool on an unlicensed install says so (issue #631),
             // and a tool whose plugin is not active names it (issue #790).
-            return $registrar->pro_required($name) ?? $registrar->governance_disabled($name) ?? $registrar->plugin_inactive($name) ?? new \WP_Error(
-                'wpmcp_get_tool_schema_unknown',
-                sprintf('No wpmcp tool named "%s" is registered on this site. Use wpmcp/list-tools to discover names.', $name)
-            );
+            $refusal = $registrar->pro_required($name) ?? $registrar->governance_disabled($name) ?? $registrar->plugin_inactive($name);
+            if (null === $refusal) {
+                return new \WP_Error(
+                    'wpmcp_get_tool_schema_unknown',
+                    sprintf('No wpmcp tool named "%s" is registered on this site. Use wpmcp/list-tools to discover names.', $name)
+                );
+            }
+            $data = $refusal->get_error_data();
+            $refusal->add_data((is_array($data) ? $data : []) + [ 'availability' => Tool_Availability::for_refusal($refusal) ]);
+
+            return $refusal;
         }
 
         return [
@@ -52,6 +65,7 @@ class Get_Tool_Schema
             'domain'       => $ability->domain,
             'operation'    => $ability->operation,
             'tier'         => $ability->tier,
+            'availability' => Tool_Availability::for_registered($ability),
         ];
     }
 }
