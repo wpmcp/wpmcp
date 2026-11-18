@@ -2810,7 +2810,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/incident-response',
             'free',
-            'list-app-passwords (no secrets); revoke-app-password (uuid or all); end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files (files scan-security flags, from the checksum-verified official package, never wp-content; undo: rollback-operation). Writes need confirm:true. Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords). Your session and app password stay unless include_current. Other users take edit_users',
+            'list-app-passwords (no secrets); revoke-app-password (uuid or all); list-sessions (one user, masked, no tokens); end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files (files scan-security flags, from the checksum-verified official package, never wp-content; undo: rollback-operation). Writes need confirm:true. Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords). Your session and app password stay unless include_current. Other users take edit_users',
             [
                 'type'       => 'object',
                 'properties' => [
