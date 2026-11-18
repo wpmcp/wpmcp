@@ -5974,6 +5974,20 @@ final class Plugin
     }
 
     /**
+     * The `source` argument of get-analytics-summary and get-top-pages
+     * (issue #699): Site Kit or one of the stats plugins.
+     *
+     * @return array<string,mixed>
+     */
+    private static function analytics_source_schema(): array
+    {
+        return [
+            'type' => 'string',
+            'enum' => [ 'site-kit', 'independent-analytics', 'burst', 'wp-statistics', 'monsterinsights', 'jetpack' ],
+        ];
+    }
+
+    /**
      * Register the analytics/Search Console reporting tools as free-tier
      * abilities (issue #49).
      *
@@ -6041,12 +6055,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-analytics-summary',
             'free',
-            'Read-only sessions/users/pageviews summary over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider. Errors when no provider is connected',
+            'Read-only sessions/users/pageviews summary over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider, or the stats plugin named in source (default: first active). Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
                     'start_date' => [ 'type' => 'string' ],
                     'end_date'   => [ 'type' => 'string' ],
+                    'source'     => self::analytics_source_schema(),
                 ],
             ],
             [$get_analytics_summary, 'handle'],
@@ -6058,13 +6073,14 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-top-pages',
             'free',
-            'Read-only list of top pages by pageviews over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider; limit default 10, max 100. Errors when no provider is connected',
+            'Read-only list of top pages by pageviews over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider or the stats plugin named in source; limit default 10, max 100. Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
                     'start_date' => [ 'type' => 'string' ],
                     'end_date'   => [ 'type' => 'string' ],
                     'limit'      => [ 'type' => 'integer' ],
+                    'source'     => self::analytics_source_schema(),
                 ],
             ],
             [$get_top_pages, 'handle'],
