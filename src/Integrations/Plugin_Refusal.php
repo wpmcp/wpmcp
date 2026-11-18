@@ -29,6 +29,7 @@ final class Plugin_Refusal
         'WP Mail SMTP'     => [ 'file' => 'wp-mail-smtp/wp_mail_smtp.php', 'slug' => 'wp-mail-smtp' ],
         'Amelia'           => [ 'file' => 'ameliabooking/ameliabooking.php', 'slug' => 'ameliabooking' ],
         'FunnelKit'        => [ 'file' => 'funnel-builder/funnel-builder.php', 'slug' => 'funnel-builder' ],
+        'WPFunnels'        => [ 'file' => 'wpfunnels/wpfnl.php', 'slug' => 'wpfunnels' ],
         'Duplicator'       => [ 'file' => 'duplicator/duplicator.php', 'slug' => 'duplicator' ],
         'TablePress'       => [ 'file' => 'tablepress/tablepress.php', 'slug' => 'tablepress' ],
         'MemberPress'      => [ 'file' => 'memberpress/memberpress.php', 'url' => 'https://memberpress.com/' ],

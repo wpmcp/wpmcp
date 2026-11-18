@@ -1429,9 +1429,10 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
 // file is removed by policy.php, so the line that merges their ops into the
 // theme pair, the docblock sentence describing them, and the rollback hook
 // that refreshes one suite's cache all leave with it. The dynamic template
-// ops (issue #290), the FunnelKit funnel reads (issue #356) and the core
-// personal data request ops (issue #714) leave through the same two edits:
-// their files are removed by policy.php too.
+// ops (issue #290), the FunnelKit funnel reads (issue #356), the core
+// personal data request ops (issue #714) and the WPFunnels ops (issue #834)
+// leave through the same two edits: their files are removed by policy.php
+// too.
 $edits['src/Integrations/Theme_Integration.php'] = [
     [
         "            Redirection_Pack::operations(),\n"
@@ -1439,6 +1440,7 @@ $edits['src/Integrations/Theme_Integration.php'] = [
             . "            Elementor_Addon_Packs::operations(),\n"
             . "            FunnelKit_Pack::operations(),\n"
             . "            Core_Privacy_Pack::operations(),\n"
+            . "            WPFunnels_Pack::operations(),\n"
             . "            \\WPMCP\\Tools\\ThemeBuilder\\Dynamic\\Dynamic_Template_Ops::operations()\n",
         "            Redirection_Pack::operations(),\n            Rank_Math_Redirects_Pack::operations()\n",
         1,
@@ -1455,7 +1457,10 @@ $edits['src/Integrations/Theme_Integration.php'] = [
             . "     * which answer funnelkit_inactive while FunnelKit is not loaded.\n"
             . "     * Issue #714 adds the paid-tier WordPress core personal data request\n"
             . "     * ops (Core_Privacy_Pack): requests listed and read, export and erasure\n"
-            . "     * requests filed and marked complete, every write undoable.\n",
+            . "     * requests filed and marked complete, every write undoable.\n"
+            . "     * Issue #834 adds the paid-tier WPFunnels funnel, step and checkout\n"
+            . "     * product ops (WPFunnels_Pack), which answer plugin_missing or\n"
+            . "     * plugin_inactive while WPFunnels is not loaded.\n",
         "     * catalog only while that family is active.\n",
         1,
     ],

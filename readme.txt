@@ -45,6 +45,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * WPGraphQL (read): run GraphQL queries as the signed-in user, with mutations refused and emails, phones and IPs masked, and summarise the schema
 * WP Mail SMTP: the active mailer and from identity with credentials never returned, the Pro email log, a test send to your own address, and an undoable from name and address change
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
+* With Pro, WPFunnels funnels with their steps in order and checkout products, and undoable funnel create, rename, publish or draft and checkout product changes (off until the site turns them on)
 * With Pro, Tutor LMS, LifterLMS and LearnDash: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read); LearnDash also lists a learner's courses with progress and can enroll, unenroll or reset progress (off until the site turns them on), each undoable
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * With Pro, BetterDocs: knowledge base docs and categories (read, and undoable doc creates and edits)

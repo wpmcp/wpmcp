@@ -283,6 +283,9 @@ class Theme_Integration extends Integration_Dispatcher
      * Issue #714 adds the paid-tier WordPress core personal data request
      * ops (Core_Privacy_Pack): requests listed and read, export and erasure
      * requests filed and marked complete, every write undoable.
+     * Issue #834 adds the paid-tier WPFunnels funnel, step and checkout
+     * product ops (WPFunnels_Pack), which answer plugin_missing or
+     * plugin_inactive while WPFunnels is not loaded.
      *
      * Issue #300 adds the Redirection plugin adapter (Redirection_Pack):
      * free redirect and group reads plus snapshotted redirect writes that
@@ -319,6 +322,7 @@ class Theme_Integration extends Integration_Dispatcher
             Elementor_Addon_Packs::operations(),
             FunnelKit_Pack::operations(),
             Core_Privacy_Pack::operations(),
+            WPFunnels_Pack::operations(),
             \WPMCP\Tools\ThemeBuilder\Dynamic\Dynamic_Template_Ops::operations()
         );
     }
