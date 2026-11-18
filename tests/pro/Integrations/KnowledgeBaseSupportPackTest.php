@@ -43,6 +43,9 @@ class KnowledgeBaseSupportPackTest extends \WP_UnitTestCase
 
     private Fake_Awesome_Support $awesome;
 
+    /** @var string[] files a test uploaded, removed in tearDown */
+    private array $uploads = [];
+
     public static function wpSetUpBeforeClass(): void
     {
         wpmcp_test_create_fluent_support_tables();
@@ -75,6 +78,10 @@ class KnowledgeBaseSupportPackTest extends \WP_UnitTestCase
 
     protected function tearDown(): void
     {
+        foreach ($this->uploads as $file) {
+            wp_delete_file($file);
+        }
+        $this->uploads = [];
         Helpdesk_Pack::use_adapters_for_tests(null);
         foreach (self::PRESENCE as $filter) {
             remove_all_filters($filter);
@@ -348,6 +355,62 @@ class KnowledgeBaseSupportPackTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString('secret-hash', (string) wp_json_encode($ticket), 'the public ticket hash is never returned');
     }
 
+    private function fs_attachment(int $ticket, ?int $conversation, string $title, string $status = 'active'): string
+    {
+        global $wpdb;
+        $hash = md5($title . $status . wp_rand());
+        $wpdb->insert($wpdb->prefix . 'fs_attachments', [
+            'ticket_id'       => $ticket,
+            'conversation_id' => $conversation,
+            'person_id'       => 1,
+            'file_type'       => 'image/jpeg',
+            'file_path'       => '/var/www/wp-content/uploads/fluent-support/ticket_' . $ticket . '/' . $title,
+            'full_url'        => 'https://example.org/wp-content/uploads/fluent-support/ticket_' . $ticket . '/' . $title,
+            'title'           => $title,
+            'file_hash'       => $hash,
+            'driver'          => 'local',
+            'status'          => $status,
+            'file_size'       => '20480',
+            'created_at'      => '2026-11-01 10:00:00',
+        ]);
+        return $hash;
+    }
+
+    /** Issue #874: files on the ticket and on each reply are listed, read only, with the link Fluent Support guards. */
+    public function test_fluent_get_ticket_lists_the_files_on_the_ticket_and_on_each_reply(): void
+    {
+        $ticket = $this->fs_ticket('active');
+        $reply  = $this->fs_thread($ticket)[0];
+        $opened = $this->fs_attachment($ticket, null, 'images-2.jpg');
+        $later  = $this->fs_attachment($ticket, $reply, 'debug.log');
+        $this->fs_attachment($ticket, $reply, 'pasted.png', 'inline');
+        $this->fs_attachment($ticket, null, 'gone.jpg', 'deleting');
+        $this->fs_attachment($ticket, null, 'draft.jpg', 'in-active');
+
+        $got = $this->ok($this->read('fluent-support-get-ticket', [ 'ticket_id' => $ticket ]))['ticket'];
+        $this->assertCount(1, $got['attachments'], 'only the files Fluent Support shows on its ticket screen (status active)');
+        $file = $got['attachments'][0];
+        $this->assertSame('images-2.jpg', $file['name']);
+        $this->assertSame('image/jpeg', $file['type']);
+        $this->assertSame(20480, $file['size']);
+        $this->assertSame(add_query_arg([ 'fst_file' => $opened ], site_url('/index.php')), $file['url'], 'the unsigned link: Fluent Support checks who opens it');
+        $this->assertSame([ 'debug.log' ], array_column($got['thread'][0]['attachments'], 'name'));
+        $this->assertStringContainsString($later, $got['thread'][0]['attachments'][0]['url']);
+
+        $json = (string) wp_json_encode($got);
+        foreach ([ 'secure_sign', 'expires=', '/var/www', 'wp-content/uploads', 'file_path', 'full_url' ] as $leak) {
+            $this->assertStringNotContainsString($leak, $json, "no signed link, storage path or direct upload URL ({$leak})");
+        }
+    }
+
+    public function test_fluent_get_ticket_without_files_returns_empty_attachment_lists(): void
+    {
+        $ticket = $this->fs_ticket();
+        $got    = $this->ok($this->read('fluent-support-get-ticket', [ 'ticket_id' => $ticket ]))['ticket'];
+        $this->assertSame([], $got['attachments']);
+        $this->assertSame([], $got['thread'][0]['attachments']);
+    }
+
     public function test_fluent_reads_refuse_a_user_who_is_not_an_agent(): void
     {
         $ticket = $this->fs_ticket();
@@ -474,6 +537,41 @@ class KnowledgeBaseSupportPackTest extends \WP_UnitTestCase
         $this->assertMatchesRegularExpression('/^sam\.smith\d+@example\.org$/', $ticket['customer']['email']);
         $this->assertSame('Any news?', $ticket['thread'][0]['content']);
         $this->assertSame('customer', $ticket['thread'][0]['by']['type']);
+    }
+
+    private function as_attachment(int $parent, string $file, string $mime): int
+    {
+        $upload = wp_upload_bits($file, null, str_repeat('x', 1500));
+        $this->assertSame(false, $upload['error']);
+        $this->uploads[] = (string) $upload['file'];
+        $id = self::factory()->attachment->create_object((string) $upload['file'], $parent, [ 'post_mime_type' => $mime, 'post_title' => preg_replace('/\.[^.]+$/', '', $file), 'guid' => (string) $upload['url'] ]);
+        return (int) $id;
+    }
+
+    /** Issue #874: Awesome Support keeps files as attachment posts under the ticket or the reply. */
+    public function test_awesome_get_ticket_lists_the_files_on_the_ticket_and_on_each_reply(): void
+    {
+        $ticket = $this->as_ticket();
+        $reply  = get_posts([ 'post_type' => 'ticket_reply', 'post_parent' => $ticket, 'post_status' => 'any', 'fields' => 'ids' ])[0];
+        $opened = $this->as_attachment($ticket, 'screenshot-874.png', 'image/png');
+        $later  = $this->as_attachment($reply, 'error-874.txt', 'text/plain');
+
+        $got  = $this->ok($this->read('awesome-support-get-ticket', [ 'ticket_id' => $ticket ]))['ticket'];
+        $file = $got['attachments'][0] ?? [];
+        $this->assertSame([ $opened ], array_column($got['attachments'], 'id'));
+        $this->assertSame('screenshot-874.png', $file['name']);
+        $this->assertSame('image/png', $file['type']);
+        $this->assertSame(1500, $file['size']);
+        $this->assertSame(add_query_arg([ 'wpas-attachment' => $opened ], home_url()), $file['url'], 'the masked link Awesome Support checks the viewer on');
+        $this->assertSame([ $later ], array_column($got['thread'][0]['attachments'], 'id'));
+        $this->assertStringNotContainsString('wp-content/uploads', (string) wp_json_encode($got), 'never the direct upload URL');
+    }
+
+    public function test_awesome_get_ticket_without_files_returns_empty_attachment_lists(): void
+    {
+        $got = $this->ok($this->read('awesome-support-get-ticket', [ 'ticket_id' => $this->as_ticket() ]))['ticket'];
+        $this->assertSame([], $got['attachments']);
+        $this->assertSame([], $got['thread'][0]['attachments']);
     }
 
     public function test_an_awesome_agent_who_may_not_see_all_sees_only_assigned_tickets(): void

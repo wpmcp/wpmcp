@@ -21,7 +21,8 @@ if (! defined('ABSPATH')) {
  * own activity lines and are not returned. Reads are kept to what Awesome
  * Support lets the current agent see: every ticket when it lets them see
  * all (wpas_can_user_see_all_tickets()), otherwise the tickets they are
- * assigned to.
+ * assigned to. Files are attachment posts under the ticket or the reply
+ * (attachments()).
  *
  * Writes go through its own functions as the current user: wpas_add_reply()
  * for a reply (its wpas_add_reply_complete hook emails the customer),
@@ -221,6 +222,8 @@ class Helpdesk_Awesome_Support extends Helpdesk_Adapter
         $ticket = $this->ticket_row($post) + [ 'content' => (string) $post->post_content ];
         $total  = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'ticket_reply' AND post_status <> 'trash'", $id));
         $rows   = (array) $wpdb->get_results($wpdb->prepare("SELECT ID, post_author, post_content, post_status, post_date FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'ticket_reply' AND post_status <> 'trash' ORDER BY post_date ASC, ID ASC LIMIT %d OFFSET %d", $id, $per_page, ($page - 1) * $per_page), ARRAY_A);
+        $files  = self::attachments(array_merge([ $id ], array_map('intval', array_column($rows, 'ID'))));
+        $ticket['attachments'] = $files[ $id ] ?? [];
         $thread = [];
         foreach ($rows as $row) {
             $by = self::person((int) $row['post_author']);
@@ -229,15 +232,61 @@ class Helpdesk_Awesome_Support extends Helpdesk_Adapter
                 $by['type'] = (int) $row['post_author'] === (int) $post->post_author ? 'customer' : 'agent';
             }
             $thread[] = [
-                'id'      => (int) $row['ID'],
-                'type'    => 'reply',
-                'by'      => $by,
-                'content' => (string) $row['post_content'],
-                'read'    => 'read' === $row['post_status'],
-                'date'    => (string) $row['post_date'],
+                'id'          => (int) $row['ID'],
+                'type'        => 'reply',
+                'by'          => $by,
+                'content'     => (string) $row['post_content'],
+                'read'        => 'read' === $row['post_status'],
+                'date'        => (string) $row['post_date'],
+                'attachments' => $files[ (int) $row['ID'] ] ?? [],
             ];
         }
         return $ticket + [ 'thread' => $thread, 'thread_total' => $total ];
+    }
+
+    /**
+     * The files on the given ticket and replies (keyed by that post id):
+     * Awesome Support keeps each one as an attachment post (status inherit)
+     * whose parent is the ticket or the reply. The name is the original file
+     * name it recorded in wpas_original_files where it renamed the upload.
+     * The url is always its masked wpas-attachment link, which it serves
+     * only to someone wpas_can_view_ticket() lets see the ticket; the direct
+     * upload URL is never returned, even where the site unmasks links.
+     *
+     * @param int[] $parents
+     * @return array<int, array<int, array{id: int, name: string, type: string, size: int|null, url: string, date: string}>>
+     */
+    private static function attachments(array $parents): array
+    {
+        $posts = get_posts([
+            'post_type'        => 'attachment',
+            'post_status'      => 'inherit',
+            'post_parent__in'  => $parents,
+            'posts_per_page'   => -1,
+            'orderby'          => 'ID',
+            'order'            => 'ASC',
+            'no_found_rows'    => true,
+        ]);
+        $names = (array) get_option('wpas_original_files', []);
+        $out   = [];
+        foreach ($posts as $post) {
+            $path = (string) get_attached_file($post->ID);
+            $file = wp_basename('' !== $path ? $path : (string) $post->guid);
+            $size = '' !== $path && file_exists($path) ? (int) filesize($path) : null;
+            if (null === $size) {
+                $meta = wp_get_attachment_metadata($post->ID);
+                $size = is_array($meta) && isset($meta['filesize']) ? (int) $meta['filesize'] : null;
+            }
+            $out[ (int) $post->post_parent ][] = [
+                'id'   => (int) $post->ID,
+                'name' => isset($names[ $file ]) && is_string($names[ $file ]) ? $names[ $file ] : $file,
+                'type' => (string) $post->post_mime_type,
+                'size' => $size,
+                'url'  => add_query_arg([ 'wpas-attachment' => (int) $post->ID ], home_url()),
+                'date' => (string) $post->post_date,
+            ];
+        }
+        return $out;
     }
 
     protected function customer_email(int $id): string
