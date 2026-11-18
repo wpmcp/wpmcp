@@ -51,6 +51,8 @@ final class Plugin_Refusal
         'Code Snippets'    => [ 'file' => 'code-snippets/code-snippets.php', 'slug' => 'code-snippets' ],
         'bbPress'          => [ 'file' => 'bbpress/bbpress.php', 'slug' => 'bbpress' ],
         'BuddyPress'       => [ 'file' => 'buddypress/bp-loader.php', 'slug' => 'buddypress' ],
+        'wpForo'           => [ 'file' => 'wpforo/wpforo.php', 'slug' => 'wpforo' ],
+        'Asgaros Forum'    => [ 'file' => 'asgaros-forum/asgaros-forum.php', 'slug' => 'asgaros-forum' ],
         'JetEngine'        => [ 'file' => 'jet-engine/jet-engine.php', 'url' => 'https://crocoblock.com/plugins/jetengine/' ],
         'Pods'             => [ 'file' => 'pods/init.php', 'slug' => 'pods' ],
         'TranslatePress'   => [ 'file' => 'translatepress-multilingual/index.php', 'slug' => 'translatepress-multilingual' ],

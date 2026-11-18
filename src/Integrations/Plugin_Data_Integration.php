@@ -90,6 +90,13 @@ if (! defined('ABSPATH')) {
  *    and pending actions canceled (undoable, as an 'action_scheduler'
  *    snapshot) or run now (not undoable, confirm:true), both off until
  *    wpmcp_enable_action_scheduler_write.
+ *  - Issue #671 adds the forum ops beside bbPress's, named the same way:
+ *    wpForo forums, topics and replies read, topics closed, opened and
+ *    moved (WpForo_Pack), and Asgaros Forum forums, topics and replies
+ *    read, topics and replies posted, topics moderated and moved, and
+ *    replies deleted (Asgaros_Forum_Pack), every write off until
+ *    wpmcp_enable_wpforo_write or wpmcp_enable_asgaros_write and each
+ *    snapshotted as 'plugin_table_rows' images.
  *  - Issue #666 adds read-only WP Simple Pay payment forms (Simple_Pay_Pack:
  *    status, test or live mode, display type, prices) and Paid Member
  *    Subscriptions plans and members (Paid_Member_Subscriptions_Pack,
@@ -120,7 +127,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Site_Reviews_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Site_Reviews_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || WpForo_Pack::active() || Asgaros_Forum_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
@@ -140,7 +147,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans, wpForo and Asgaros Forum forums'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
@@ -174,6 +181,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'Site Reviews', false, Site_Reviews_Pack::operations() ],
             [ 'WP Simple Pay', false, Simple_Pay_Pack::operations() ],
             [ 'Paid Member Subscriptions', false, Paid_Member_Subscriptions_Pack::operations() ],
+            [ 'wpForo', false, WpForo_Pack::operations() ],
+            [ 'Asgaros Forum', false, Asgaros_Forum_Pack::operations() ],
         ];
         foreach (LMS_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
@@ -221,6 +230,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Site_Reviews_Pack::operations(),
             Simple_Pay_Pack::operations(),
             Paid_Member_Subscriptions_Pack::operations(),
+            WpForo_Pack::operations(),
+            Asgaros_Forum_Pack::operations(),
             BuddyPress_Pack::operations(),
             LMS_Pack::operations(),
             TablePress_Pack::operations(),

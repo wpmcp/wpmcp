@@ -35,6 +35,8 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
         'wpmcp_check_email_active',
         'wpmcp_email_log_active',
         'wpmcp_weglot_active',
+        'wpmcp_wpforo_active',
+        'wpmcp_asgaros_active',
         'wpmcp_gtranslate_active',
     ];
 
