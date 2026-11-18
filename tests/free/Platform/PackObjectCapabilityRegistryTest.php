@@ -218,6 +218,11 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
         'fluentforms:list-fields:form_id'                      => 'a Fluent Forms form row',
         'fluentforms:list-notifications:form_id'               => 'a Fluent Forms form row',
         'fluentforms:list-entries:form_id'                     => 'a Fluent Forms form row',
+        'plugin-data:learnpress-add-lesson:parent_id'          => 'a LearnPress section, a row of its own learnpress_sections table rather than a post; the op checks edit_post on the course it belongs to',
+        'plugin-data:learnpress-add-quiz:parent_id'            => 'a LearnPress section, a row of its own learnpress_sections table rather than a post; the op checks edit_post on the course it belongs to',
+        'plugin-data:learnpress-update-item:section_id'        => 'a LearnPress section, a row of its own learnpress_sections table rather than a post; the op checks edit_post on the course it belongs to',
+        'plugin-data:learnpress-move-item:section_id'          => 'a LearnPress section, a row of its own learnpress_sections table rather than a post; the op checks edit_post on the course it belongs to',
+        'plugin-data:learnpress-move-item:parent_id'           => 'a LearnPress section, a row of its own learnpress_sections table rather than a post; the op checks edit_post on the course it belongs to',
     ];
 
     private string $granted = '';
