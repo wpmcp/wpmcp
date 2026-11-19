@@ -56,10 +56,9 @@ it is). The flavor readme's `Contributors:` line is `fahdi`.
 **Slug to request:** `wp-mcp-for-woocommerce`. Free on the plugins API on
 20 Nov 2026; `mcp-for-woocommerce` belongs to another author, so expect the
 similar-name warning at submission. The zip's directory and the text domain
-are both `wp-mcp-for-woocommerce`. The main file keeps the name
-`wpmcp-for-woocommerce.php`, because `src/flavor-guard.php` reads only main
-files named `wpmcp*.php` when it decides which WP MCP build boots; nothing
-requires the main file to match the slug.
+are both `wp-mcp-for-woocommerce`, and so is the main file,
+`wp-mcp-for-woocommerce.php` (the compliance engine reads the slug from the
+main file's name and checks the text domain against it).
 
 **Listing name** (the `Plugin Name` header and the readme title):
 

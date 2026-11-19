@@ -348,7 +348,7 @@ class FlavorTest extends \WP_UnitTestCase
         $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-woo-prune-' . uniqid('', true) . '/wp-mcp-for-woocommerce';
         $this->assertTrue(mkdir($stage, 0777, true), 'could not create the staging directory');
         $this->copy_tree($root . '/src', $stage . '/src');
-        foreach (['wpmcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
+        foreach (['wp-mcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
             file_put_contents(
                 $stage . '/' . $rendered,
                 str_replace('{{VERSION}}', '0.0.0', (string) file_get_contents($root . '/scripts/flavors/woocommerce/' . $rendered))

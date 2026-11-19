@@ -87,6 +87,17 @@ return [
             ],
         ],
         'src/Plugin.php' => [
+            // src/Integrations is pruned from this flavor, and this boot-time
+            // call fataled every request of the vertical on activation (found
+            // installing the zip for issue #1140). The Query Monitor pack it
+            // serves never ships here.
+            [
+                "            // The page request get-query-monitor-page-profile loads with a\n"
+                    . "            // one-time token (issue #703); a no-op on every other request.\n"
+                    . "            \\WPMCP\\Integrations\\Query_Monitor_Status::register();\n",
+                '',
+                1,
+            ],
             ["            'code'           => fn () => \$this->register_code_abilities(\$registrar),\n", '', 1],
             // The handler instances of the registrations removed above.
             [

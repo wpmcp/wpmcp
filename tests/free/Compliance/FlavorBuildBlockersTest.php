@@ -211,10 +211,9 @@ class FlavorBuildBlockersTest extends Compliance_Test_Case
     private static function staged_tree(string $flavor): string
     {
         $root  = self::repo_root();
-        // The vertical's directory is its wp.org slug; its main file keeps
-        // the wpmcp-prefixed name src/flavor-guard.php looks for (#1140).
+        // The vertical's directory and main file carry its wp.org slug (#1140).
         $slug  = 'woocommerce' === $flavor ? 'wp-mcp-for-woocommerce' : 'wpmcp';
-        $main  = 'woocommerce' === $flavor ? 'wpmcp-for-woocommerce.php' : 'wpmcp.php';
+        $main  = 'woocommerce' === $flavor ? 'wp-mcp-for-woocommerce.php' : 'wpmcp.php';
         $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-flavor-' . $flavor . '-' . uniqid('', true) . '/' . $slug;
         if (! mkdir($stage, 0777, true)) {
             self::fail('could not create the staging directory');

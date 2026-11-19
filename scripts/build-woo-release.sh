@@ -31,13 +31,15 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(sed -n "s/^define( 'WPMCP_VERSION', '\([0-9.]*\)' );/\1/p" "$ROOT/wpmcp.php")"
 [ -n "$VERSION" ] || { echo "could not read WPMCP_VERSION from wpmcp.php" >&2; exit 1; }
 
-# The wp.org slug, and so the zip's directory and the i18n text domain
-# (issue #1140: "wpmcp-for-woocommerce" was never submitted, and
-# "mcp-for-woocommerce" belongs to another author). The main file keeps its
-# wpmcp-prefixed name: src/flavor-guard.php only reads the headers of active
-# plugins whose main file is named wpmcp*.php.
+# The wp.org slug, and so the zip's directory, the main file and the i18n
+# text domain (issue #1140: "wpmcp-for-woocommerce" was never submitted, and
+# "mcp-for-woocommerce" belongs to another author). The compliance engine
+# derives the slug from the main file's name, as wp.org's text-domain check
+# expects them to agree. src/flavor-guard.php reads only main files named
+# wpmcp*.php, so a full or directory build never reads this one; that is
+# harmless, because a higher-ranked build never defers to this flavor.
 SLUG="wp-mcp-for-woocommerce"
-MAIN="wpmcp-for-woocommerce.php"
+MAIN="$SLUG.php"
 STAGE_PARENT="$(mktemp -d)"
 STAGE="$STAGE_PARENT/$SLUG"
 trap 'rm -rf "$STAGE_PARENT"' EXIT

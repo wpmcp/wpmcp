@@ -307,7 +307,7 @@ class WooNarrowingTest extends \WP_UnitTestCase
             copy($root . '/' . $file, $stage . '/' . $file);
         }
         self::copy_tree($root . '/src', $stage . '/src');
-        foreach (['wpmcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
+        foreach (['wp-mcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
             file_put_contents(
                 $stage . '/' . $rendered,
                 str_replace('{{VERSION}}', '0.0.0-test', (string) file_get_contents($flavor . '/' . $rendered))
