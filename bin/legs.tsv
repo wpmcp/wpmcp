@@ -28,7 +28,7 @@ drift	drift	static	-	-	-	-	-
 phpunit-default	phpunit	suite	default	floor	-	-	-
 phpunit-floor	phpunit	suite	floor	none	-	-	-
 multisite	multisite	suite	default	none	-	-	-
-live-forms	live-forms	free	default	-	forms-live	-	tests/free/Integrations/ContactForm7LiveTest.php,tests/free/Integrations/FluentFormsLiveTest.php,tests/free/Integrations/FormidableLiveTest.php,tests/free/Integrations/ForminatorLiveTest.php,tests/free/Integrations/NinjaFormsLiveTest.php,tests/free/Integrations/SureFormsLiveTest.php,tests/free/Integrations/WPFormsLiveTest.php
+live-forms	live-forms	free	default	-	forms-live	-	tests/free/Integrations/ContactForm7LiveTest.php,tests/free/Integrations/EverestFormsLiveTest.php,tests/free/Integrations/FluentFormsLiveTest.php,tests/free/Integrations/FormidableLiveTest.php,tests/free/Integrations/ForminatorLiveTest.php,tests/free/Integrations/NinjaFormsLiveTest.php,tests/free/Integrations/SureFormsLiveTest.php,tests/free/Integrations/WPFormsLiveTest.php
 live-blocks	live-blocks	free	default	-	blocks-live	-	tests/pro/Integrations/BlockSuitesLiveTest.php
 live-buddypress	live-buddypress	free	default	-	buddypress-live	-	tests/free/Integrations/BuddyPressLiveTest.php,tests/free/Integrations/BuddyPressPrivateGroupLiveTest.php
 live-bbpress	live-bbpress	free	default	-	bbpress-live	-	tests/free/Integrations/BbPressLiveTest.php

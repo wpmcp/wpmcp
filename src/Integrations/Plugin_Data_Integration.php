@@ -31,6 +31,10 @@ if (! defined('ABSPATH')) {
  *    actions and email notifications, submissions listed with every value
  *    masked and read one at a time in full, and status changes and deletes
  *    (off until a site opts in), each under a db_rows before-image.
+ *    It also adds the Everest Forms ops (Everest_Forms_Pack) on the same
+ *    shape: forms, fields and email notifications, entries listed masked
+ *    and read one at a time, spam, starred and read changes and deletes
+ *    (off until wpmcp_enable_everest_forms_write), each undoable.
  *  - Issue #682 adds the link management ops: Pretty Links links
  *    (Pretty_Links_Pack, rows of its prli_links table) and ThirstyAffiliates
  *    links (Thirsty_Affiliates_Pack, thirstylink posts), read with click
@@ -136,7 +140,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Everest_Forms_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || Offload_Media_Pack::active()
             || TablePress_Pack::active()
@@ -158,7 +162,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form and Everest Forms forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', WP Offload Media status'
             . ', FluentCRM and MailPoet'
@@ -186,6 +190,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'Code Snippets', false, Code_Snippets_Pack::operations() ],
             [ 'BuddyPress, BuddyBoss Platform', true, BuddyPress_Pack::operations() ],
             [ 'WS Form', false, WS_Form_Pack::operations() ],
+            [ 'Everest Forms', false, Everest_Forms_Pack::operations() ],
             [ 'WP Activity Log, Simple History', true, Activity_Log_Pack::operations() ],
             [ 'Action Scheduler', false, Action_Scheduler_Pack::operations() ],
             [ 'WP Mail Logging, Check and Log Email, Email Log', true, Email_Log_Pack::operations() ],
@@ -237,6 +242,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             TranslatePress_Pack::operations(),
             Code_Snippets_Pack::operations(),
             WS_Form_Pack::operations(),
+            Everest_Forms_Pack::operations(),
             Activity_Log_Pack::operations(),
             Action_Scheduler_Pack::operations(),
             Email_Log_Pack::operations(),
