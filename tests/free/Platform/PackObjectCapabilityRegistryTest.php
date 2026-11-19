@@ -64,6 +64,8 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
         'plugin-data:activitylog-list-activity:object_id' => 'an activity log event row (or a user or post id used as a filter) in the plugin\'s own table, behind manage_options (the logs hold personal data, masked in lists)',
         'plugin-data:activitylog-get-activity:id' => 'an activity log event row (or a user or post id used as a filter) in the plugin\'s own table, behind manage_options (the logs hold personal data, masked in lists)',
         'plugin-data:sitereviews-list-reviews:assigned_post_id' => 'a post id used only as a filter over Site Reviews\' own assignment table; the reviews listed are kept to the ones the caller may read',
+        'plugin-data:surecart-get-product:product_id' => 'a SureCart product in SureCart\'s cloud store, behind manage_options (SureCart\'s own product screens take it)',
+        'plugin-data:surecart-update-product:product_id' => 'a SureCart product in SureCart\'s cloud store, behind manage_options (SureCart\'s own product screens take it)',
         'plugin-data:rcp-list-members:level_id' => 'a Restrict Content membership level row used only as a filter over its own memberships table, behind manage_options (the plugin grants its member screens to administrators)',
         'plugin-data:rcp-update-membership-level:level_id' => 'a Restrict Content membership level row in its own table, behind manage_options (the plugin grants its level screens to administrators)',
         'plugin-data:edd-list-orders:customer_id' => 'an Easy Digital Downloads customer row used only as a filter over its own orders table, behind manage_options (buyer emails are masked in lists)',

@@ -179,6 +179,8 @@ return [
         'src/Integrations/Theme_Layouts_Astra.php',
         'src/Integrations/Theme_Layouts_Kadence.php',
         'src/Integrations/Theme_Layouts_GeneratePress.php',
+        'src/Integrations/Theme_Layouts_Hfe.php',
+        'src/Integrations/Theme_Layouts_Target_Rules.php',
         // The Blocksy Companion extension ops (issue #650), paid-tier.
         // strip.php takes out the merge and the rollback refresh in
         // Theme_Framework_Pack.
@@ -271,6 +273,10 @@ return [
         // the ops and count the pack towards availability. The option
         // snapshot it writes is generic and needs no plugin class.
         'src/Integrations/Translation_Settings_Pack.php',
+        // SureCart store data (issue #665), paid-tier. strip.php takes out
+        // its lines in Plugin_Data_Integration; SureCart_Api and
+        // SureCart_Snapshot in src/Safety stay for the rollback core.
+        'src/Integrations/SureCart_Pack.php',
         // Checkout Field Editor for WooCommerce checkout fields (issue #660),
         // paid-tier. strip.php takes out its lines in Plugin_Data_Integration;
         // the option snapshot it writes is generic.
@@ -307,6 +313,8 @@ return [
         // Its Spectra library source (issue #364), the only path that
         // reaches websitedemos.net.
         'src/Integrations/Block_Suite_Spectra_Library.php',
+        // Otter Blocks settings and page styles (issue #647).
+        'src/Integrations/Block_Suite_Otter.php',
         // Its Kadence Blocks and Spectra settings and page CSS ops (issue #648).
         'src/Integrations/Block_Suite_Settings.php',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the
