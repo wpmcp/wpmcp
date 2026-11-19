@@ -137,6 +137,17 @@ return [
         // ship as a free skill instructing an agent to call tools that do not
         // exist. A skill the reader cannot follow is worse than no skill.
         'src/Skills/library/wpmcp-elementor-editing',
+        // The paid-tier integration playbooks (issue #850). Each describes
+        // operations this build does not register, so they leave whole like
+        // the Elementor one; the router's lines naming them go in strip.php.
+        'src/Skills/library/integrations/page-builders',
+        'src/Skills/library/integrations/lms',
+        'src/Skills/library/integrations/crm',
+        'src/Skills/library/integrations/page-translation',
+        'src/Skills/library/integrations/tablepress',
+        'src/Skills/library/integrations/bookings',
+        'src/Skills/library/integrations/memberpress',
+        'src/Skills/library/integrations/funnels',
         // Brand kits (issue #75). Every class under here is reachable only
         // from register_brand_kit_abilities, which this build deletes, and the
         // kit library itself is data rather than a free feature, so the

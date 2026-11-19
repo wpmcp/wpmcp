@@ -66,7 +66,7 @@ class WporgStripTest extends \WP_UnitTestCase
     public function test_no_shipped_document_names_an_ability_the_cut_lacks(): void
     {
         $stage      = self::stripped_stage();
-        $registered = array_flip(self::registered_in_cut());
+        $registered = array_flip(array_merge(self::registered_in_cut(), self::dispatcher_pairs_in_cut()));
 
         $docs = array_filter(
             array_merge(
@@ -184,6 +184,30 @@ class WporgStripTest extends \WP_UnitTestCase
         }
 
         return array_keys($names);
+    }
+
+    /**
+     * The dispatcher pairs the cut ships (issue #850): each
+     * Integration_Dispatcher registers wpmcp/<integration()>-read and -write
+     * from its slug rather than as a literal, so ABILITY_RE cannot see them.
+     *
+     * @return string[]
+     */
+    private static function dispatcher_pairs_in_cut(): array
+    {
+        $names = [];
+        foreach (self::staged_files(self::stripped_stage() . '/src') as $path) {
+            if ('php' !== pathinfo($path, PATHINFO_EXTENSION)) {
+                continue;
+            }
+            preg_match_all('/function\s+integration\(\)\s*:\s*string\s*\{\s*return\s+[\'"]([a-z0-9-]+)[\'"];/', (string) file_get_contents($path), $matches);
+            foreach ($matches[1] as $slug) {
+                $names[] = 'wpmcp/' . $slug . '-read';
+                $names[] = 'wpmcp/' . $slug . '-write';
+            }
+        }
+
+        return $names;
     }
 
     /** @return string[] every ability the manifest tiers 'pro'. */

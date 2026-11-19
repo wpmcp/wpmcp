@@ -2,6 +2,7 @@
 
 namespace WPMCP\Skills;
 
+use WPMCP\Plugin;
 use WPMCP\Pro\Gate;
 
 if (! defined('ABSPATH')) {
@@ -40,6 +41,16 @@ if (! defined('ABSPATH')) {
  *    call. Availability is read from the live Abilities registry, i.e. the
  *    same source of truth tools/list is built from.
  *
+ *  - ANY-OF AVAILABILITY FOR INTEGRATIONS (issue #850). A skill may also
+ *    declare `requires_any`: entries that are an ability name or an
+ *    operation of a dispatcher pair written `<ability>#<operation>`. The
+ *    skill is available when at least one entry is met, so one LMS skill
+ *    shows on a site running any of Tutor LMS, LifterLMS or LearnDash and
+ *    stays hidden on a site running none. An operation entry is met when
+ *    the pair is registered and its catalog lists the operation with its
+ *    own plugin active (dependency_met). The pair is read duck-typed through
+ *    its handler's catalog(), so this file names no integration class.
+ *
  *  - TIERING IS PER SKILL, NOT PER SURFACE. The tools and the starter
  *    library are free. A skill declaring `tier: pro` is still listed (an
  *    agent can see it exists) but its body is withheld through Pro\Gate
@@ -70,11 +81,18 @@ class Skill_Library
     /** @var array<int, array{path: string, errors: string[]}> */
     private static array $invalid = [];
 
+    /** @var array<string, array<string, bool>|null> ability => op => dependency met, per index build. */
+    private static array $operation_cache = [];
+
+    /** Shape of one `requires_any` entry: an ability, optionally `#operation`. */
+    public const REQUIREMENT_PATTERN = '~^[a-z0-9-]+/[a-z0-9-]+(?:#[a-z0-9-]+)?$~';
+
     /** Drop the memoized index. Used by tests and by the admin screen after a change. */
     public static function reset(): void
     {
-        self::$index   = null;
-        self::$invalid = [];
+        self::$index           = null;
+        self::$invalid         = [];
+        self::$operation_cache = [];
     }
 
     /** The bundled starter library shipped inside the plugin. */
@@ -289,13 +307,22 @@ class Skill_Library
             $errors[] = 'invalid_tier';
         }
 
-        foreach (['tags', 'requires'] as $list_key) {
+        foreach (['tags', 'requires', 'requires_any'] as $list_key) {
             if (! array_key_exists($list_key, $frontmatter)) {
                 continue;
             }
             $list = $frontmatter[ $list_key ];
             if (! is_array($list) || $list !== array_filter($list, 'is_string')) {
                 $errors[] = 'invalid_' . $list_key;
+            }
+        }
+
+        if (is_array($frontmatter['requires_any'] ?? null) && ! in_array('invalid_requires_any', $errors, true)) {
+            foreach ($frontmatter['requires_any'] as $entry) {
+                if (! is_string($entry) || ! preg_match(self::REQUIREMENT_PATTERN, trim($entry))) {
+                    $errors[] = 'invalid_requires_any';
+                    break;
+                }
             }
         }
 
@@ -323,11 +350,14 @@ class Skill_Library
             'tier'        => $record['tier'],
             'tags'        => $record['tags'],
             'source'      => $record['source'],
-            'available'   => [] === $record['missing_abilities'],
+            'available'   => [] === $record['missing_abilities'] && [] === $record['missing_any'],
         ];
 
         if ([] !== $record['missing_abilities']) {
             $entry['missing_abilities'] = $record['missing_abilities'];
+        }
+        if ([] !== $record['missing_any']) {
+            $entry['missing_any'] = $record['missing_any'];
         }
         if (self::is_locked($record)) {
             $entry['locked'] = true;
@@ -366,6 +396,7 @@ class Skill_Library
 
         $front    = $parsed['frontmatter'];
         $requires = self::string_list($front['requires'] ?? []);
+        $any      = self::string_list($front['requires_any'] ?? []);
 
         return [
             'slug'              => $slug,
@@ -376,6 +407,8 @@ class Skill_Library
             'tags'              => self::string_list($front['tags'] ?? []),
             'requires'          => $requires,
             'missing_abilities' => self::missing_abilities($requires),
+            'requires_any'      => $any,
+            'missing_any'       => self::missing_any($any),
             'source'            => $source['id'],
             'body'              => $parsed['body'],
         ];
@@ -405,6 +438,71 @@ class Skill_Library
         }
 
         return $missing;
+    }
+
+    /**
+     * The `requires_any` entries of a skill when none of them is met on this
+     * site, else an empty list (one met entry is enough).
+     *
+     * @param string[] $entries
+     * @return string[]
+     */
+    private static function missing_any(array $entries): array
+    {
+        foreach ($entries as $entry) {
+            if (self::requirement_met($entry)) {
+                return [];
+            }
+        }
+
+        return $entries;
+    }
+
+    /** Whether one `requires_any` entry (ability, or ability#operation) is met here. */
+    private static function requirement_met(string $entry): bool
+    {
+        if (false === strpos($entry, '#')) {
+            return [] === self::missing_abilities([ $entry ]);
+        }
+
+        [ $ability, $operation ] = explode('#', $entry, 2);
+        $operations              = self::operations_of($ability);
+
+        return true === ($operations[ $operation ] ?? false);
+    }
+
+    /**
+     * Operation => dependency met for one registered dispatcher pair, read
+     * from its handler's catalog(); empty when the ability is not registered
+     * on this site or has no operations.
+     *
+     * @return array<string, bool>
+     */
+    private static function operations_of(string $ability): array
+    {
+        if (array_key_exists($ability, self::$operation_cache)) {
+            return self::$operation_cache[ $ability ] ?? [];
+        }
+
+        $operations = [];
+        $registered = Plugin::instance()->registrar()->get($ability);
+        $handler    = null === $registered ? null : $registered->handler;
+        if (is_array($handler) && isset($handler[0]) && is_object($handler[0]) && method_exists($handler[0], 'catalog')) {
+            try {
+                $catalog = $handler[0]->catalog();
+            } catch (\Throwable $e) {
+                $catalog = [];
+            }
+            foreach ((array) ($catalog['operations'] ?? []) as $op) {
+                if (is_array($op) && isset($op['name'])) {
+                    $operations[ (string) $op['name'] ] = true === ($op['dependency_met'] ?? false);
+                }
+            }
+        }
+
+        self::$operation_cache[ $ability ] = $operations;
+
+        return $operations;
     }
 
     /**

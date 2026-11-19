@@ -276,6 +276,11 @@ class Discovery_Documents
             if ('free' !== ($record['tier'] ?? 'free') || Skill_Library::is_locked($record)) {
                 continue;
             }
+            // Issue #850: a skill shown only while a given plugin is active
+            // would tell an anonymous reader which plugins the site runs.
+            if ([] !== (array) ($record['requires_any'] ?? [])) {
+                continue;
+            }
 
             $requires = array_values((array) ($record['requires'] ?? []));
             foreach ($requires as $tool) {

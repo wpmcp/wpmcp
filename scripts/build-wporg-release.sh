@@ -315,6 +315,10 @@ foreach ($it as $f) {
     if ($f->getExtension() !== "php") { continue; }
     preg_match_all("/new\\s+Ability\\(\\s*\\n\\s*[\\x27\"]([^\\x27\"]+)[\\x27\"]/", file_get_contents($f->getPathname()), $m);
     foreach ($m[1] as $name) { $registered[$name] = true; }
+    // A dispatcher pair is registered by Integration_Dispatcher::abilities()
+    // as wpmcp/<integration()>-read and -write, not as a literal (#850).
+    preg_match_all("/function\\s+integration\\(\\)\\s*:\\s*string\\s*\\{\\s*return\\s+[\\x27\"]([a-z0-9-]+)[\\x27\"];/", file_get_contents($f->getPathname()), $m);
+    foreach ($m[1] as $slug) { $registered["wpmcp/" . $slug . "-read"] = true; $registered["wpmcp/" . $slug . "-write"] = true; }
 }
 $docs = array_merge(
     (array) glob($stage . "/src/Skills/library/*/SKILL.md"),
