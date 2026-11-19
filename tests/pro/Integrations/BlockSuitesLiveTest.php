@@ -457,4 +457,36 @@ class BlockSuitesLiveTest extends \WP_UnitTestCase
         $this->assertRule($css, $prefix . $unique, $old, $suite . ' serves the original style after the rollback');
         $this->assertStringNotContainsString($new, $css, $suite . ' no longer serves the edited style after the rollback');
     }
+
+    /**
+     * Issue #647: the Otter settings ops agree with the options and defaults
+     * the real Otter registers, and rebuild-otter-page-styles has Otter
+     * write the page's stylesheet again with the block's style in it.
+     */
+    public function test_otter_settings_match_its_registered_defaults_and_rebuild_writes_the_stylesheet(): void
+    {
+        $registered = get_registered_settings();
+        $out        = (new Block_Suites_Integration())->handle_read([ 'operation' => 'get-otter-settings', 'args' => [] ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        foreach ([ 'features', 'settings' ] as $group) {
+            foreach ($out['result'][ $group ] as $key => $value) {
+                $option = 'disabled_blocks' === $key ? 'themeisle_disabled_blocks' : 'themeisle_blocks_settings_' . $key;
+                $this->assertArrayHasKey($option, $registered, 'Otter registers ' . $option);
+                if (is_bool($value) && false === get_option($option, false)) {
+                    $this->assertSame((bool) $registered[ $option ]['default'], $value, $option . ' reads as Otter\'s default');
+                }
+            }
+        }
+
+        [ $id, $hash ] = $this->page();
+        $this->insert('otter-blocks', $id, $hash,
+            '<!-- wp:themeisle-blocks/advanced-heading {"headingColor":"#2b3c4d"} -->'
+            . '<h2 id="__UNIQUE_ID__" class="wp-block-themeisle-blocks-advanced-heading">Otter rebuild</h2>'
+            . '<!-- /wp:themeisle-blocks/advanced-heading -->');
+        $out = $this->write('rebuild-otter-page-styles', [ 'id' => $id ]);
+        $this->assertTrue($out['result']['rebuilt'], 'Otter\'s CSS handler generated the stylesheet');
+        $this->assertTrue($out['result']['file_exists'], (string) wp_json_encode($out['result']));
+        $this->assertStringContainsString('#2b3c4d', strtolower($out['result']['css']));
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+    }
 }
