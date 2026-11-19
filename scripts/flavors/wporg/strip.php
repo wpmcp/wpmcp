@@ -1407,14 +1407,25 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
     // The theme add-on layout ops (issue #656): their files are removed by
     // policy.php, so the merge and the docblock lines naming them leave too.
     [
-        "        return array_merge(self::settings_operations(\$framework), Theme_Layouts_Pack::operations(\$framework));\n",
+        "        return array_merge(self::settings_operations(\$framework), Theme_Layouts_Pack::operations(\$framework), Theme_Blocksy_Extensions::operations(\$framework));\n",
         "        return self::settings_operations(\$framework);\n",
         1,
     ],
     [
         " * spec(). Astra Pro, Kadence Pro and GP Premium custom layouts (issue\n"
-            . " * #656) are Theme_Layouts_Pack ops for the same active family.\n",
+            . " * #656) are Theme_Layouts_Pack ops for the same active family.\n"
+            . " * Blocksy Companion's extension toggles (issue #650) are\n"
+            . " * Theme_Blocksy_Extensions ops for the Blocksy family.\n",
         " * spec().\n",
+        1,
+    ],
+    // The Blocksy Companion extension ops (issue #650): their file is removed
+    // by policy.php, so the rollback refresh that names it leaves too.
+    [
+        "        if ('blocksy' === \$family && in_array(Theme_Blocksy_Extensions::OPTION, \$names, true)) {\n"
+            . "            Theme_Blocksy_Extensions::refresh();\n"
+            . "        }\n",
+        '',
         1,
     ],
     [
