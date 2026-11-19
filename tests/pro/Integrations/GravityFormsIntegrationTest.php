@@ -5,8 +5,10 @@ namespace WPMCP\Tests\Pro\Integrations;
 use WPMCP\Integrations\Gravity_Forms_Integration;
 use WPMCP\Safety\Snapshot_Store;
 use WPMCP\Tools\Rollback_Operation;
+use WPMCP\Tools\Rollback_Session;
 
 require_once __DIR__ . '/../../support/gfapi-stub.php';
+require_once __DIR__ . '/../../support/forms-delete-preview.php';
 
 /**
  * Gravity Forms dispatcher (forms adapter pack, pro tier). Exercised against a faithful GFAPI double
@@ -15,6 +17,8 @@ require_once __DIR__ . '/../../support/gfapi-stub.php';
  */
 class GravityFormsIntegrationTest extends \WP_UnitTestCase
 {
+    use \WPMCP\Tests\Support\Forms_Delete_Preview_Assertions;
+
     private Gravity_Forms_Integration $integration;
     private int $ada;
     private int $spammer;
@@ -76,7 +80,7 @@ class GravityFormsIntegrationTest extends \WP_UnitTestCase
         $out = $this->integration->handle_read([ 'operation' => 'list-operations' ]);
         $this->assertArrayNotHasKey('error', $out);
         $names = array_column($out['result']['operations'], 'name');
-        foreach ([ 'list-forms', 'get-form', 'list-fields', 'list-notifications', 'list-entries', 'get-entry', 'get-notes', 'update-entry-status' ] as $op) {
+        foreach ([ 'list-forms', 'get-form', 'list-fields', 'list-notifications', 'list-entries', 'get-entry', 'get-notes', 'update-entry-status', 'delete-entry' ] as $op) {
             $this->assertContains($op, $names, "catalog should advertise {$op}");
         }
     }
@@ -252,6 +256,87 @@ class GravityFormsIntegrationTest extends \WP_UnitTestCase
         $denied = $this->integration->handle_write([ 'operation' => 'update-entry-status', 'args' => [ 'entry_id' => $this->ada, 'status' => 'spam' ] ]);
         $this->assertSame('operation_denied', $denied['error']['code']);
         $this->assertSame('active', \GFAPI::get_entry($this->ada)['status']);
+    }
+
+    // ---- #675: delete-entry ----------------------------------------------
+
+    private function rows(string $table, string $column, int $id): int
+    {
+        global $wpdb;
+        return (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE %i = %d', $wpdb->prefix . $table, $column, $id));
+    }
+
+    private function seed_children(int $entry): void
+    {
+        \GFAPI::seed_row('gf_entry_meta', [ 'form_id' => 1, 'entry_id' => $entry, 'meta_key' => '1', 'meta_value' => 'Ada' ]); // phpcs:ignore WordPress.DB.SlowDBQuery -- a column of Gravity Forms' own table.
+        \GFAPI::seed_row('gf_entry_meta', [ 'form_id' => 1, 'entry_id' => $entry, 'meta_key' => '2', 'meta_value' => 'ada@example.com' ]); // phpcs:ignore WordPress.DB.SlowDBQuery -- a column of Gravity Forms' own table.
+        \GFAPI::seed_row('gf_entry_notes', [ 'entry_id' => $entry, 'user_name' => 'admin', 'value' => 'Followed up by phone', 'note_type' => 'user' ]);
+        \GFAPI::seed_row('gf_entry_meta', [ 'form_id' => 1, 'entry_id' => $this->spammer, 'meta_key' => '1', 'meta_value' => 'Spammer' ]); // phpcs:ignore WordPress.DB.SlowDBQuery -- a column of Gravity Forms' own table.
+    }
+
+    public function test_delete_entry_is_off_until_opted_in_then_needs_confirm_and_previews_without_values(): void
+    {
+        $this->seed_children($this->ada);
+        $this->assertSame('opt_in_required', $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->ada ], 'confirm' => true ])['error']['code']);
+
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $preview = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->ada ] ]);
+        $this->assert_delete_entry_preview($preview, sprintf('Gravity Forms entry %d of form 1', $this->ada), $this->ada, 2);
+        $this->assertSame(1, $preview['error']['data']['notes']);
+        $this->assertStringNotContainsString('ada@example.com', (string) wp_json_encode($preview));
+        $this->assertSame(1, $this->rows('gf_entry', 'id', $this->ada));
+        remove_all_filters('wpmcp_enable_forms_write');
+    }
+
+    public function test_delete_entry_removes_the_entry_its_values_and_notes_and_one_session_restores_them(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $this->seed_children($this->ada);
+        $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->ada ], 'confirm' => true ]);
+
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertTrue($out['result']['deleted']);
+        $this->assertTrue($out['recoverable']);
+        $this->assertSame(0, $this->rows('gf_entry', 'id', $this->ada));
+        $this->assertSame(0, $this->rows('gf_entry_meta', 'entry_id', $this->ada));
+        $this->assertSame(0, $this->rows('gf_entry_notes', 'entry_id', $this->ada));
+        $this->assertSame(1, $this->rows('gf_entry', 'id', $this->spammer), 'Another entry stays');
+        $this->assertSame(1, $this->rows('gf_entry_meta', 'entry_id', $this->spammer), 'Another entry keeps its values');
+
+        ( new Rollback_Session() )->handle([ 'session_id' => $out['session_id'] ]);
+        $this->assertSame(1, $this->rows('gf_entry', 'id', $this->ada));
+        $this->assertSame(2, $this->rows('gf_entry_meta', 'entry_id', $this->ada));
+        $this->assertSame(1, $this->rows('gf_entry_notes', 'entry_id', $this->ada));
+        $this->assertSame('Ada', \GFAPI::get_entry($this->ada)['1']);
+        remove_all_filters('wpmcp_enable_forms_write');
+    }
+
+    public function test_delete_entry_refuses_an_unknown_entry_and_one_with_payments(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        $this->assertSame('entry_not_found', $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => 404 ], 'confirm' => true ])['error']['code']);
+
+        \GFAPI::seed_row('gf_addon_payment_transaction', [ 'lead_id' => $this->ada, 'transaction_id' => 'ch_1', 'amount' => '10.00' ]);
+        $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->ada ], 'confirm' => true ]);
+        $this->assertSame('entry_has_payments', $out['error']['code']);
+        $this->assertSame(1, $this->rows('gf_entry', 'id', $this->ada));
+
+        // A payment recorded only on the entry itself (payment_status / transaction_id) also blocks it.
+        $paid = \GFAPI::seed_entry(1, [ '1' => 'Payer', 'payment_status' => 'Paid', 'transaction_id' => 'ch_2' ]);
+        $out  = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $paid ], 'confirm' => true ]);
+        $this->assertSame('entry_has_payments', $out['error']['code']);
+        $this->assertSame(1, $this->rows('gf_entry', 'id', $paid));
+        remove_all_filters('wpmcp_enable_forms_write');
+    }
+
+    public function test_delete_entry_is_refused_below_manage_options(): void
+    {
+        add_filter('wpmcp_enable_forms_write', '__return_true');
+        wp_set_current_user(self::factory()->user->create([ 'role' => 'editor' ]));
+        $out = $this->integration->handle_write([ 'operation' => 'delete-entry', 'args' => [ 'entry_id' => $this->ada ], 'confirm' => true ]);
+        $this->assertSame('operation_denied', $out['error']['code']);
+        $this->assertSame(1, $this->rows('gf_entry', 'id', $this->ada));
+        remove_all_filters('wpmcp_enable_forms_write');
     }
 
     public function test_rejects_unknown_operation(): void

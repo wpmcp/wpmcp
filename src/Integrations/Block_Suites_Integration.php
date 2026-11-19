@@ -36,7 +36,9 @@ if (! defined('ABSPATH')) {
  * Directory (source "directory", names "directory:<id>") and Spectra's
  * remote library (source "spectra", names "spectra:<id>"), through the
  * guarded and cached clients in Block_Suite_Pattern_Directory and
- * Block_Suite_Spectra_Library (issue #364).
+ * Block_Suite_Spectra_Library (issue #364). get-pattern returns one
+ * pattern's markup, and Otter Blocks' own settings and generated page CSS
+ * have their ops in Block_Suite_Otter (issue #647).
  *
  * import-pattern inserts a registered pattern's blocks the same way, in one
  * snapshot, with two differences: attributes are not refused (a suite's own
@@ -184,6 +186,17 @@ final class Block_Suites_Integration extends Integration_Dispatcher
                 'validate'     => [ Block_Suite_Patterns::class, 'refuse_remote' ],
                 'handler'      => [ Block_Suite_Patterns::class, 'list_patterns' ],
             ],
+            'get-pattern'       => [
+                'mode'         => 'read',
+                'tier'         => 'pro',
+                'description'  => 'One pattern by a name from list-patterns: title, categories, the suites it uses, its remote images and its block markup',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [ 'name' => [ 'type' => 'string', 'minLength' => 1 ] ],
+                    'required'   => [ 'name' ],
+                ],
+                'handler'      => [ Block_Suite_Patterns::class, 'get_pattern' ],
+            ],
             'import-pattern'    => [
                 'mode'              => 'write',
                 'objects'           => [ 'id' => 'post' ],
@@ -200,7 +213,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
                 ],
                 'handler'           => [ self::class, 'import_pattern' ],
             ],
-        ] + Block_Suite_Settings::operations();
+        ] + Block_Suite_Settings::operations() + Block_Suite_Otter::operations();
     }
 
     /** Refuse, before any handler or snapshot, an op on a suite that is not loaded. */
