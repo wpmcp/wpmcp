@@ -23,8 +23,17 @@ if (! defined('ABSPATH')) {
  */
 class Update_Redirect
 {
-    public function handle(array $args): array
+    /**
+     * @return array<string,mixed>|\WP_Error
+     */
+    public function handle(array $args)
     {
+        // Issue #930: the active redirect plugin's own redirects, when one is.
+        $routed = Redirect_Router::route('update-redirect', $args);
+        if (null !== $routed) {
+            return $routed;
+        }
+
         $id  = (int) ($args['redirect_id'] ?? 0);
         $row = $id > 0 ? Redirect_Store::get($id) : null;
         if (null === $row) {
@@ -101,6 +110,7 @@ class Update_Redirect
         );
 
         return [
+            'provider'          => Redirect_Router::BUILTIN,
             'operation_id'      => $out['operation_id'],
             'redirect'          => Redirect_Store::get($id),
             'flattened'         => (bool) $flat['flattened'],

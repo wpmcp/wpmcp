@@ -23,8 +23,21 @@ if (! defined('ABSPATH')) {
  */
 class List_Redirects
 {
-    public function handle(array $args): array
+    /**
+     * @return array<string,mixed>|\WP_Error
+     */
+    public function handle(array $args)
     {
+        // Issue #930: the active redirect plugin's own redirects, when one is.
+        $routed = Redirect_Router::route('list-redirects', $args);
+        if (null !== $routed) {
+            if (is_array($routed)) {
+                $routed['pending_suggestions'] = Redirect_Suggestions::all();
+                $routed['managed_total']       = Redirect_Store::count([]);
+            }
+            return $routed;
+        }
+
         $filters = [
             'limit'  => (int) ($args['limit'] ?? 100),
             'offset' => (int) ($args['offset'] ?? 0),
@@ -45,6 +58,7 @@ class List_Redirects
         }
 
         return [
+            'provider'            => Redirect_Router::BUILTIN,
             'redirects'           => $redirects,
             'total'               => Redirect_Store::count($filters),
             'pending_suggestions' => Redirect_Suggestions::all(),
