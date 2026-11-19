@@ -2983,6 +2983,9 @@ class Rollback_Service
      */
     private const DEACTIVATE_ON_CREATION_ROLLBACK = ['wpmcp_widget', 'wpmcp_block'];
 
+    /** Post types a creation undo removes instead of trashing: menu items (issue #598) and fonts (issue #712). */
+    private const REMOVE_ON_CREATION_ROLLBACK = ['nav_menu_item', 'wp_font_face', 'wp_font_family'];
+
     /**
      * Undo a creation recorded by Post_Creation_Snapshot (create-post,
      * duplicate-post, create-custom-widget, create-custom-block; issue #192).
@@ -3032,10 +3035,12 @@ class Rollback_Service
             // remove-menu-item and core's wp_delete_nav_menu_item() remove
             // one (issue #598): a menu item in the trash is listed nowhere
             // and only holds its menu's position. It is a link, not content.
-            if ('nav_menu_item' === $current->post_type) {
+            // Font Library posts (issue #712) go the same way: core has no
+            // trash for fonts, and deleting a face takes its stored files.
+            if (in_array($current->post_type, self::REMOVE_ON_CREATION_ROLLBACK, true)) {
                 if (! wp_delete_post($post_id, true)) {
                     self::$post_create_untouched = true;
-                    self::warn("Menu item {$post_id} created by this operation could not be removed; it was left in place.");
+                    self::warn("Post {$post_id} ({$current->post_type}) created by this operation could not be removed; it was left in place.");
                 }
                 continue;
             }
