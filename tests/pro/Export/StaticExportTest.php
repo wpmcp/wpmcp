@@ -40,6 +40,9 @@ class StaticExportTest extends \WP_UnitTestCase
         Static_Export::register();
 
         $this->admin = self::factory()->user->create(['role' => 'administrator']);
+        if (is_multisite()) {
+            grant_super_admin($this->admin);
+        }
         wp_set_current_user($this->admin);
         $this->routes = [];
     }
@@ -413,6 +416,9 @@ class StaticExportTest extends \WP_UnitTestCase
     public function test_a_job_whose_owner_lost_the_capability_is_canceled(): void
     {
         $job_id = $this->trigger()['job_id'];
+        if (is_multisite()) {
+            revoke_super_admin($this->admin);
+        }
         (new \WP_User($this->admin))->set_role('subscriber');
 
         (new Run_Static_Export())->handle($job_id);
@@ -440,6 +446,9 @@ class StaticExportTest extends \WP_UnitTestCase
         $this->assertSame(realpath($status['result']['file']), Static_Export::download_file($query, $this->admin));
 
         $other = self::factory()->user->create(['role' => 'administrator']);
+        if (is_multisite()) {
+            grant_super_admin($other);
+        }
         $this->assertWPError(Static_Export::download_file($query, $other), 'signed for one user only');
         $this->assertWPError(Static_Export::download_file($query, 0));
 
