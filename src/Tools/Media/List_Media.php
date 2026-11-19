@@ -27,7 +27,11 @@ class List_Media
         ];
 
         // 'image' matches every image/* subtype; 'image/png' matches exactly.
-        $type = trim((string) ($args['type'] ?? ''));
+        // missing_sizes:true (issue #716) reports, per image, the registered
+        // sizes it lacks; it narrows the listing to images by default.
+        $missing_sizes = true === ($args['missing_sizes'] ?? null);
+
+        $type = trim((string) ($args['type'] ?? ($missing_sizes ? 'image' : '')));
         if ('' !== $type) {
             $query_args['post_mime_type'] = $type;
         }
@@ -51,11 +55,12 @@ class List_Media
 
         $query = new \WP_Query($query_args);
 
-        $items = [];
+        $items        = [];
+        $with_missing = 0;
         foreach ($query->posts as $post) {
-            $meta    = wp_get_attachment_metadata($post->ID);
-            $meta    = is_array($meta) ? $meta : [];
-            $items[] = [
+            $meta = wp_get_attachment_metadata($post->ID);
+            $meta = is_array($meta) ? $meta : [];
+            $item = [
                 'media_id'    => (int) $post->ID,
                 'title'       => (string) $post->post_title,
                 'url'         => (string) wp_get_attachment_url($post->ID),
@@ -66,14 +71,24 @@ class List_Media
                 'width'       => isset($meta['width']) ? (int) $meta['width'] : 0,
                 'height'      => isset($meta['height']) ? (int) $meta['height'] : 0,
             ];
+            if ($missing_sizes) {
+                $item['missing_sizes'] = Image_Subsizes::missing((int) $post->ID);
+                $with_missing         += $item['missing_sizes'] ? 1 : 0;
+            }
+            $items[] = $item;
         }
 
-        return [
+        $out = [
             'items'    => $items,
             'total'    => (int) $query->found_posts,
             'pages'    => max(1, (int) $query->max_num_pages),
             'page'     => $page,
             'per_page' => $per_page,
         ];
+        if ($missing_sizes) {
+            // Count for this page only; page through to cover the library.
+            $out['with_missing_sizes'] = $with_missing;
+        }
+        return $out;
     }
 }
