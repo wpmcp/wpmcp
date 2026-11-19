@@ -310,8 +310,8 @@ class Client_Access
         return new \WP_Error(
             'insufficient_scope',
             sprintf(
-                /* translators: 1: ability name, 2: its operation, 3: the OAuth scope it needs. */
-                __('This connection is read-only: "%1$s" is a %2$s ability and needs the "%3$s" scope.', 'wpmcp'),
+                /* translators: 1: ability name, 2: its operation (create, update or delete), 3: the OAuth scope it needs. */
+                __('This connection is read-only: "%1$s" changes the site (its operation is "%2$s"), so it needs the "%3$s" scope.', 'wpmcp'),
                 $a->name,
                 $a->operation,
                 self::SCOPE_FULL
