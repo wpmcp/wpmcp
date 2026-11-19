@@ -46,6 +46,7 @@ final class Plugin_Refusal
         'Wordfence'        => [ 'file' => 'wordfence/wordfence.php', 'slug' => 'wordfence' ],
         'MonsterInsights'  => [ 'file' => 'google-analytics-for-wordpress/googleanalytics.php', 'slug' => 'google-analytics-for-wordpress' ],
         'W3 Total Cache'   => [ 'file' => 'w3-total-cache/w3-total-cache.php', 'slug' => 'w3-total-cache' ],
+        'Query Monitor'    => [ 'file' => 'query-monitor/query-monitor.php', 'slug' => 'query-monitor' ],
         'Relevanssi'       => [ 'file' => 'relevanssi/relevanssi.php', 'slug' => 'relevanssi' ],
         'FiboSearch'       => [ 'file' => 'ajax-search-for-woocommerce/ajax-search-for-woocommerce.php', 'slug' => 'ajax-search-for-woocommerce' ],
         'Solid Security'   => [ 'file' => 'better-wp-security/better-wp-security.php', 'slug' => 'better-wp-security' ],

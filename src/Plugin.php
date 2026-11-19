@@ -985,6 +985,9 @@ final class Plugin
             // A direct call to a plugin-data tool held back for want of an
             // active plugin names the plugin to activate (issue #876).
             (new \WPMCP\MCP\Hidden_Tool_Refusal())->register();
+            // The page request get-query-monitor-page-profile loads with a
+            // one-time token (issue #703); a no-op on every other request.
+            \WPMCP\Integrations\Query_Monitor_Status::register();
             // Mounts /wp-json/mcp/wpmcp-server, the JSON-RPC endpoint the
             // README and get-connection-info have always advertised. Without
             // it wp_register_ability() gives us abilities but no MCP

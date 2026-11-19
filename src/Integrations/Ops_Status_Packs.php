@@ -24,6 +24,7 @@ if (! defined('ABSPATH')) {
  *  - get-monsterinsights-status (MonsterInsights_Status)
  *  - get-wordfence-status and the Wordfence lists and writes (Wordfence_Integration)
  *  - get-w3tc-status and purge-w3tc-cache (W3TC_Status)
+ *  - get-query-monitor-page-profile (Query_Monitor_Status, #703)
  *  - WP Mail SMTP config, log, test send and set-from (WP_Mail_SMTP_Status)
  *  - FluentSMTP and Post SMTP config, log, test send and from (Fluent_SMTP_Status, Post_SMTP_Status)
  *  - get-image-optimizer-status and optimize-attachment for Smush, ShortPixel,
@@ -38,7 +39,8 @@ if (! defined('ABSPATH')) {
  * anything. Presence is filterable per plugin (wpmcp_updraftplus_active,
  * wpmcp_duplicator_active, wpmcp_backwpup_active, wpmcp_solid_security_active,
  * wpmcp_monsterinsights_active, wpmcp_w3tc_active, wpmcp_sucuri_active,
- * wpmcp_aios_active, wpmcp_limit_login_attempts_active).
+ * wpmcp_aios_active, wpmcp_limit_login_attempts_active,
+ * wpmcp_query_monitor_active).
  *
  * The reads build their answers from allowlisted fields only, never echoing
  * a plugin's stored settings wholesale, so remote storage credentials, OAuth
@@ -72,6 +74,7 @@ final class Ops_Status_Packs
             MonsterInsights_Status::operations(),
             Wordfence_Integration::operations(),
             W3TC_Status::operations(),
+            Query_Monitor_Status::operations(),
             WP_Mail_SMTP_Status::operations(),
             Fluent_SMTP_Status::operations(),
             Post_SMTP_Status::operations(),
