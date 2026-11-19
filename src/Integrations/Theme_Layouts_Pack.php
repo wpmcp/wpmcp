@@ -46,6 +46,13 @@ if (! defined('ABSPATH')) {
  *
  * The writes take only the arguments their schema lists (issue #889): any
  * other is refused with invalid_args naming it, before any snapshot.
+ *
+ * Issue #651 adds the Ultimate Addons for Elementor templates as a family
+ * of their own (Theme_Layouts_Hfe), merged by Elementor_Addon_Packs whatever
+ * the active theme. An adapter can take a capability other than
+ * edit_theme_options (that family takes manage_options, as the plugin does)
+ * and can add a delete op (deletable()), which moves the layout to the trash
+ * under a post snapshot, so rollback-operation brings it back.
  */
 final class Theme_Layouts_Pack
 {
@@ -74,6 +81,9 @@ final class Theme_Layouts_Pack
         if ('generatepress' === $family) {
             return new Theme_Layouts_GeneratePress();
         }
+        if ('ultimate-addons' === $family) {
+            return new Theme_Layouts_Hfe();
+        }
         return null;
     }
 
@@ -88,7 +98,7 @@ final class Theme_Layouts_Pack
         $product  = $a->product();
         $base     = [
             'tier'       => 'pro',
-            'capability' => 'edit_theme_options',
+            'capability' => $a->capability(),
             'requires'   => static fn () => self::requirement($a),
         ];
         $write    = $base + [
@@ -128,7 +138,7 @@ final class Theme_Layouts_Pack
             'required'   => [ 'layout_id', 'rules' ],
         ];
 
-        return [
+        $ops = [
             "list-{$f}-layouts"               => $base + [
                 'mode'         => 'read',
                 'description'  => "List {$product} layouts (id, title, status, type, hook, priority, display rules), filtered by type or status; paged",
@@ -181,6 +191,18 @@ final class Theme_Layouts_Pack
                 'handler'      => static fn (array $args): array => self::set_rules($a, $args),
             ],
         ];
+        if ($a->deletable()) {
+            $one = [ 'type' => 'object', 'properties' => [ 'layout_id' => $id ], 'required' => [ 'layout_id' ] ];
+            $ops[ "delete-{$f}-layout" ] = $write + [
+                'objects'      => $objects,
+                'description'  => "Move the {$product} layout to the WordPress trash, so it stops showing. Not a permanent delete. Snapshotted: rollback-operation brings it back",
+                'input_schema' => $one,
+                'validate'     => static fn (array $args): ?array => self::refusal(static fn () => self::known_args("delete-{$f}-layout", $one, $args) ?? self::must_layout($a, (int) $args['layout_id'])),
+                'snapshot'     => $snapshot,
+                'handler'      => static fn (array $args): array => self::trash($a, (int) $args['layout_id']),
+            ];
+        }
+        return $ops;
     }
 
     /** @return true|array{code:string,message:string} */
@@ -559,6 +581,17 @@ final class Theme_Layouts_Pack
         $plan = self::plan_rules($a, $args);
         $a->write_rules($plan['id'], $plan['type'], $plan['rules']);
         return [ 'layout' => self::view($a, get_post($plan['id']), false) ];
+    }
+
+    /** @return array<string,mixed> */
+    private static function trash(Theme_Layouts_Adapter $a, int $id): array
+    {
+        self::must_layout($a, $id);
+        if (! Save_Filters::trash_post($id)) {
+            throw new Operation_Refused('layout_not_deleted', sprintf('Could not move %s layout %d to the trash.', $a->product(), $id), [ 'layout_id' => $id ]);
+        }
+        clean_post_cache($id);
+        return [ 'layout' => self::view($a, get_post($id), false) ];
     }
 
     /** Content kept in post meta, filtered the way the add-on filters it: as is with unfiltered_html, through wp_kses_post without. */
