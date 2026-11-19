@@ -230,9 +230,12 @@ The connection self-test calls this site's own REST route, `scan-security`
 fetches this site's front page to read its security headers, and the
 analytics abilities call this site's own URL. These are requests to your own
 server. The analytics abilities read data through Google Site Kit's REST
-routes when that plugin is active and already connected; this plugin holds
-no analytics credentials of its own and talks to no analytics provider
-directly.
+routes when that plugin is active and already connected, or from the stats
+plugin the site runs: Independent Analytics, Burst Statistics and WP
+Statistics from their own tables on this site, MonsterInsights and Jetpack
+through their own reporting code, which uses the account that plugin is
+already connected to. This plugin holds no analytics credentials of its own
+and talks to no analytics provider directly.
 
 = WP MCP Cloud (only if a cloud connection was saved elsewhere) =
 

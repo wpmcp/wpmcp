@@ -108,7 +108,8 @@ class Analytics_Adapter
 
     /**
      * Always-safe connection status: ['provider' => 'site-kit'|'configured'|
-     * 'none', 'connected' => bool, 'detail' => string]. Never a WP_Error, so
+     * a stats plugin source id|'none', 'connected' => bool, 'detail' =>
+     * string, 'sources' => active stats plugin source ids]. Never a WP_Error, so
      * a caller can always discover state before deciding whether to use the
      * rest of the tool group (compare wpmcp/is-multisite and get-seo-status).
      *
@@ -124,7 +125,32 @@ class Analytics_Adapter
      */
     public static function connection_status(): array
     {
+        $sources = Analytics_Plugin_Sources::active();
+
+        return self::provider_status($sources) + [ 'sources' => $sources ];
+    }
+
+    /**
+     * The provider part of connection_status(). With neither Site Kit nor
+     * configured credentials, the first active stats plugin is the provider
+     * (issue #699): the one summary and top-pages read when no source is
+     * named.
+     *
+     * @param string[] $sources Active stats plugin source ids.
+     * @return array{provider:string,connected:bool,detail:string}
+     */
+    private static function provider_status(array $sources): array
+    {
         $provider = self::active_provider();
+
+        if ('' === $provider && [] !== $sources) {
+            return [
+                'provider'  => $sources[0],
+                'connected' => true,
+                'detail'    => Analytics_Plugin_Sources::label($sources[0]) . ' is active; summary and top pages read from it '
+                    . 'unless a source is named. Plugin metrics follow that plugin\'s own definitions.',
+            ];
+        }
 
         if ('site-kit' === $provider) {
             return [
@@ -355,10 +381,11 @@ class Analytics_Adapter
      *
      * @return array|\WP_Error
      */
-    public static function analytics_summary(string $start_date, string $end_date)
+    public static function analytics_summary(string $start_date, string $end_date, ?string $source = null)
     {
-        if ('' === self::active_provider()) {
-            return self::not_connected_error();
+        $plugin = self::plugin_source($source);
+        if (null !== $plugin) {
+            return $plugin instanceof \WP_Error ? $plugin : Analytics_Plugin_Sources::summary($plugin, $start_date, $end_date);
         }
 
         $raw = self::fetch_ga4_report($start_date, $end_date, []);
@@ -373,14 +400,15 @@ class Analytics_Adapter
      *
      * @return array|\WP_Error
      */
-    public static function top_pages(string $start_date, string $end_date, int $limit)
+    public static function top_pages(string $start_date, string $end_date, int $limit, ?string $source = null)
     {
-        if ('' === self::active_provider()) {
-            return self::not_connected_error();
+        $limit  = self::clamp_limit($limit);
+        $plugin = self::plugin_source($source);
+        if (null !== $plugin) {
+            return $plugin instanceof \WP_Error ? $plugin : Analytics_Plugin_Sources::top_pages($plugin, $start_date, $end_date, $limit);
         }
 
-        $limit = self::clamp_limit($limit);
-        $raw   = self::fetch_ga4_report($start_date, $end_date, ['dimensions' => ['pagePath'], 'limit' => $limit]);
+        $raw = self::fetch_ga4_report($start_date, $end_date, ['dimensions' => ['pagePath'], 'limit' => $limit]);
 
         return self::normalize_ga4_top_pages($raw);
     }
@@ -432,8 +460,41 @@ class Analytics_Adapter
     {
         return new \WP_Error(
             'wpmcp_analytics_not_connected',
-            'Analytics is not connected. Activate and connect Google Site Kit, or configure analytics credentials.'
+            'Analytics is not connected. Activate and connect Google Site Kit, configure analytics credentials, '
+                . 'or activate one of: ' . implode(', ', array_map([ Analytics_Plugin_Sources::class, 'label' ], array_keys(Analytics_Plugin_Sources::SOURCES))) . '.'
         );
+    }
+
+    /**
+     * Which stats plugin answers a summary or top-pages call (issue #699),
+     * null when the Site Kit / configured path does, or the refusal.
+     *
+     * With no source named, Site Kit or configured credentials keep
+     * answering when present (unchanged behaviour), then the first active
+     * plugin in Analytics_Plugin_Sources::SOURCES order, else the
+     * not-connected error. A named plugin must be active; 'site-kit' names
+     * the Google path explicitly.
+     *
+     * @return string|\WP_Error|null
+     */
+    private static function plugin_source(?string $source)
+    {
+        if (null === $source || '' === $source) {
+            if ('' !== self::active_provider()) {
+                return null;
+            }
+            $active = Analytics_Plugin_Sources::active();
+            return $active[0] ?? self::not_connected_error();
+        }
+
+        if ('site-kit' === $source) {
+            return '' === self::active_provider() ? self::not_connected_error() : null;
+        }
+        if (! isset(Analytics_Plugin_Sources::SOURCES[ $source ])) {
+            return Analytics_Plugin_Sources::invalid_source($source);
+        }
+
+        return Analytics_Plugin_Sources::is_active($source) ? $source : Analytics_Plugin_Sources::inactive_error($source);
     }
 
     /**
