@@ -194,6 +194,10 @@ return [
         // And its funnel, step and checkout product writes (issue #500),
         // merged only by FunnelKit_Pack.
         'src/Integrations/FunnelKit_Writes.php',
+        // CartFlows flows, steps and checkout products (issue #662),
+        // paid-tier. strip.php takes out the line in Theme_Integration that
+        // merges them.
+        'src/Integrations/CartFlows_Pack.php',
         // WordPress core personal data request ops (issue #714), paid-tier.
         // strip.php takes out the line in Theme_Integration that merges them.
         'src/Integrations/Core_Privacy_Pack.php',
