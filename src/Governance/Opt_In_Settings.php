@@ -123,6 +123,7 @@ final class Opt_In_Settings
             'wpmcp_enable_pretty_links_write'      => __('Pretty Links: writes', 'wpmcp'),
             'wpmcp_enable_thirstyaffiliates_write' => __('ThirstyAffiliates: writes', 'wpmcp'),
             'wpmcp_enable_site_reviews_write'      => __('Site Reviews: writes', 'wpmcp'),
+            'wpmcp_enable_core_privacy_write'      => __('Privacy requests: export and erase personal data', 'wpmcp'),
             'wpmcp_enable_block_suite_settings_write' => __('Kadence Blocks and Spectra: plugin settings writes', 'wpmcp'),
             'wpmcp_enable_translation_settings_write' => __('GTranslate: language settings writes', 'wpmcp'),
             'wpmcp_enable_advanced_ads_write'      => __('Advanced Ads: writes', 'wpmcp'),
