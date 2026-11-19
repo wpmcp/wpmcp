@@ -179,6 +179,8 @@ return [
         'src/Integrations/Theme_Layouts_Astra.php',
         'src/Integrations/Theme_Layouts_Kadence.php',
         'src/Integrations/Theme_Layouts_GeneratePress.php',
+        'src/Integrations/Theme_Layouts_Hfe.php',
+        'src/Integrations/Theme_Layouts_Target_Rules.php',
         // The Blocksy Companion extension ops (issue #650), paid-tier.
         // strip.php takes out the merge and the rollback refresh in
         // Theme_Framework_Pack.
@@ -311,6 +313,8 @@ return [
         // Its Spectra library source (issue #364), the only path that
         // reaches websitedemos.net.
         'src/Integrations/Block_Suite_Spectra_Library.php',
+        // Otter Blocks settings and page styles (issue #647).
+        'src/Integrations/Block_Suite_Otter.php',
         // Its Kadence Blocks and Spectra settings and page CSS ops (issue #648).
         'src/Integrations/Block_Suite_Settings.php',
         // Stored custom CSS/JS (issue #63). The whole group is pro, so the

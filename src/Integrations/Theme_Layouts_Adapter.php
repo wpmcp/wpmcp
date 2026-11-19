@@ -120,6 +120,18 @@ abstract class Theme_Layouts_Adapter
         return [];
     }
 
+    /** The capability every op of the family takes, on top of the theme pair's own. */
+    public function capability(): string
+    {
+        return 'edit_theme_options';
+    }
+
+    /** Whether the family gets a delete op (moves a layout to the trash, undoable). */
+    public function deletable(): bool
+    {
+        return false;
+    }
+
     /** Whether the add-on is loaded, filterable through wpmcp_theme_pro_active. */
     public function active(): bool
     {
