@@ -2802,7 +2802,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/scan-security',
             'free',
-            'Scan this site for malware (deep=true: whole tree), core file integrity, hardening gaps, outdated software and known vulnerabilities (vulnerabilities=true; sends slugs and versions to wpvulnerability.net). Returns a 0-100 score, A-F grade and ranked fixes',
+            'Scan this site for malware (deep=true: whole tree), core file integrity, hardening gaps, outdated software and known vulnerabilities (vulnerabilities=true; sends slugs and versions to wpvulnerability.net); checks:[compromise] looks for hack traces. Returns a 0-100 score, A-F grade and ranked fixes',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2810,7 +2810,7 @@ final class Plugin
                         'type'  => 'array',
                         'items' => [
                             'type' => 'string',
-                            'enum' => ['malware', 'integrity', 'hardening', 'software'],
+                            'enum' => ['malware', 'integrity', 'hardening', 'software', 'compromise'],
                         ],
                     ],
                     'deep'            => [ 'type' => 'boolean' ],
