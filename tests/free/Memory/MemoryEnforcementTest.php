@@ -179,7 +179,7 @@ class MemoryEnforcementTest extends \WP_UnitTestCase
         $abilities = wp_get_abilities();
         $denied    = 0;
         foreach (['wpmcp/delete-post', 'wpmcp/delete-media', 'wpmcp/delete-comment'] as $name) {
-            if (isset($abilities[ $name ]) && ! $abilities[ $name ]->check_permissions([])) {
+            if (isset($abilities[ $name ]) && true !== $abilities[ $name ]->check_permissions([])) {
                 $denied++;
             }
         }
