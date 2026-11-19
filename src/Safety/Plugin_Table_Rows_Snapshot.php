@@ -75,9 +75,16 @@ if (! defined('ABSPATH')) {
  * copies of the rows are dropped (its BerlinDB cache group
  * rcp-membership_levels), as its own query does after a write.
  *
+ * Easy Digital Downloads discounts (issue #664, the `edd_adjustments` table,
+ * the one suffix "adjustments") are keyed by their own id; a create
+ * reserves its id the same way. EDD reads the table through BerlinDB, which
+ * caches rows and query results in the object cache, so after a restore the
+ * cached lookups of the table are retired (purge_edd_cache()), the way
+ * BerlinDB's own writes do.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
- * for a dictionary row, a Pretty Links link or a Restrict Content level, and Wordfence's own admin capability (manage_options,
+ * for a dictionary row, a Pretty Links link, a Restrict Content level or an EDD discount, and Wordfence's own admin capability (manage_options,
  * manage_network on a multisite network) for a Wordfence row.
  */
 final class Plugin_Table_Rows_Snapshot
@@ -95,6 +102,7 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_members'    => 'pmpro_',
         'pmpro_codes'      => 'pmpro_',
         'rcp_levels'       => 'restrict_content_',
+        'edd'              => 'edd_',
     ];
 
     /**
@@ -122,6 +130,7 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_members'    => [ 'memberships_users' ],
         'pmpro_codes'      => [ 'discount_codes' ],
         'rcp_levels'       => [ 'pro' ],
+        'edd'              => [ 'adjustments' ],
     ];
 
     /**
@@ -451,6 +460,9 @@ final class Plugin_Table_Rows_Snapshot
         if ('rcp_levels' === $kind) {
             self::flush_rcp_level_cache($ids);
         }
+        if ('edd' === $kind) {
+            self::purge_edd_cache((string) $data['suffix'], $ids);
+        }
         self::after_wordfence_restore($kind);
     }
 
@@ -467,6 +479,32 @@ final class Plugin_Table_Rows_Snapshot
             wp_cache_delete((int) $id, 'rcp-membership_levels');
         }
         wp_cache_set('last_changed', microtime(), 'rcp-membership_levels');
+    }
+
+    /**
+     * Retire Easy Digital Downloads' cached lookups for rows of one of its
+     * tables, as BerlinDB does after its own writes: the rows cached by id
+     * (group edd-<suffix>) are dropped, and the last_changed stamp of the
+     * table's query cache and of each by-column lookup group
+     * (edd-<suffix>-by-<column>) is rotated, so every cached result is
+     * rebuilt on the next read.
+     *
+     * @param array<int, int|string> $ids
+     */
+    public static function purge_edd_cache(string $suffix, array $ids): void
+    {
+        $table = self::table('edd', $suffix);
+        if (null === $table) {
+            return;
+        }
+        $group = 'edd-' . $suffix;
+        foreach ($ids as $id) {
+            wp_cache_delete((int) $id, $group);
+        }
+        wp_cache_set('last_changed', microtime(), $group);
+        foreach (self::columns($table) as $column) {
+            wp_cache_set('last_changed', microtime(), $group . '-by-' . $column);
+        }
     }
 
     /**
@@ -632,6 +670,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('rcp_levels' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring a Restrict Content membership level requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('edd' === $kind) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring Easy Digital Downloads discounts requires the manage_options capability.');
             }
             return;
         }
