@@ -80,6 +80,8 @@ class Connection_Page
                 return ['action' => 'toggle', 'enabled' => Exposure::is_enabled()];
             case 'self_test':
                 return ['action' => 'self_test', 'self_test' => (new Connection_Tester())->test()];
+            case 'oauth_enabled':
+                return $this->set_oauth_enabled($post);
             case 'oauth_client_approval':
                 Client_Metadata_Document::set_requires_approval('1' === self::str($post['require'] ?? ''));
                 return ['action' => 'oauth_client_approval'];
@@ -184,6 +186,22 @@ class Connection_Page
         }
 
         return ['action' => 'oauth_access', 'client_id' => $client_id];
+    }
+
+    /**
+     * The "Allow OAuth sign-in" switch (issue #842). Refused while the
+     * WPMCP_OAUTH_ENABLED constant or the wpmcp_oauth_enabled filter
+     * decides, so the screen never saves a value that has no effect.
+     */
+    private function set_oauth_enabled(array $post): array
+    {
+        if (! OAuth_Config::set_enabled('1' === self::str($post['enabled'] ?? ''))) {
+            return ['error' => 'constant' === OAuth_Config::locked_by()
+                ? __('OAuth sign-in is fixed by WPMCP_OAUTH_ENABLED in wp-config.php, so this switch cannot change it.', 'wpmcp')
+                : __('OAuth sign-in is fixed by the wpmcp_oauth_enabled filter in a plugin or mu-plugin, so this switch cannot change it.', 'wpmcp')];
+        }
+
+        return ['action' => 'oauth_enabled', 'enabled' => OAuth_Config::is_enabled()];
     }
 
     /**
@@ -329,6 +347,8 @@ class Connection_Page
                 <div class="notice notice-error"><p><?php echo esc_html($result['error']); ?></p></div>
             <?php elseif (isset($result['action']) && 'revoke' === $result['action']) : ?>
                 <div class="notice notice-success"><p><?php echo esc_html__('Application password revoked. The client it was issued to is disconnected.', 'wpmcp'); ?></p></div>
+            <?php elseif (isset($result['action']) && 'oauth_enabled' === $result['action']) : ?>
+                <div class="notice notice-success"><p><?php echo $result['enabled'] ? esc_html__('OAuth sign-in is on. ChatGPT and the Claude custom connector can now sign in.', 'wpmcp') : esc_html__('OAuth sign-in is off. New sign-ins are refused, and so are OAuth connections made earlier.', 'wpmcp'); ?></p></div>
             <?php elseif (isset($result['action']) && 'management_access' === $result['action']) : ?>
                 <div class="notice notice-success"><p><?php echo esc_html__('Management access saved.', 'wpmcp'); ?></p></div>
             <?php endif; ?>
@@ -384,7 +404,7 @@ class Connection_Page
                 </div>
             <?php endif; ?>
 
-            <?php $this->render_custom_connector(); ?>
+            <?php $this->render_custom_connector($nonce); ?>
 
             <h2><?php echo esc_html__('2. Create a connection', 'wpmcp'); ?></h2>
             <p>
@@ -652,36 +672,84 @@ class Connection_Page
     }
 
     /**
-     * The Claude Desktop / claude.ai custom connector (issue #581): it needs
-     * OAuth, which is off by default, so the screen says whether it is on
-     * and exactly how to switch it on. Shown on every render: the connector
-     * never uses an application password, so it does not wait for step 2.
+     * OAuth sign-in and the clients that need it: the Claude Desktop /
+     * claude.ai custom connector (issue #581) and ChatGPT (issue #842).
+     * Both sign in only with OAuth, which is off by default, so the screen
+     * says whether it is on and offers the "Allow OAuth sign-in" switch,
+     * or says what fixes the value when the constant or the filter does.
+     * Shown on every render: neither client uses an application password,
+     * so it does not wait for step 2.
      */
-    private function render_custom_connector(): void
+    private function render_custom_connector(string $nonce): void
     {
         $connector = Client_Config_Generator::custom_connector(true);
+        $chatgpt   = Client_Config_Generator::chatgpt(true);
+        $enabled   = $connector['oauth_enabled'];
+        $locked    = OAuth_Config::locked_by();
         ?>
-        <h2><?php echo esc_html__('Custom connector (Claude Desktop and claude.ai)', 'wpmcp'); ?></h2>
+        <h2><?php echo esc_html__('OAuth sign-in (ChatGPT and the Claude custom connector)', 'wpmcp'); ?></h2>
         <p>
-            <?php if ($connector['oauth_enabled']) : ?>
+            <?php if ($enabled) : ?>
                 <strong><?php echo esc_html__('OAuth is on.', 'wpmcp'); ?></strong>
             <?php else : ?>
                 <strong><?php echo esc_html__('OAuth is off.', 'wpmcp'); ?></strong>
             <?php endif; ?>
             <?php echo esc_html($connector['note']); ?>
         </p>
-        <?php if (! $connector['oauth_enabled']) : ?>
-            <p><?php echo esc_html__('To switch OAuth on:', 'wpmcp'); ?></p>
-            <ul style="margin-left: 1.5em; list-style: disc;">
-                <?php foreach ($connector['enable_oauth'] as $step) : ?>
-                    <li><?php echo esc_html($step); ?></li>
-                <?php endforeach; ?>
-            </ul>
-            <p><code><?php echo esc_html(Client_Config_Generator::OAUTH_CONSTANT_LINE); ?></code></p>
+        <?php if (null === $locked) : ?>
+            <?php if (! $enabled) : ?>
+                <p><?php echo esc_html__('To switch OAuth on:', 'wpmcp'); ?></p>
+            <?php endif; ?>
+            <form method="post">
+                <input type="hidden" name="wpmcp_connection_action" value="oauth_enabled">
+                <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($nonce); ?>">
+                <input type="hidden" name="enabled" value="<?php echo $enabled ? '0' : '1'; ?>">
+                <?php submit_button(
+                    /* translators: %s: the switch label, Allow OAuth sign-in */
+                    $enabled ? __('Turn OAuth sign-in off', 'wpmcp') : sprintf(__('%s: turn on', 'wpmcp'), Client_Config_Generator::OAUTH_SWITCH_LABEL),
+                    $enabled ? 'secondary' : 'primary',
+                    'submit',
+                    false
+                ); ?>
+                <span class="description">
+                    <?php echo esc_html(sprintf(
+                        /* translators: %s: the switch label, Allow OAuth sign-in */
+                        __('%s lets clients that sign in with OAuth connect, after a user approves them in the browser. Turning it off stops new sign-ins and refuses OAuth connections made earlier on their next request.', 'wpmcp'),
+                        Client_Config_Generator::OAUTH_SWITCH_LABEL
+                    )); ?>
+                </span>
+            </form>
+            <?php if (! $enabled) : ?>
+                <p><?php echo esc_html__('Other ways, for site developers:', 'wpmcp'); ?></p>
+                <ul style="margin-left: 1.5em; list-style: disc;">
+                    <?php foreach (array_slice($connector['enable_oauth'], 1) as $step) : ?>
+                        <li><?php echo esc_html($step); ?></li>
+                    <?php endforeach; ?>
+                </ul>
+                <p><code><?php echo esc_html(Client_Config_Generator::OAUTH_CONSTANT_LINE); ?></code></p>
+            <?php endif; ?>
+        <?php else : ?>
+            <p class="description">
+                <?php echo 'constant' === $locked
+                    ? esc_html__('This setting is fixed by WPMCP_OAUTH_ENABLED in wp-config.php; the switch is hidden while that line is there.', 'wpmcp')
+                    : esc_html__('This setting is fixed by the wpmcp_oauth_enabled filter in a plugin or mu-plugin; the switch is hidden while that filter is there.', 'wpmcp'); ?>
+            </p>
         <?php endif; ?>
+
+        <h3><?php echo esc_html__('Custom connector (Claude Desktop and claude.ai)', 'wpmcp'); ?></h3>
         <p><?php echo esc_html__('To add the connector:', 'wpmcp'); ?></p>
         <ol>
             <?php foreach ($connector['steps'] as $step) : ?>
+                <li><?php echo esc_html($step); ?></li>
+            <?php endforeach; ?>
+        </ol>
+
+        <h3><?php echo esc_html__('ChatGPT', 'wpmcp'); ?></h3>
+        <p><?php echo esc_html__('Server URL to paste:', 'wpmcp'); ?> <code><?php echo esc_html($chatgpt['url']); ?></code></p>
+        <p><?php echo esc_html__('Custom MCP connectors need ChatGPT\'s Developer mode, on the plans that offer it; in a workspace, an admin may have to allow it. ChatGPT\'s menu names change from time to time: if a step does not match, look for Developer mode under Settings.', 'wpmcp'); ?></p>
+        <p><?php echo esc_html__('To add WP MCP to ChatGPT:', 'wpmcp'); ?></p>
+        <ol>
+            <?php foreach ($chatgpt['steps'] as $step) : ?>
                 <li><?php echo esc_html($step); ?></li>
             <?php endforeach; ?>
         </ol>
