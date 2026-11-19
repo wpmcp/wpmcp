@@ -584,6 +584,12 @@ class Rollback_Service
         if (Action_Scheduler_Snapshot::TYPE === $type) {
             return [ [ 'manage_options' ] ];
         }
+        // A SureCart product or coupon is store data in SureCart's cloud
+        // (issue #665); every SureCart write takes manage_options, so its
+        // undo does too.
+        if (SureCart_Snapshot::TYPE === $type) {
+            return [ [ 'manage_options' ] ];
+        }
         if ('crm_rows' === $type) {
             $kind = (string) ($snapshot['data']['kind'] ?? '');
             if ('mailpoet' === Crm_Rows_Snapshot::plugin($kind)) {
@@ -1103,7 +1109,7 @@ class Rollback_Service
      */
     private static function is_session_reverse_snapshot(array $snapshot): bool
     {
-        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'amelia_rows', 'helpdesk_ticket', 'action_scheduler', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
+        return in_array($snapshot['object_type'], [ 'db_rows', 'db_cleanup', 'acf_options', 'option_set', 'redirection_item', 'plugin_table_rows', 'buddypress_rows', 'bbpress_posts', 'crm_rows', 'amelia_rows', 'helpdesk_ticket', 'action_scheduler', 'surecart_object', Wc_Shipping_Zone_Snapshot::TYPE, Wc_Shipping_Zone_Snapshot::CREATE_TYPE ], true)
             || self::is_compiled_widget_snapshot($snapshot);
     }
 
@@ -1949,6 +1955,7 @@ class Rollback_Service
             'crm_rows',
             'helpdesk_ticket',
             'action_scheduler',
+            'surecart_object',
             'funnelkit_funnel',
             'funnelkit_funnel_create',
             'amelia_rows',
@@ -2253,6 +2260,12 @@ class Rollback_Service
         // Action_Scheduler_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
         if ('action_scheduler' === $snapshot['object_type']) {
             self::warn_if(Action_Scheduler_Snapshot::restore($snapshot));
+            return;
+        }
+
+        // SureCart_Snapshot::TYPE, spelled as a literal for the restorable-types parity test.
+        if ('surecart_object' === $snapshot['object_type']) {
+            self::warn_if(SureCart_Snapshot::restore($snapshot));
             return;
         }
 

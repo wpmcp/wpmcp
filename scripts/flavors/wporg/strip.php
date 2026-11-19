@@ -1502,6 +1502,38 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The SureCart ops (issue #665) are the paid add-on's too, removed by
+    // policy.php; their lines go first, so the Checkout Field Editor edits
+    // below still match. SureCart_Api and SureCart_Snapshot stay: the
+    // safety core names them for a snapshot already taken.
+    [
+        " *  - Issue #665 adds the paid-tier SureCart ops (SureCart_Pack): products,\n"
+            . " *    orders and customers (masked) and coupons read from SureCart's cloud,\n"
+            . " *    and product edits and coupon creates (off until\n"
+            . " *    wpmcp_enable_surecart_write), each snapshotted as a 'surecart_object'\n"
+            . " *    image read from SureCart's API.\n",
+        '',
+        1,
+    ],
+    [
+        "            || Checkout_Field_Editor_Pack::active()\n"
+            . "            || SureCart_Pack::active();\n",
+        "            || Checkout_Field_Editor_Pack::active();\n",
+        1,
+    ],
+    [
+        "            . ', Checkout Field Editor fields'\n"
+            . "            . ', SureCart store data';\n",
+        "            . ', Checkout Field Editor fields';\n",
+        1,
+    ],
+    [ "        \$groups[] = [ 'SureCart', false, SureCart_Pack::operations() ];\n", '', 1 ],
+    [
+        "            Checkout_Field_Editor_Pack::operations(),\n"
+            . "            SureCart_Pack::operations()\n",
+        "            Checkout_Field_Editor_Pack::operations()\n",
+        1,
+    ],
     // The Checkout Field Editor ops (issue #660) are the paid add-on's,
     // removed by policy.php; their lines go first, so every edit below
     // still matches the text it was written against.
@@ -1521,9 +1553,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "            . ', Weglot and GTranslate language settings'\n"
+        "            . ', Weglot and GTranslate language settings, Loco Translate .po strings'\n"
             . "            . ', Checkout Field Editor fields';\n",
-        "            . ', Weglot and GTranslate language settings';\n",
+        "            . ', Weglot and GTranslate language settings, Loco Translate .po strings';\n",
         1,
     ],
     [
@@ -1537,6 +1569,22 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         "            Translation_Settings_Pack::operations()\n",
         1,
     ],
+    // The WPCode ops (issue #697) are the paid add-on's, removed by
+    // policy.php. Each line stands alone, so these go first and match
+    // wherever the lines around them are edited below.
+    [
+        " *  - Issue #697 adds the paid-tier WPCode ops (WPCode_Pack): snippets and\n"
+            . " *    the global header and footer scripts read, snippets created inactive,\n"
+            . " *    changed, activated behind the PHP execution or code injection gate and\n"
+            . " *    deactivated, and the global scripts replaced, each write off until\n"
+            . " *    wpmcp_enable_wpcode_write and undoable.\n",
+        '',
+        1,
+    ],
+    [ "            || WPCode_Pack::active()\n", '', 1 ],
+    [ "            . ', WPCode snippets'\n", '', 1 ],
+    [ "        \$groups[] = [ 'WPCode', false, WPCode_Pack::operations() ];\n", '', 1 ],
+    [ "            WPCode_Pack::operations(),\n", '', 1 ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.
@@ -1571,7 +1619,8 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
             . "            \$groups[] = [ \$adapter->label(), false, \$adapter->operations() ];\n"
             . "        }\n"
             . "        \$groups[] = [ 'Weglot', false, Translation_Settings_Pack::weglot_operations() ];\n"
-            . "        \$groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];\n",
+            . "        \$groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];\n"
+            . "        \$groups[] = [ 'Loco Translate', false, Loco_Translate_Pack::operations() ];\n",
         '',
         1,
     ],
@@ -1579,7 +1628,7 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         "            . ', FluentCRM and MailPoet'\n"
             . "            . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'\n"
             . "            . ', BetterDocs docs, Fluent Support and Awesome Support tickets'\n"
-            . "            . ', Weglot and GTranslate language settings';\n",
+            . "            . ', Weglot and GTranslate language settings, Loco Translate .po strings';\n",
         "            . ', FluentCRM and MailPoet';\n",
         1,
     ],
@@ -1776,9 +1825,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans, Restrict Content and Restrict Content Pro memberships, Ultimate Member roles and forms'\n"
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans, Restrict Content and Restrict Content Pro memberships, Ultimate Member roles and forms, Easy Digital Downloads stores'\n"
             . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans, Restrict Content and Restrict Content Pro memberships, Ultimate Member roles and forms';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans, Restrict Content and Restrict Content Pro memberships, Ultimate Member roles and forms, Easy Digital Downloads stores';\n",
         1,
     ],
     [
@@ -1794,6 +1843,16 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
 // them into the theme pair and their rollback refresher leave with them.
 $edits['src/Integrations/Theme_Integration.php'][] = [
     "            Cache_Settings_Pack::operations(),\n",
+    '',
+    1,
+];
+$edits['src/Plugin.php'][] = [
+    "        // An undo of a WPCode snippet write never leaves the snippet active\n"
+        . "        // and rebuilds WPCode's cache of active snippets; an undo of\n"
+        . "        // set-header-footer clears page caches as WPCode's save does (#697).\n"
+        . "        [\\WPMCP\\Integrations\\WPCode_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],\n"
+        . "        [\\WPMCP\\Integrations\\WPCode_Pack::class, 'after_trash', 'trashed_post'],\n"
+        . "        [\\WPMCP\\Integrations\\WPCode_Pack::class, 'after_options_restored'],\n",
     '',
     1,
 ];

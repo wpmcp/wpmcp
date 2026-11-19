@@ -34,6 +34,14 @@ if (! defined('ABSPATH')) {
  *    snapshotted so rollback-operation restores it exactly (an option the
  *    write created is deleted again).
  *
+ * The Ultimate Addons suite also gets its templates (issue #651): the
+ * header, before-footer, footer and custom block templates of its
+ * elementor-hf post type with their display rules, as the theme layout ops
+ * of the ultimate-addons family (Theme_Layouts_Pack with Theme_Layouts_Hfe):
+ * list-, get-, create-, update- and delete-ultimate-addons-layout,
+ * set-ultimate-addons-layout-display-rules and list-ultimate-addons-hooks
+ * for the rule vocabulary.
+ *
  * Every op declares a 'requires' check, so an inactive suite is skipped
  * cleanly: its ops stay documented in list-operations (dependency_met:false)
  * and answer addon_suite_inactive without touching anything. Presence is
@@ -188,7 +196,9 @@ final class Elementor_Addon_Packs
                 'handler'      => static fn (array $args): array => self::write($suite, (array) $args['modules']),
             ];
         }
-        return $ops;
+        // The Ultimate Addons header, footer and block templates with their
+        // display rules (issue #651), as theme layout ops of their own family.
+        return $ops + Theme_Layouts_Pack::operations('ultimate-addons');
     }
 
     /**

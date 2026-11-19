@@ -58,16 +58,21 @@ final class Translation_Settings_Pack
         return (bool) apply_filters('wpmcp_gtranslate_active', defined('GTRANSLATE_VERSION') && class_exists('GTranslate'));
     }
 
-    /** Whether either plugin is usable and this install may run the paid tier. */
+    /**
+     * Whether either plugin is usable and this install may run the paid
+     * tier, or Loco Translate's .po file ops are (issue #691), which this
+     * pack carries onto the pair with its own.
+     */
     public static function active(): bool
     {
-        return Registrar::tier_permitted('pro') && (self::weglot_active() || self::gtranslate_active());
+        return (Registrar::tier_permitted('pro') && (self::weglot_active() || self::gtranslate_active()))
+            || Loco_Translate_Pack::active();
     }
 
     /** @return array<string, array<string, mixed>> */
     public static function operations(): array
     {
-        return self::weglot_operations() + self::gtranslate_operations();
+        return self::weglot_operations() + self::gtranslate_operations() + Loco_Translate_Pack::operations();
     }
 
     /** @return array<string, array<string, mixed>> */
