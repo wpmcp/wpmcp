@@ -46,6 +46,9 @@ class Get_Media
             'width'       => isset($meta['width']) ? (int) $meta['width'] : 0,
             'height'      => isset($meta['height']) ? (int) $meta['height'] : 0,
             'sizes'       => $sizes,
+            // Registered sizes not generated yet (e.g. added by a new theme);
+            // resize-media without "sizes" fills them.
+            'missing_sizes' => Image_Subsizes::missing($media_id),
             'metadata'    => $meta,
         ];
     }
