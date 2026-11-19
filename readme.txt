@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.0.1
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,14 +36,21 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * WooCommerce, ACF, Meta Box, JetEngine, Pods, TranslatePress, Yoast, Rank Math, SEOPress, The SEO Framework, SureRank, Slim SEO, Redirection; with Pro, All in One SEO
 * Forms: Contact Form 7 (forms, fields, notifications, and Flamingo-stored entries), Forminator, SureForms, MetForm, WS Form (forms, fields, actions and notifications, submissions listed with values masked and read one at a time, undoable status changes and deletes off until the site turns them on); with Pro, the forms adapter pack for Gravity Forms, WPForms, Formidable, Ninja Forms and Fluent Forms
 * Events, donations, memberships (read)
+* GiveWP: donations, donors and campaigns listed with donor names and emails masked and read one at a time in full, a donation summary by status and currency, donation form title, status, amount and goal edits (undoable) and donation status changes (asks for confirmation, totals and emails not undoable); both writes are off until the site turns them on
 * BuddyPress and BuddyBoss Platform: groups (with their linked forums), group members, activity moderation and extended profile fields; BuddyBoss forums through the bbPress tools
+* Restrict Content and Restrict Content Pro: membership levels with member counts, memberships listed with names and emails masked, and undoable level changes (off until the site turns them on)
+* Ultimate Member: roles, members (masked), forms and member directories, and an undoable member role change that asks for confirmation (off until the site turns it on)
 * Activity logs (read): WP Activity Log and Simple History events listed with IP addresses and emails masked and read one at a time in full
 * Action Scheduler (WooCommerce and many plugins use it): queue actions listed by hook, group, status and date with emails, IPs and tokens masked, read one at a time with their log, and pending actions canceled (undoable) or run now (not undoable, asks for confirmation); both writes are off until the site turns them on
 * Email logs (read): WP Mail Logging, Check and Log Email and Email Log emails listed with recipients masked and no bodies, and read one at a time with the body cut and reset or login links removed
+* Analytics (read): visits summary and top pages from Google Site Kit or the stats plugin the site runs (Independent Analytics, Burst Statistics, WP Statistics, MonsterInsights, Jetpack Stats), counts and page paths only
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, Sucuri Security, All In One WP Security, Limit Login Attempts Reloaded, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
+* Query Monitor (read): a profile of one page as a logged-out visitor sees it, with page time and memory, slowest, duplicate and failed queries, outgoing HTTP calls, PHP errors and the busiest hooks, SQL values masked
 * Image optimization: Smush, ShortPixel, EWWW Image Optimizer and Imagify status (compression level, WebP and AVIF, images optimized and pending, cached quota, API keys never returned), and one image optimized through the plugin itself, undoable (off until the site turns it on)
+* WPGraphQL (read): run GraphQL queries as the signed-in user, with mutations refused and emails, phones and IPs masked, and summarise the schema
 * WP Mail SMTP: the active mailer and from identity with credentials never returned, the Pro email log, a test send to your own address, and an undoable from name and address change
-* With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
+* With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable; with Funnel Builder Pro, checkout order bumps too: list, create, rename, switch on or off, set products with quantity and discount, and delete
+* With Pro, CartFlows flows and their steps with checkout products (read), and flows created, steps added, reordered and switched on or off, and checkout products set, each one undoable and off until the site turns them on
 * With Pro, Tutor LMS, LifterLMS and LearnDash: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read); LearnDash also lists a learner's courses with progress and can enroll, unenroll or reset progress (off until the site turns them on), each undoable
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * With Pro, BetterDocs: knowledge base docs and categories (read, and undoable doc creates and edits)
@@ -51,10 +58,12 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * With Pro, Jetpack CRM: contacts (read, names, emails and phones masked in lists) and forms (read), and undoable contact creates and edits through Jetpack CRM itself, off until the site turns them on; HubSpot: the connected account and every HubSpot form placed on the site (read, tokens never returned)
 * With Pro, Fluent Support and Awesome Support: tickets and their threads (read, customer emails masked in lists), and undoable replies, notes and status changes, off until the site turns them on
 * With Pro, Weglot and GTranslate: languages and URL exclusions read (Weglot API keys never returned), and undoable GTranslate language list changes (off until the site turns them on)
+* With Pro, Checkout Field Editor for WooCommerce: billing, shipping and additional checkout fields read, and undoable field changes (labels, required, enabled, order, validations), off until the site turns them on
 * With Pro, cache and performance settings for WP Rocket, Perfmatters, FlyingPress and LiteSpeed Cache: lazy load, minify, delay JS, CDN and preload read with license and CDN keys never returned, undoable settings changes, a cache preload and a LiteSpeed purge for one post or URL (off until the site turns them on)
 * With Pro, Elementor Pro forms: forms found in pages, and form submissions listed, read and exported as CSV, with undoable status changes and deletes (off until the site turns them on)
+* With Pro, Blocksy Companion extensions: listed with their on or off state and switched on or off through the companion's own manager, every toggle undoable (off until the site turns theme writes on)
 * With Pro, Elementor addon packs: Essential Addons, Premium Addons, Ultimate Addons and JetElements widgets listed with their controls, and each pack's modules switched on or off, every toggle undoable
-* Media library plus stock image imports
+* Media library plus stock image imports, and regeneration of the image sizes a new theme or plugin added (undoable)
 * REST passthrough for anything else, still snapshotted
 
 = Free vs Pro =
@@ -93,7 +102,7 @@ WP MCP keeps copies of site data it needs to work: undo snapshots of what an age
 * The AI provider the site owner configured - sideload-image with a prompt generates the image through WordPress core's AI client (WordPress 7.0+), with whichever provider and image model an administrator connected under Settings > Connectors and that connection's own credentials. This plugin holds no AI key and adds no provider. Nothing is sent when AI is disabled or no connected provider can make images. Otherwise the prompt, and the ratio if given, go to that provider; the image comes back as data, or is downloaded from the provider's https link with private addresses and redirects refused. That provider's own terms and privacy policy apply.
 * Any URL you measure - analyze-performance fetches the URL you give it under a WPMCP-Performance-Analyzer/1.0 user agent, refusing private, loopback and reserved addresses and following no redirects.
 * MCP client metadata documents (the https URL an OAuth client uses as its client ID) - only when OAuth is switched on (it is off by default) and an MCP client signs in with an https URL as its client ID, a Client ID Metadata Document. While a signed-in user authorizes that client, this site fetches that one URL to read the client's name and allowed redirect addresses. Nothing about your site or its users is sent: it is a plain GET under a WPMCP-OAuth-Client-Metadata/1.0 user agent. Private, loopback and reserved addresses are refused, redirects are not followed, the document is capped at 5 KB, and it is cached per its Cache-Control header (an hour by default), so a repeat sign-in sends nothing. Set the wpmcp_oauth_cimd_enabled filter to false to turn this off, or require approval of new clients on the WP MCP Connection screen. The client's publisher's own terms and privacy policy apply to the document it hosts.
-* This site itself - the connection self-test calls this site's own REST route, scan-security fetches this site's front page to read its security headers, get-rendered-html fetches a page of this site (never another host, and redirects off the site are refused), and the analytics abilities call this site's own URL. These are loopback requests to your own server.
+* This site itself - the connection self-test calls this site's own REST route, scan-security fetches this site's front page to read its security headers, scan-security with checks:[compromise] fetches up to three of this site's pages as a browser, as a search crawler (a Googlebot user agent) and with a www.google.com Referer header to spot content shown only to search engines, and sends HEAD requests for backup or dump files it finds in public folders (nothing is sent to www.google.com: the Referer is only a header on the request to your own site), get-rendered-html fetches a page of this site (never another host, and redirects off the site are refused), and the analytics abilities call this site's own URL. These are loopback requests to your own server.
 
 == Installation ==
 
@@ -119,17 +128,52 @@ WP MCP asks before destructive actions: through your MCP client's confirmation p
 
 No. Snapshots are fine-grained, per-operation undo, not full-site backups. Keep your backup solution.
 
+= Where are site backup archives stored? =
+
+In wp-content/uploads/wpmcp-site-backups by default, behind a deny rule that Apache honours. On nginx and other servers that ignore .htaccess, define WPMCP_BACKUP_DIR in wp-config.php with a folder outside the web root, for example define( 'WPMCP_BACKUP_DIR', '/home/example/wpmcp-backups' ); archives then go to its wpmcp-site-backups subfolder, and archives made earlier are moved there after the next backup. When the folder is under the web root, trigger-backup and get-backup-status request a test file placed in it from this site's own URL (at most once a day) and warn on the Dashboard if the server returns it; get-backup-status reports the folder in use and the last result.
+
 = Which AI clients work? =
 
-Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authentication works via OAuth 2.1 or WordPress application passwords.
+Any MCP client: Claude Code, Claude Desktop, ChatGPT, Cursor, Windsurf, and others. Authentication works via OAuth 2.1 or WordPress application passwords.
 
-OAuth is off by default. Clients configured with an application password (Claude Code, Cursor, the Claude Desktop bundle or config file) do not need it. The Claude Desktop and claude.ai "Add custom connector" option does: it can only sign in with OAuth, and on a site with OAuth off it fails with "Couldn't register with WP MCP's sign-in service". To switch OAuth on, add define('WPMCP_OAUTH_ENABLED', true); to wp-config.php, or return true from the wpmcp_oauth_enabled filter. The WP MCP Connection screen shows whether OAuth is on and the steps to add the connector.
+OAuth is off by default. Clients configured with an application password (Claude Code, Cursor, the Claude Desktop bundle or config file) do not need it. The Claude Desktop and claude.ai "Add custom connector" option does: it can only sign in with OAuth, and on a site with OAuth off it fails with "Couldn't register with WP MCP's sign-in service". ChatGPT is the same: it signs in only with OAuth. To switch OAuth on, turn on "Allow OAuth sign-in" on the WP MCP Connection screen; developers can instead add define('WPMCP_OAUTH_ENABLED', true); to wp-config.php or return true from the wpmcp_oauth_enabled filter, and either one wins over the switch. The Connection screen shows whether OAuth is on and the steps to add the Claude connector and ChatGPT.
 
 = Is it really free? =
 
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 1.1.0 =
+New integrations and core operations, and the fixes found in the 1.0 test pass. No new top-level tools: everything is an operation on an existing tool, and every write is snapshotted and undoable unless it says otherwise.
+
+New:
+* WPGraphQL (read): wpgraphql-query runs a GraphQL query as the signed-in user, with mutations and subscriptions refused and emails, phones and IPs masked; wpgraphql-get-schema summarises the schema (#704).
+* Relevanssi and FiboSearch: settings, index status and top searches, and settings writes, off until the site turns them on (#700).
+* Image optimization plugins (Smush, ShortPixel, EWWW Image Optimizer, Imagify): get-image-optimizer-status, and optimize-attachment for one image through the plugin itself, snapshotted first and off until the site turns it on (#693).
+* Advanced Ads: list and read ads and placements; create (as a draft), update, enable and disable ads and point placements, off until the site turns it on (#688).
+* Security plugin status (read): Sucuri Security, All In One WP Security and Limit Login Attempts Reloaded, counts and switches only, never IPs or user names (#695).
+* BuddyBoss Platform: groups, members, activity and profile fields through the BuddyPress operations, and the forums linked to a group (#670).
+* WP Simple Pay forms and Paid Member Subscriptions plans and members (read, members masked) (#666).
+* With Pro: WooCommerce payment gateway health for Stripe, WooPayments and PayPal Payments (connected, test mode, webhook status and last error, never keys) (#661); Kadence Blocks and Spectra plugin settings and page CSS, settings writes off until the site turns them on (#648); Weglot and GTranslate languages and exclusions, GTranslate language changes off until the site turns them on (#690); WP Offload Media status per attachment (#701); Blocksy Companion extensions listed and switched on or off (#650); core privacy requests: list and read export and erasure requests, file new ones and mark them complete, writes off until the site turns them on (#714).
+* Comments: moderate-comment moderates up to 100 comments in one call, each with its own undo point, and status recheck asks Akismet to check pending comments again (#718).
+* list-sessions lists one user's login sessions with IPs anonymized (#715).
+* Media: get-media and list-media report missing image sizes, and resize-media fills exactly the missing ones, also for up to 20 images in one call (#716).
+* write-file writes binary files such as fonts and images with encoding base64, up to 5 MB; PHP, scripts and server configuration files are refused (#851).
+* tools/list carries readOnlyHint, destructiveHint and idempotentHint annotations, and tools behind an opt-in name it (#630). Over stdio (wp mcp-stdio serve) the client is told when the tool list changes (#632).
+* New governance setting to switch on the tools an update adds, applied on updates only and never to a tool switched off by hand (#853).
+
+Fixes:
+* A refusal for an operation that is off by default points to WP MCP > Opt-in operations when that screen lists it (#966).
+* Refusals name the plugin an operation needs, even when none of that integration's plugins is active, and before asking for its opt-in (#980, #1041); an unknown operation name answers unknown_operation (#1036).
+* Undoing a Formidable notification or confirmation edit works again and no longer leaves a duplicate action behind (#984).
+* Amelia 2.4.15: a booking with notify:false no longer emails the customer (#962).
+* The WP MCP admin menu sits just below Settings (#1026).
+* Read-only and similar refusal messages read correctly for every value (#1029).
+* Rank Math redirections that were never hit report last_access as null (#1051).
+* The Kadence Blocks and Spectra settings opt-in is listed on the Opt-in operations screen (#1016).
+
+Known issue: on WP MCP > Opt-in operations the privacy requests group shows without a readable name. It works as expected and is fixed in the next release.
 
 = 1.0.1 =
 Fixes:
@@ -1003,6 +1047,9 @@ Admin and tooling:
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 1.1.0 =
+New integrations (WPGraphQL, search, image optimization, Advanced Ads, security status, payment gateway health and more) and fixes from the 1.0 test pass. Recommended for all sites.
 
 = 1.0.1 =
 Sites on PHP 8.1 must update: 1.0.0 does not load there.

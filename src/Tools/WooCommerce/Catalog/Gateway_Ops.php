@@ -267,7 +267,7 @@ final class Gateway_Ops
             }
             $type = (string) ($field['type'] ?? 'text');
             if (! in_array($type, self::WRITABLE_TYPES, true)) {
-                self::refuse('invalid_params', "\"{$key}\" is a {$type} field, which cannot be set here.", [ 'field' => $key ]);
+                self::refuse('invalid_params', "\"{$key}\" has field type \"{$type}\", which cannot be set here.", [ 'field' => $key ]);
             }
             $out[ $key ] = self::checked_value($key, $type, $field, $value);
         }

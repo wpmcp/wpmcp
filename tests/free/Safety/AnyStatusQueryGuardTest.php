@@ -32,6 +32,10 @@ class AnyStatusQueryGuardTest extends \WP_UnitTestCase
             'count'  => 1,
             'reason' => 'The helper itself: it defaults post_status to any and adds the read filter.',
         ],
+        'Integrations/Core_Fonts_Pack.php::faces'                          => [
+            'count'  => 1,
+            'reason' => 'Font faces of one family (issue #712): every op that lists them takes edit_theme_options, which core\'s wp_font_face type maps every read capability to, and the delete must back up every face.',
+        ],
         'Integrations/LMS_Adapter.php::child_posts'                        => [
             'count'  => 1,
             'reason' => 'Write path only: a reorder or insert renumbers every sibling, and edit_refusal() refuses the call when a sibling the caller may not edit would change.',
