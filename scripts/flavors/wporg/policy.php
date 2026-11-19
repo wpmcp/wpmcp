@@ -179,6 +179,10 @@ return [
         'src/Integrations/Theme_Layouts_Astra.php',
         'src/Integrations/Theme_Layouts_Kadence.php',
         'src/Integrations/Theme_Layouts_GeneratePress.php',
+        // The Blocksy Companion extension ops (issue #650), paid-tier.
+        // strip.php takes out the merge and the rollback refresh in
+        // Theme_Framework_Pack.
+        'src/Integrations/Theme_Blocksy_Extensions.php',
         // The Elementor addon suite packs (issue #286): widget catalog and
         // module toggle ops for three addon suites, all paid-tier. strip.php
         // takes out the line in Theme_Integration that merges them and the
@@ -190,6 +194,9 @@ return [
         // And its funnel, step and checkout product writes (issue #500),
         // merged only by FunnelKit_Pack.
         'src/Integrations/FunnelKit_Writes.php',
+        // WordPress core personal data request ops (issue #714), paid-tier.
+        // strip.php takes out the line in Theme_Integration that merges them.
+        'src/Integrations/Core_Privacy_Pack.php',
         // LMS course structure and enrollments (issue #394), paid-tier.
         // strip.php takes out the lines in Plugin_Data_Integration that merge
         // the ops, count the pack towards availability and name it in the
@@ -259,6 +266,10 @@ return [
         'src/Integrations/Cache_Settings_Perfmatters.php',
         'src/Integrations/Cache_Settings_FlyingPress.php',
         'src/Integrations/Cache_Settings_LiteSpeed.php',
+        // WP Offload Media offload status (issue #701), paid-tier and read
+        // only. strip.php takes out the lines in Plugin_Data_Integration that
+        // merge the ops and count the pack towards availability.
+        'src/Integrations/Offload_Media_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration
