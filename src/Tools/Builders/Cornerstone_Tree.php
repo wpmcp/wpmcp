@@ -121,7 +121,7 @@ final class Cornerstone_Tree
                 throw new \InvalidArgumentException(esc_html($error));
             }
             if (array_key_exists('_modules', $element)) {
-                self::validate($element['_modules'], $placement, $element['_type'], "a {$element['_type']} element");
+                self::validate($element['_modules'], $placement, $element['_type'], "the {$element['_type']} element");
             }
         }
     }

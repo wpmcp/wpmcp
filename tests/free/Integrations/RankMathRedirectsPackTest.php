@@ -109,6 +109,37 @@ class RankMathRedirectsPackTest extends \WP_UnitTestCase
         $this->assertSame('redirection_not_found', $missing['error']['code']);
     }
 
+    public function test_a_never_hit_redirection_reports_null_last_access(): void
+    {
+        // Issue #1051: Rank Math stores 1000-01-01 for a redirection that was never hit.
+        $out = $this->write('rankmath-create-redirection', [ 'source' => '/old-1051', 'target' => '/new-1051' ]);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $id = (int) $out['result']['redirection']['id'];
+        $this->assertSame('1000-01-01 00:00:00', $this->row($id)['last_accessed'], 'the stored sentinel is left as Rank Math writes it');
+        $this->assertArrayHasKey('last_access', $out['result']['redirection']);
+        $this->assertNull($out['result']['redirection']['last_access'], 'the create reply says never hit too');
+
+        $get = $this->read('rankmath-get-redirection', [ 'id' => $id ]);
+        $red = $get['result']['redirection'] ?? $get['redirection'];
+        $this->assertSame(0, $red['hits']);
+        $this->assertNull($red['last_access']);
+
+        $list = $this->read('rankmath-list-redirections', [ 'search' => '1051' ]);
+        $rows = ($list['result'] ?? $list)['redirections'];
+        $this->assertCount(1, $rows);
+        $this->assertNull($rows[0]['last_access']);
+
+        // A zero date (the column default) is not a date either; a real one is kept.
+        global $wpdb;
+        $wpdb->update($wpdb->prefix . 'rank_math_redirections', [ 'last_accessed' => '0000-00-00 00:00:00' ], [ 'id' => $id ]);
+        $get = $this->read('rankmath-get-redirection', [ 'id' => $id ]);
+        $this->assertNull(($get['result']['redirection'] ?? $get['redirection'])['last_access']);
+
+        $hit = $this->seed('hit-page', '/x');
+        $get = $this->read('rankmath-get-redirection', [ 'id' => $hit ]);
+        $this->assertSame('2026-01-02 00:00:00', ($get['result']['redirection'] ?? $get['redirection'])['last_access']);
+    }
+
     public function test_404_log_sorts_masks_and_flags_covered_uris(): void
     {
         $this->seed('gone-page', '/home');
