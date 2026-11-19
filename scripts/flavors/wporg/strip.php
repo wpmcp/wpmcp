@@ -1502,6 +1502,38 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The SureCart ops (issue #665) are the paid add-on's too, removed by
+    // policy.php; their lines go first, so the Checkout Field Editor edits
+    // below still match. SureCart_Api and SureCart_Snapshot stay: the
+    // safety core names them for a snapshot already taken.
+    [
+        " *  - Issue #665 adds the paid-tier SureCart ops (SureCart_Pack): products,\n"
+            . " *    orders and customers (masked) and coupons read from SureCart's cloud,\n"
+            . " *    and product edits and coupon creates (off until\n"
+            . " *    wpmcp_enable_surecart_write), each snapshotted as a 'surecart_object'\n"
+            . " *    image read from SureCart's API.\n",
+        '',
+        1,
+    ],
+    [
+        "            || Checkout_Field_Editor_Pack::active()\n"
+            . "            || SureCart_Pack::active();\n",
+        "            || Checkout_Field_Editor_Pack::active();\n",
+        1,
+    ],
+    [
+        "            . ', Checkout Field Editor fields'\n"
+            . "            . ', SureCart store data';\n",
+        "            . ', Checkout Field Editor fields';\n",
+        1,
+    ],
+    [ "        \$groups[] = [ 'SureCart', false, SureCart_Pack::operations() ];\n", '', 1 ],
+    [
+        "            Checkout_Field_Editor_Pack::operations(),\n"
+            . "            SureCart_Pack::operations()\n",
+        "            Checkout_Field_Editor_Pack::operations()\n",
+        1,
+    ],
     // The Checkout Field Editor ops (issue #660) are the paid add-on's,
     // removed by policy.php; their lines go first, so every edit below
     // still matches the text it was written against.
