@@ -142,7 +142,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || Elementor_Pro_Forms_Pack::active()
             || BetterDocs_Pack::active()
             || Helpdesk_Pack::active()
-            || Translation_Settings_Pack::active();
+            || Translation_Settings_Pack::active()
+            || Easy_TOC_Pack::active();
     }
 
     public function registers_only_when_available(): bool
@@ -158,7 +159,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
             . ', BetterDocs docs, Fluent Support and Awesome Support tickets'
-            . ', Weglot and GTranslate language settings';
+            . ', Weglot and GTranslate language settings'
+            . ', Easy Table of Contents settings';
     }
 
     /**
@@ -208,6 +210,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         }
         $groups[] = [ 'Weglot', false, Translation_Settings_Pack::weglot_operations() ];
         $groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];
+        $groups[] = [ 'Easy Table of Contents', false, Easy_TOC_Pack::operations() ];
 
         $hosts = [];
         foreach ($groups as [ $plugin, $several, $ops ]) {
@@ -250,7 +253,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Elementor_Pro_Forms_Pack::operations(),
             BetterDocs_Pack::operations(),
             Helpdesk_Pack::operations(),
-            Translation_Settings_Pack::operations()
+            Translation_Settings_Pack::operations(),
+            Easy_TOC_Pack::operations()
         );
     }
 

@@ -1474,6 +1474,28 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Easy Table of Contents ops (issue #904) are the paid add-on's,
+    // removed by policy.php. Their lines go first, so every edit below
+    // matches the file as it was before them.
+    [
+        "            || Translation_Settings_Pack::active()\n"
+            . "            || Easy_TOC_Pack::active();\n",
+        "            || Translation_Settings_Pack::active();\n",
+        1,
+    ],
+    [
+        "            . ', Weglot and GTranslate language settings'\n"
+            . "            . ', Easy Table of Contents settings';\n",
+        "            . ', Weglot and GTranslate language settings';\n",
+        1,
+    ],
+    [ "        \$groups[] = [ 'Easy Table of Contents', false, Easy_TOC_Pack::operations() ];\n", '', 1 ],
+    [
+        "            Translation_Settings_Pack::operations(),\n"
+            . "            Easy_TOC_Pack::operations()\n",
+        "            Translation_Settings_Pack::operations()\n",
+        1,
+    ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.

@@ -253,6 +253,10 @@ return [
         // the ops and count the pack towards availability. The option
         // snapshot it writes is generic and needs no plugin class.
         'src/Integrations/Translation_Settings_Pack.php',
+        // Easy Table of Contents settings and per-post flags (issue #904),
+        // paid-tier. strip.php takes out its lines in Plugin_Data_Integration;
+        // its option and post snapshots are generic.
+        'src/Integrations/Easy_TOC_Pack.php',
         // Cache and performance plugin settings (issue #692), paid-tier.
         // strip.php takes out the line in Theme_Integration that merges the
         // ops and the rollback refresher in Plugin.

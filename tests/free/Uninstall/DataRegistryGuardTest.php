@@ -96,6 +96,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // GTranslate's settings, whose language lists the
             // gtranslate-set-languages op changes (issue #690).
             'GTranslate',
+            // Easy Table of Contents' settings, whose placement keys the
+            // easy-toc-update-settings op changes (issue #904).
+            'ez-toc-settings',
             // FiboSearch's settings, changed by update-fibosearch-settings
             // on the theme pair (issue #700).
             'dgwt_wcas_settings',
