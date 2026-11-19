@@ -170,6 +170,7 @@ class Theme_Integration extends Integration_Dispatcher
         'blocksy',
         'neve',
         'hello-elementor',
+        'hestia',
     ];
 
     /** Bundled core theme slugs, reported as the 'core' framework. */
@@ -259,7 +260,7 @@ class Theme_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'the active theme (context, mods), site identity, permalinks, Redirection, Rank Math redirects and 404 log, backup, security, analytics, cache, mail status, site gates';
+        return 'the active theme (context, mods), site identity, permalinks, Redirection, Rank Math redirects and 404 log, backup, security, analytics, cache, mail status, site gates, fonts';
     }
 
     protected function operations(): array
@@ -280,6 +281,12 @@ class Theme_Integration extends Integration_Dispatcher
      * single, archive and search templates on the site parts store.
      * Issue #356 adds the paid-tier FunnelKit funnel reads (FunnelKit_Pack),
      * which answer funnelkit_inactive while FunnelKit is not loaded.
+     * Issue #662 adds the paid-tier CartFlows flow, step and checkout
+     * product ops (CartFlows_Pack), which answer cartflows_inactive while
+     * CartFlows is not loaded.
+     * Issue #714 adds the paid-tier WordPress core personal data request
+     * ops (Core_Privacy_Pack): requests listed and read, export and erasure
+     * requests filed and marked complete, every write undoable.
      *
      * Issue #300 adds the Redirection plugin adapter (Redirection_Pack):
      * free redirect and group reads plus snapshotted redirect writes that
@@ -302,6 +309,9 @@ class Theme_Integration extends Integration_Dispatcher
      * and Cookie Notice (Consent_Pack): status, settings, texts and cookie
      * reads, snapshotted text writes and a Complianz scan restart, writes
      * off until the site opts in.
+     * Issue #712 adds WordPress core's Font Library (Core_Fonts_Pack): list
+     * and read installed families, install from Google Fonts or a font
+     * file, and delete, every write undoable and off until the site opts in.
      *
      * @return array<string,array<string,mixed>>
      */
@@ -312,6 +322,7 @@ class Theme_Integration extends Integration_Dispatcher
             Theme_Framework_Pack::operations($this->detect_framework()),
             Core_Site_Pack::operations(),
             Core_Patterns_Pack::operations(),
+            Core_Fonts_Pack::operations(),
             Ops_Status_Packs::operations(),
             Site_Gate_Pack::operations(),
             Consent_Pack::operations(),
@@ -320,6 +331,8 @@ class Theme_Integration extends Integration_Dispatcher
             Rank_Math_Redirects_Pack::operations(),
             Elementor_Addon_Packs::operations(),
             FunnelKit_Pack::operations(),
+            CartFlows_Pack::operations(),
+            Core_Privacy_Pack::operations(),
             \WPMCP\Tools\ThemeBuilder\Dynamic\Dynamic_Template_Ops::operations()
         );
     }

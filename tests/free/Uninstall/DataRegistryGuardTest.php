@@ -99,6 +99,15 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // Cookie Notice's settings, whose banner texts the
             // update-consent-banner-texts op changes (issue #686).
             'cookie_notice_options',
+            // FiboSearch's settings, changed by update-fibosearch-settings
+            // on the theme pair (issue #700).
+            'dgwt_wcas_settings',
+            // Relevanssi's own settings, one option per name, changed by
+            // update-relevanssi-settings on the theme pair (issue #700).
+            'relevanssi_*',
+            // Checkout Field Editor's checkout sections, whose fields the
+            // update-checkout-fields op changes (issue #660).
+            'wc_fields_*',
         ],
         'transient'      => [
             'scrape_key_*',

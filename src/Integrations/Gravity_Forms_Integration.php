@@ -27,6 +27,12 @@ if (! defined('ABSPATH')) {
  * entries in its own gf_entry table, so the write is snapshotted as a
  * db_rows before-image of exactly that row and restorable with
  * rollback-operation. Entry deletion is deliberately not offered.
+ *
+ * Issue #674: notifications and confirmations are editable (opt in with
+ * wpmcp_enable_forms_write). Gravity Forms keeps each form's notifications
+ * and confirmations as JSON columns of its gf_form_meta row, so every edit
+ * writes one column through GFFormsModel::update_form_meta(), the call its
+ * own notification toggle uses, under a db_rows before-image of that row.
  */
 class Gravity_Forms_Integration extends Forms_Integration
 {
@@ -95,6 +101,12 @@ class Gravity_Forms_Integration extends Forms_Integration
     }
 
     protected function operations(): array
+    {
+        return $this->read_and_entry_operations() + self::config_operations();
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function read_and_entry_operations(): array
     {
         return [
             'list-forms' => [
@@ -190,6 +202,8 @@ class Gravity_Forms_Integration extends Forms_Integration
                             // Gravity Forms treats a notification without the
                             // flag as active; only an explicit false is off.
                             'active'  => ! array_key_exists('isActive', $n) || (bool) $n['isActive'],
+                            // email: to is an address list; field: to is a field id; routing: rules decide.
+                            'to_type' => (string) ($n['toType'] ?? 'email'),
                             'to'      => (string) ($n['to'] ?? ''),
                             'subject' => (string) ($n['subject'] ?? ''),
                             'message' => (string) ($n['message'] ?? ''),
@@ -293,5 +307,393 @@ class Gravity_Forms_Integration extends Forms_Integration
                 'snapshot'     => static fn (array $args): ?array => self::row_snapshot('gf_entry', 'id', (int) $args['entry_id'], [ 'status' => (string) $args['status'] ]),
             ],
         ];
+    }
+
+    // ------------------------------------------------------------------
+    // Notification and confirmation edits (issue #674)
+    // ------------------------------------------------------------------
+
+    /**
+     * The stored notifications and confirmations of one form, read raw from
+     * its gf_form_meta row (not through get_form(), whose filters may add
+     * items that must not be written back). Null when the form or its row is
+     * missing.
+     *
+     * @return array{notifications: array<string, array<string, mixed>>, confirmations: array<string, array<string, mixed>>}|null
+     */
+    private static function stored_meta(int $form_id): ?array
+    {
+        global $wpdb;
+
+        if ($form_id < 1 || ! class_exists('GFFormsModel') || null === self::form($form_id)) {
+            return null;
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- the raw columns Gravity Forms stores, read once per edit; the write goes through GFFormsModel::update_form_meta().
+        $row = $wpdb->get_row($wpdb->prepare('SELECT notifications, confirmations FROM %i WHERE form_id = %d', \GFFormsModel::get_meta_table_name(), $form_id), ARRAY_A);
+        if (! is_array($row)) {
+            return null;
+        }
+        $out = [];
+        foreach ([ 'notifications', 'confirmations' ] as $column) {
+            $raw     = (string) ($row[ $column ] ?? '');
+            $decoded = json_decode($raw, true);
+            if (! is_array($decoded)) {
+                $decoded = maybe_unserialize($raw);
+            }
+            $items = [];
+            foreach ((is_array($decoded) ? $decoded : []) as $key => $item) {
+                if (is_array($item)) {
+                    $items[ (string) $key ] = $item;
+                }
+            }
+            $out[ $column ] = $items;
+        }
+
+        return $out;
+    }
+
+    /** @return array<string, mixed> a refusal for a form Gravity Forms does not have */
+    private static function form_refusal(int $form_id): array
+    {
+        return [ 'code' => 'form_not_found', 'message' => 'No Gravity Forms form has that id.', 'data' => [ 'form_id' => $form_id ] ];
+    }
+
+    /** @return array<string, mixed> one notification as the edits report it */
+    private static function notification_view(array $n): array
+    {
+        return [
+            'enabled'        => ! array_key_exists('isActive', $n) || (bool) $n['isActive'],
+            'name'           => (string) ($n['name'] ?? ''),
+            'to_type'        => (string) ($n['toType'] ?? 'email'),
+            'to'             => (string) ($n['to'] ?? ''),
+            'bcc'            => (string) ($n['bcc'] ?? ''),
+            'sender_name'    => (string) ($n['fromName'] ?? ''),
+            'sender_address' => (string) ($n['from'] ?? ''),
+            'replyto'        => (string) ($n['replyTo'] ?? ''),
+            'subject'        => (string) ($n['subject'] ?? ''),
+            'message'        => (string) ($n['message'] ?? ''),
+        ];
+    }
+
+    /** @return array<string, mixed> one confirmation as list-confirmations reports it */
+    private static function confirmation_view(string $id, array $c): array
+    {
+        return [
+            'id'           => $id,
+            'name'         => (string) ($c['name'] ?? ''),
+            'type'         => '' === (string) ($c['type'] ?? '') ? 'message' : (string) $c['type'],
+            'is_default'   => ! empty($c['isDefault']),
+            'message'      => (string) ($c['message'] ?? ''),
+            'page'         => (string) ($c['pageId'] ?? ''),
+            'redirect'     => (string) ($c['url'] ?? ''),
+            'query_string' => (string) ($c['queryString'] ?? ''),
+        ];
+    }
+
+    /** Write one column of the form's gf_form_meta row the way Gravity Forms does. */
+    private static function save_meta(int $form_id, string $column, array $items): void
+    {
+        $result = \GFFormsModel::update_form_meta($form_id, $items, $column);
+        if (false === $result) {
+            throw new Operation_Error('update_failed', 'Gravity Forms did not save the form.', [ 'form_id' => (int) $form_id ]);
+        }
+    }
+
+    /**
+     * Plan one notification edit: the notification as it is and as it would
+     * be, or a refusal.
+     *
+     * @return array{0: ?array, 1: ?array}  [refusal, plan]
+     */
+    private static function notification_plan(array $args, bool $with_recipients = false): array
+    {
+        $form_id = (int) $args['form_id'];
+        $meta    = self::stored_meta($form_id);
+        if (null === $meta) {
+            return [ self::form_refusal($form_id), null ];
+        }
+        $id  = (string) $args['notification_id'];
+        $all = $meta['notifications'];
+        if (! isset($all[ $id ])) {
+            return [ [ 'code' => 'notification_not_found', 'message' => 'This form has no notification with that id (see list-notifications).', 'data' => [ 'form_id' => $form_id, 'notification_id' => $id ] ], null ];
+        }
+        $next = $all[ $id ];
+        foreach ([ 'name' => 'name', 'sender_name' => 'fromName', 'sender_address' => 'from', 'replyto' => 'replyTo', 'subject' => 'subject', 'message' => 'message' ] as $arg => $key) {
+            if (isset($args[ $arg ])) {
+                $next[ $key ] = (string) $args[ $arg ];
+            }
+        }
+        if (isset($args['message']) && ! current_user_can('unfiltered_html')) {
+            $next['message'] = wp_kses_post((string) $args['message']);
+        }
+        if (isset($args['enabled'])) {
+            $next['isActive'] = (bool) $args['enabled'];
+        }
+        // Who a notification goes to is changed only by set-notification-recipients
+        // (confirm, validation, domain filter, preview), never by the plain edit.
+        if ($with_recipients) {
+            if (isset($args['to'])) {
+                $next['toType'] = 'email';
+                $next['to']     = (string) $args['to'];
+            }
+            if (isset($args['bcc'])) {
+                $next['bcc'] = (string) $args['bcc'];
+            }
+        }
+        $new_all        = $all;
+        $new_all[ $id ] = $next;
+
+        return [ null, [ 'form_id' => $form_id, 'id' => $id, 'items' => $new_all, 'before' => self::notification_view($all[ $id ]), 'after' => self::notification_view($next) ] ];
+    }
+
+    /**
+     * Plan one confirmation edit.
+     *
+     * @return array{0: ?array, 1: ?array}  [refusal, plan]
+     */
+    private static function confirmation_plan(array $args): array
+    {
+        $form_id = (int) $args['form_id'];
+        $meta    = self::stored_meta($form_id);
+        if (null === $meta) {
+            return [ self::form_refusal($form_id), null ];
+        }
+        $id  = (string) $args['confirmation_id'];
+        $all = $meta['confirmations'];
+        $bad = static fn (string $code, string $message): array => [ [ 'code' => $code, 'message' => $message, 'data' => [ 'form_id' => $form_id, 'confirmation_id' => $id ] ], null ];
+        if (! isset($all[ $id ])) {
+            return $bad('confirmation_not_found', 'This form has no confirmation with that id (see list-confirmations).');
+        }
+        $before = self::confirmation_view($id, $all[ $id ]);
+        $next   = $all[ $id ];
+        if (isset($args['name'])) {
+            if (null !== ($problem = self::header_text_problem((string) $args['name'], 'Name'))) {
+                return $bad('invalid_confirmation', $problem);
+            }
+            $next['name'] = (string) $args['name'];
+        }
+        if (isset($args['type'])) {
+            $next['type'] = (string) $args['type'];
+        }
+        if (isset($args['message'])) {
+            $next['message'] = wp_kses_post((string) $args['message']);
+        }
+        if (isset($args['page'])) {
+            $next['pageId'] = (string) (int) $args['page'];
+        }
+        if (isset($args['redirect']) && (string) $args['redirect'] !== $before['redirect']) {
+            // Judge what was given, before esc_url_raw() can turn "not a url" into one.
+            $raw = (string) $args['redirect'];
+            if (! preg_match('#^https?://[^\s]+$#i', $raw)) {
+                return $bad('invalid_confirmation', 'A redirect confirmation needs an http or https url.');
+            }
+            $has_tags = (bool) preg_match('/[{}\[\]]/', $raw);
+            $problem  = self::redirect_tag_problem($raw);
+            if (null === $problem && ! $has_tags && esc_url_raw($raw) !== $raw) {
+                $problem = 'The redirect url contains characters WordPress would strip, so it would be saved altered. Use a plain url.';
+            }
+            if (null !== $problem) {
+                return $bad('invalid_confirmation', $problem);
+            }
+            $next['url'] = $has_tags ? $raw : esc_url_raw($raw);
+        }
+        $after     = self::confirmation_view($id, $next);
+        $unchanged = 'redirect' === $before['type'] && $after['redirect'] === $before['redirect'];
+        $problem   = self::confirmation_problem([ 'type' => $after['type'], 'message' => $after['message'], 'page' => $after['page'], 'url' => $after['redirect'], 'url_unchanged' => $unchanged ]);
+        // Gravity Forms appends the stored query string, with its merge tags
+        // filled, to a redirect url, so a new redirect target is judged with it.
+        if (null === $problem && 'redirect' === $after['type'] && ! $unchanged && '' !== $after['query_string']) {
+            $glue    = str_contains($after['redirect'], '?') ? '&' : '?';
+            $problem = self::redirect_tag_problem($after['redirect'] . $glue . $after['query_string']);
+        }
+        if (null !== $problem) {
+            return $bad('invalid_confirmation', $problem);
+        }
+        $new_all        = $all;
+        $new_all[ $id ] = $next;
+
+        return [ null, [ 'form_id' => $form_id, 'id' => $id, 'items' => $new_all, 'before' => $before, 'after' => $after ] ];
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private static function config_operations(): array
+    {
+        $id   = [ 'type' => 'integer', 'minimum' => 1 ];
+        $item = [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 40 ];
+        // Gravity Forms' forms are rows of its own tables, not posts: the writes
+        // sit behind manage_options and are undone through a db_rows
+        // before-image of the form's gf_form_meta row.
+        $write = static function (string $column): array {
+            return [
+                'capability' => 'manage_options',
+                'snapshot'   => static function (array $args) use ($column): ?array {
+                    $plan = 'confirmations' === $column ? self::confirmation_plan($args)[1] : self::notification_plan($args, true)[1];
+                    return null === $plan ? null : self::row_snapshot('gf_form_meta', 'form_id', (int) $plan['form_id'], [ $column => wp_json_encode($plan['items']) ]);
+                },
+            ] + self::write_flags();
+        };
+
+        return [
+            'list-confirmations'          => [
+                'mode'         => 'read',
+                'description'  => 'List one form\'s confirmations (what a visitor sees after submitting): id, name, type (message, page, redirect), whether it is the default, message, page id, redirect url and query string',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'form_id' => $id ], 'required' => [ 'form_id' ] ],
+                'handler'      => static function (array $args): array {
+                    $meta = self::stored_meta((int) $args['form_id']);
+                    if (null === $meta) {
+                        return [ 'form_id' => (int) $args['form_id'], 'confirmations' => null ];
+                    }
+                    $out = [];
+                    foreach ($meta['confirmations'] as $cid => $c) {
+                        $out[] = self::confirmation_view((string) $cid, $c);
+                    }
+                    return [ 'form_id' => (int) $args['form_id'], 'confirmations' => $out ];
+                },
+            ],
+            'update-notification'         => $write('notifications') + [
+                'mode'         => 'write',
+                'description'  => 'Edit one notification of a form: enabled, name, subject, message, sender_name, sender_address and replyto. The recipients are changed with set-notification-recipients. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after of every changed field. Undo: rollback-operation',
+                'input_schema' => [
+                    'type'                 => 'object',
+                    'properties'           => [
+                        'form_id'         => $id,
+                        'notification_id' => $item,
+                        'enabled'         => [ 'type' => 'boolean' ],
+                        'name'            => [ 'type' => 'string', 'maxLength' => 200 ],
+                        'subject'         => [ 'type' => 'string', 'maxLength' => 998 ],
+                        'message'         => [ 'type' => 'string', 'maxLength' => 100000 ],
+                        'sender_name'     => [ 'type' => 'string', 'maxLength' => 200 ],
+                        'sender_address'  => [ 'type' => 'string', 'maxLength' => 320 ],
+                        'replyto'         => [ 'type' => 'string', 'maxLength' => 320 ],
+                    ],
+                    'required'             => [ 'form_id', 'notification_id' ],
+                    'minProperties'        => 3,
+                    'additionalProperties' => false,
+                ],
+                'validate'     => static function (array $args): ?array {
+                    [ $refusal ] = self::notification_plan($args);
+                    if (null !== $refusal) {
+                        return $refusal;
+                    }
+                    $bad = static fn (string $message): array => [ 'code' => 'invalid_notification', 'message' => $message, 'data' => [ 'form_id' => (int) $args['form_id'] ] ];
+                    foreach ([ 'subject', 'message' ] as $field) {
+                        if (isset($args[ $field ]) && '' === trim((string) $args[ $field ])) {
+                            return $bad(sprintf('%s must not be empty.', ucfirst($field)));
+                        }
+                    }
+                    foreach ([ 'name' => 'Name', 'subject' => 'Subject', 'sender_name' => 'Sender name' ] as $field => $label) {
+                        if (isset($args[ $field ]) && null !== ($problem = self::header_text_problem((string) $args[ $field ], $label))) {
+                            return $bad($problem);
+                        }
+                    }
+                    foreach ([ 'sender_address' => 'Sender address', 'replyto' => 'Reply-to' ] as $field => $label) {
+                        if (isset($args[ $field ]) && null !== ($problem = self::address_problem((string) $args[ $field ], $label, 'replyto' === $field, true))) {
+                            return $bad($problem);
+                        }
+                    }
+                    return null;
+                },
+                'handler'      => static function (array $args): array {
+                    [ , $plan ] = self::notification_plan($args);
+                    $changes    = self::diff_fields($plan['before'], $plan['after']);
+                    if ([] !== $changes) {
+                        self::save_meta($plan['form_id'], 'notifications', $plan['items']);
+                    }
+                    return [ 'form_id' => $plan['form_id'], 'notification_id' => $plan['id'], 'changed' => [] !== $changes, 'changes' => $changes ];
+                },
+            ],
+            'set-notification-recipients' => $write('notifications') + [
+                'mode'            => 'destructive',
+                'description'     => 'Change who a notification is sent to: to (addresses or merge tags such as {admin_email}; sets the send-to type to email) and bcc (an empty bcc clears it). This redirects personal data, so it needs confirm:true, and the confirmation shows the recipients before and after. Off by default (opt in with wpmcp_enable_forms_write). Undo: rollback-operation',
+                'input_schema'    => [
+                    'type'          => 'object',
+                    'properties'    => [
+                        'form_id'         => $id,
+                        'notification_id' => $item,
+                        'to'              => [ 'type' => 'string', 'maxLength' => 2000 ],
+                        'bcc'             => [ 'type' => 'string', 'maxLength' => 2000 ],
+                    ],
+                    'required'      => [ 'form_id', 'notification_id' ],
+                    'minProperties' => 3,
+                ],
+                'validate'        => static function (array $args): ?array {
+                    [ $refusal ] = self::notification_plan($args, true);
+                    if (null !== $refusal) {
+                        return $refusal;
+                    }
+                    foreach ([ 'to' => 'To', 'bcc' => 'Bcc' ] as $field => $label) {
+                        if (isset($args[ $field ]) && null !== ($problem = self::address_problem((string) $args[ $field ], $label, 'bcc' === $field))) {
+                            return [ 'code' => 'invalid_recipients', 'message' => $problem, 'data' => [ 'form_id' => (int) $args['form_id'] ] ];
+                        }
+                    }
+                    return null;
+                },
+                'confirm_preview' => static function (array $args): array {
+                    [ , $plan ] = self::notification_plan($args, true);
+                    return [
+                        'message' => sprintf('It changes who notification %s of form %d is sent to. Undo: rollback-operation.', $plan['id'], $plan['form_id']),
+                        'data'    => [ 'form_id' => $plan['form_id'], 'before' => self::recipients($plan['before']), 'after' => self::recipients($plan['after']) ],
+                    ];
+                },
+                'handler'         => static function (array $args): array {
+                    [ , $plan ] = self::notification_plan($args, true);
+                    $before     = self::recipients($plan['before']);
+                    $after      = self::recipients($plan['after']);
+                    $changed    = $before !== $after;
+                    if ($changed) {
+                        self::save_meta($plan['form_id'], 'notifications', $plan['items']);
+                    }
+                    return [
+                        'form_id'           => $plan['form_id'],
+                        'notification_id'   => $plan['id'],
+                        'changed'           => $changed,
+                        'recipient_changed' => $changed,
+                        'before'            => $before,
+                        'after'             => $after,
+                    ];
+                },
+            ],
+            'update-confirmation'         => $write('confirmations') + [
+                'mode'            => 'destructive',
+                'description'     => 'Edit one confirmation of a form (needs confirm:true; the confirmation shows it before and after, since a redirect sends visitors, and merge tag values in its query string, to another page): name, type (message, page, redirect), message (post HTML only), page (id of a published page) and redirect (an http or https url). The result must be coherent for its type. Off by default (opt in with wpmcp_enable_forms_write). Returns before and after. Undo: rollback-operation',
+                'input_schema'    => [
+                    'type'                 => 'object',
+                    'properties'           => [
+                        'form_id'         => $id,
+                        'confirmation_id' => $item,
+                        'name'            => [ 'type' => 'string', 'maxLength' => 200 ],
+                        'type'            => [ 'type' => 'string', 'enum' => [ 'message', 'page', 'redirect' ] ],
+                        'message'         => [ 'type' => 'string', 'maxLength' => 100000 ],
+                        'page'            => $id,
+                        'redirect'        => [ 'type' => 'string', 'maxLength' => 2000 ],
+                    ],
+                    'required'             => [ 'form_id', 'confirmation_id' ],
+                    'minProperties'        => 3,
+                    'additionalProperties' => false,
+                ],
+                'validate'        => static fn (array $args): ?array => self::confirmation_plan($args)[0],
+                'confirm_preview' => static function (array $args): array {
+                    [ , $plan ] = self::confirmation_plan($args);
+                    return [
+                        'message' => sprintf('It changes confirmation %s of form %d. Undo: rollback-operation.', $plan['id'], $plan['form_id']),
+                        'data'    => [ 'form_id' => $plan['form_id'], 'before' => $plan['before'], 'after' => $plan['after'] ],
+                    ];
+                },
+                'handler'         => static function (array $args): array {
+                    [ , $plan ] = self::confirmation_plan($args);
+                    $changes    = self::diff_fields($plan['before'], $plan['after']);
+                    if ([] !== $changes) {
+                        self::save_meta($plan['form_id'], 'confirmations', $plan['items']);
+                    }
+                    return [ 'form_id' => $plan['form_id'], 'confirmation_id' => $plan['id'], 'changed' => [] !== $changes, 'changes' => $changes ];
+                },
+            ],
+        ];
+    }
+
+    /** @return array{to_type: string, to: string, bcc: string} the recipient part of a notification view */
+    private static function recipients(array $view): array
+    {
+        return [ 'to_type' => $view['to_type'], 'to' => $view['to'], 'bcc' => $view['bcc'] ];
     }
 }
