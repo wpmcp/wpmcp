@@ -37,6 +37,9 @@ if (! defined('ABSPATH')) {
  * before block markers, since Oxygen leaves post_content as it was),
  * a BeTheme BeBuilder layout (a non-empty `mfn-page-items` row, issue #643;
  * also before block markers, since BeTheme renders it beside post_content),
+ * a SiteOrigin Page Builder layout (a `panels_data` row holding a row or a
+ * widget, issue #644; before block markers, since the plugin renders it in
+ * place of post_content, which may hold its HTML copy),
  * Divi 5's `<!-- wp:divi/ -->` blocks (a Divi 5 layout whose flags were
  * never written, as on imported content), Gutenberg's `<!-- wp: -->` block
  * comment markers in post_content, then a WPBakery `[vc_row]` or
@@ -108,6 +111,11 @@ class Builder_Detector
         $mfn = get_post_meta($post_id, 'mfn-page-items', true);
         if ((is_array($mfn) && [] !== $mfn) || (is_string($mfn) && '' !== trim($mfn))) {
             return 'betheme';
+        }
+
+        $panels = get_post_meta($post_id, 'panels_data', true);
+        if (is_array($panels) && (! empty($panels['grids']) || ! empty($panels['widgets']))) {
+            return 'siteorigin';
         }
 
         $post = get_post($post_id);

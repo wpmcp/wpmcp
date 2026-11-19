@@ -80,6 +80,15 @@ if (! defined('ABSPATH')) {
  * add, remove, move; add also takes element {template: id}) and publish
  * sets the page live (see BeTheme_Content and BeTheme_Tree).
  *
+ * SiteOrigin Page Builder pages (issue #644) need the plugin loaded
+ * (plugin_missing otherwise) and expected_hash, the read's hash of the
+ * stored panels_data row, on any write to a page that has a layout.
+ * Content is the whole layout as a JSON object (widgets, grids,
+ * grid_cells); operations address rows, cells and widgets by dotted path
+ * (update, add, remove, move; add also takes element {template: id}) and
+ * publish sets the page live. Stored through the plugin's own sanitizers
+ * (see SiteOrigin_Content and SiteOrigin_Layout).
+ *
  * With `scope` 'design_system' the call edits one entry of the builder's
  * global design data instead of a post (issue #391): Bricks classes,
  * variables and palettes, Breakdance classes and palette colors, Avada
@@ -164,13 +173,17 @@ class Update_Builder_Content
             return $this->update_betheme($post_id, $args);
         }
 
+        if ('siteorigin' === $builder) {
+            return $this->update_siteorigin($post_id, $args);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return $this->update_breakdance($post_id, $args, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone' and 'betheme'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone', 'betheme' and 'siteorigin'; got '{$builder}'."
         );
     }
 
@@ -1046,6 +1059,152 @@ class Update_Builder_Content
 
             case 'move':
                 return [BeTheme_Tree::move($sections, $uid, $to, $index), $uid];
+        }
+
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move or publish."));
+    }
+
+    /**
+     * SiteOrigin Page Builder pages: a whole layout or one operation, only
+     * on a page detected as SiteOrigin or still blank, while the plugin is
+     * loaded, and only while the page still has the hash the caller read
+     * (required unless the page has no layout yet).
+     */
+    private function update_siteorigin(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $detected  = Builder_Detector::detect($post_id);
+        $blank     = 'classic' === $detected && '' === trim((string) get_post($post_id)->post_content);
+        if ('siteorigin' !== $detected && ! $blank) {
+            return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not a SiteOrigin Page Builder page.");
+        }
+        if (! SiteOrigin_Content::plugin_active()) {
+            return SiteOrigin_Content::unavailable();
+        }
+        if (! current_user_can('edit_post', $post_id)) {
+            return new \WP_Error('forbidden', 'You are not allowed to edit this page.', ['status' => 403]);
+        }
+
+        if (SiteOrigin_Content::has_layout($post_id)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a SiteOrigin page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(SiteOrigin_Content::hash($post_id), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
+        }
+
+        $status = null;
+        $path   = null;
+        $data   = null;
+        try {
+            if ('publish' === $operation) {
+                $refusal = $this->publish_refusal($post_id, 'invalid_siteorigin_request');
+                if (null !== $refusal) {
+                    return $refusal;
+                }
+                $status = 'publish';
+            } else {
+                [$data, $path] = $this->apply_siteorigin_operation($post_id, $operation, $args);
+            }
+        } catch (\InvalidArgumentException $e) {
+            return new \WP_Error('invalid_siteorigin_request', $e->getMessage());
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $data, $status) {
+                if (null !== $status) {
+                    Save_Filters::set_post_status($post_id, $status);
+                } else {
+                    SiteOrigin_Content::save($post_id, (array) $data);
+                }
+                return true;
+            }
+        );
+
+        $result = [
+            'operation_id' => $out['operation_id'],
+            'post_id'      => $post_id,
+            'builder'      => 'siteorigin',
+            'hash'         => SiteOrigin_Content::hash($post_id),
+        ];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * The new layout for one SiteOrigin operation, and the path of the
+     * element it leaves in place when it has one.
+     *
+     * @return array{0:array<string,mixed>,1:?string}
+     * @throws \InvalidArgumentException
+     */
+    private function apply_siteorigin_operation(int $post_id, string $operation, array $args): array
+    {
+        $base = SiteOrigin_Content::data($post_id);
+        unset($base['widgets'], $base['grids'], $base['grid_cells']);
+
+        if ('' === $operation) {
+            $content = $args['content'] ?? null;
+            $decoded = is_string($content) ? json_decode($content, true) : null;
+            if (! is_array($decoded) || ([] !== $decoded && array_is_list($decoded))) {
+                throw new \InvalidArgumentException(esc_html('SiteOrigin content must be a JSON object of widgets, grids and grid_cells, or pass an operation.'));
+            }
+            if ([] === $decoded) {
+                return [['widgets' => [], 'grids' => [], 'grid_cells' => []], null];
+            }
+            return [SiteOrigin_Layout::flatten(SiteOrigin_Layout::tree($decoded), array_diff_key($decoded, array_flip(['widgets', 'grids', 'grid_cells']))), null];
+        }
+
+        $rows  = SiteOrigin_Layout::tree(SiteOrigin_Content::data($post_id));
+        $path  = (string) ($args['path'] ?? '');
+        $to    = (string) ($args['to'] ?? '');
+        $index = isset($args['index']) ? (int) $args['index'] : null;
+
+        switch ($operation) {
+            case 'update':
+                $attrs   = $args['attrs'] ?? [];
+                $element = $args['element'] ?? [];
+                if (! is_array($attrs) || ! is_array($element) || ([] === $attrs && [] === $element)) {
+                    throw new \InvalidArgumentException(esc_html('update needs attrs (widget fields, or a row or cell style; null removes one) or element (style, label, weight).'));
+                }
+                return [SiteOrigin_Layout::flatten(SiteOrigin_Layout::update($rows, $path, $attrs, $element), $base), $path];
+
+            case 'add':
+                $element = $args['element'] ?? null;
+                if (! is_array($element)) {
+                    throw new \InvalidArgumentException(esc_html("add needs an element: {cells, attrs} for a row (to ''), {weight, attrs} for a cell (to 'r'), {class, attrs, style} for a widget (to 'r.c'), or {template: id} (to '')."));
+                }
+                if (array_key_exists('template', $element)) {
+                    if (1 !== count($element) || ! is_scalar($element['template'])) {
+                        throw new \InvalidArgumentException(esc_html('element {template} takes only a template id.'));
+                    }
+                    if ('' !== $to) {
+                        throw new \InvalidArgumentException(esc_html("A template adds rows: pass to ''."));
+                    }
+                    [$rows, $at] = SiteOrigin_Layout::insert_layout($rows, $index, SiteOrigin_Content::template((string) $element['template']));
+                    return [SiteOrigin_Layout::flatten($rows, $base), $at];
+                }
+                [$rows, $at] = SiteOrigin_Layout::add($rows, $to, $index, $element, [SiteOrigin_Content::class, 'widget_known']);
+                return [SiteOrigin_Layout::flatten($rows, $base), $at];
+
+            case 'remove':
+                return [SiteOrigin_Layout::flatten(SiteOrigin_Layout::remove($rows, $path), $base), null];
+
+            case 'move':
+                [$rows, $at] = SiteOrigin_Layout::move($rows, $path, $to, $index);
+                return [SiteOrigin_Layout::flatten($rows, $base), $at];
         }
 
         throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move or publish."));

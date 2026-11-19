@@ -96,6 +96,7 @@ final class Builder_Design_Data
         'cornerstone' => 'Cornerstone (Themeco), or the X or Pro theme that bundles it',
         'divi'       => 'the Divi theme (Divi 5)',
         'oxygen'     => 'the Oxygen 6 plugin',
+        'siteorigin' => 'the SiteOrigin Page Builder plugin',
         'thrive'     => 'the Thrive Architect plugin',
         'wpbakery'   => 'the WPBakery Page Builder plugin',
     ];
