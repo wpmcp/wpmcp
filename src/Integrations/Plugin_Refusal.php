@@ -70,6 +70,7 @@ final class Plugin_Refusal
         'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
+        'Smash Balloon Instagram Feed' => [ 'file' => 'instagram-feed/instagram-feed.php', 'slug' => 'instagram-feed' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
@@ -112,6 +113,7 @@ final class Plugin_Refusal
         'Code Snippets'   => [ 'code-snippets-pro/code-snippets.php' ],
         'Solid Security'  => [ 'ithemes-security-pro/ithemes-security-pro.php' ],
         'Tutor LMS'       => [ 'tutor-pro/tutor-pro.php' ],
+        'Smash Balloon Instagram Feed' => [ 'instagram-feed-pro/instagram-feed.php' ],
     ];
 
     /**
