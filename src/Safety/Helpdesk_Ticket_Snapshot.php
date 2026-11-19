@@ -365,7 +365,7 @@ final class Helpdesk_Ticket_Snapshot
             ? current_user_can('edit_ticket')
             : class_exists($manager) && $manager::canManageTickets() && (bool) $manager::canAccessTicket((object) [ 'id' => $id, 'agent_id' => self::fluent_agent_of($id), 'mailbox_id' => self::fluent_mailbox_of($id) ]);
         if (! $allowed) {
-            throw new Mutation_Failed(esc_html(sprintf('Rollback refused: restoring a %s ticket needs that plugin\'s permission to manage ticket %d.', 'awesome_support' === $kind ? 'Awesome Support' : 'Fluent Support', $id)));
+            throw new Mutation_Failed(esc_html(sprintf('Rollback refused: restoring this %s ticket needs that plugin\'s permission to manage ticket %d.', 'awesome_support' === $kind ? 'Awesome Support' : 'Fluent Support', $id)));
         }
     }
 

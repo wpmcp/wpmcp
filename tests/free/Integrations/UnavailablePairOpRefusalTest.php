@@ -83,6 +83,17 @@ class UnavailablePairOpRefusalTest extends \WP_UnitTestCase
         $this->assertSame('integration_unavailable', $out['error']['code'] ?? null, (string) wp_json_encode($out));
     }
 
+    /** Issue #1036: an op the pair does not define is unknown whether or not its plugin is active. */
+    public function test_an_unknown_op_answers_unknown_operation_while_the_pair_is_unavailable(): void
+    {
+        $out = self::pair()->handle_read([ 'operation' => 'nosuch-operation' ]);
+
+        $this->assertSame('unknown_operation', $out['error']['code'] ?? null, (string) wp_json_encode($out));
+        $this->assertSame([ 'fixture-list-things', 'fixture-plain-read' ], $out['error']['data']['operations'] ?? null);
+        // A half that defines no ops cannot tell an unknown op, so it keeps the generic answer.
+        $this->assertSame('integration_unavailable', self::pair()->handle_write([ 'operation' => 'nosuch-operation' ])['error']['code'] ?? null);
+    }
+
     public function test_nothing_runs_while_the_pair_is_unavailable(): void
     {
         $this->assertArrayNotHasKey('ran', self::pair()->handle_read([ 'operation' => 'fixture-plain-read' ]));

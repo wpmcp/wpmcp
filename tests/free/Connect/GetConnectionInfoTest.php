@@ -143,4 +143,46 @@ class GetConnectionInfoTest extends \WP_UnitTestCase
         $this->assertStringContainsString('custom connector', $out['clients']['claude-desktop']['note']);
         $this->assertStringContainsString('OAuth', $out['clients']['claude-desktop']['note']);
     }
+
+    /**
+     * Issue #842: a ChatGPT entry next to the custom connector, with the
+     * server URL, the OAuth state and how to switch OAuth on.
+     */
+    public function test_chatgpt_entry_reports_the_oauth_state_and_the_switch(): void
+    {
+        remove_all_filters('wpmcp_oauth_enabled');
+        delete_option(\WPMCP\Auth\OAuth_Config::OPTION);
+
+        $out     = (new Get_Connection_Info())->handle([]);
+        $chatgpt = $out['clients']['chatgpt'] ?? null;
+
+        $this->assertIsArray($chatgpt, 'get-connection-info must cover ChatGPT.');
+        $this->assertSame($out['endpoint'], $chatgpt['url']);
+        $this->assertFalse($chatgpt['oauth_enabled']);
+        $this->assertStringContainsString('OAuth is off', $chatgpt['note']);
+        $this->assertStringContainsString('Allow OAuth sign-in', $chatgpt['note']);
+        $this->assertStringContainsString('ChatGPT', $chatgpt['label']);
+        $text = (string) wp_json_encode($chatgpt['steps'], JSON_UNESCAPED_SLASHES);
+        $this->assertStringContainsString('Developer mode', $text);
+        $this->assertStringContainsString($out['endpoint'], $text);
+        $this->assertStringContainsString('OAuth', $text);
+
+        \WPMCP\Auth\OAuth_Config::set_enabled(true);
+        $on = (new Get_Connection_Info())->handle([])['clients']['chatgpt'];
+        delete_option(\WPMCP\Auth\OAuth_Config::OPTION);
+
+        $this->assertTrue($on['oauth_enabled']);
+        $this->assertStringContainsString('OAuth is on', $on['note']);
+    }
+
+    /** Issue #842: the switch is on the Connection screen, so the text says so. */
+    public function test_oauth_off_text_names_the_switch_on_the_connection_screen(): void
+    {
+        remove_all_filters('wpmcp_oauth_enabled');
+
+        $note = (new Get_Connection_Info())->handle([])['clients']['custom-connector']['note'];
+
+        $this->assertStringContainsString('Allow OAuth sign-in', $note);
+        $this->assertStringNotContainsString('There is no OAuth switch', $note);
+    }
 }

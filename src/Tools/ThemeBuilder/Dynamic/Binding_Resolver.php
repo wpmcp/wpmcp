@@ -102,7 +102,7 @@ class Binding_Resolver
             return new \WP_Error(
                 'wpmcp_unknown_binding',
                 sprintf(
-                    'Unknown binding(s) for a %s template: %s. The list-dynamic-sources op lists the valid ones.',
+                    'Unknown binding(s) for the %s template context: %s. The list-dynamic-sources op lists the valid ones.',
                     $context,
                     implode(', ', array_map(static fn (string $key): string => '{{' . $key . '}}', $unknown))
                 ),
