@@ -37,6 +37,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new Avada library post from a page element (issue #637); every field is new.',
         ],
+        'Integrations/Core_Fonts_Pack.php'            => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new font family or font face post (issue #712), as core\'s font endpoints do; every field is new.',
+        ],
         'Integrations/CartFlows_Pack.php'             => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new CartFlows flow or step post (issue #662); every field is new. Changes to existing flows and steps are meta writes.',

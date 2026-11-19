@@ -193,19 +193,19 @@ final class Cornerstone_Content
             if ('region' === $parent && is_array($allowed) && ! array_is_list($allowed)) {
                 $allowed = $allowed['content'] ?? ($allowed['*'] ?? null);
             }
-            $where = 'region' === $parent ? 'the top level' : "a {$parent} element";
+            $where = 'region' === $parent ? 'the top level' : "the {$parent} element";
             if (null === $allowed || [] === $allowed || '' === $allowed) {
-                return "A {$parent} element holds no child elements.";
+                return "The {$parent} element holds no child elements.";
             }
             if ('*' !== $allowed && $child !== $allowed && ! (is_array($allowed) && in_array($child, $allowed, true))) {
                 $list = implode(', ', (array) $allowed);
-                return "A {$child} element cannot go in {$where}, which takes {$list}.";
+                return "The {$child} element cannot go in {$where}, which takes {$list}.";
             }
 
             $parent_rule = $definition['valid_parent'] ?? null;
             if (is_string($parent_rule) && '' !== $parent_rule && $parent_rule !== $parent) {
-                $home = 'region' === $parent_rule ? 'the top level' : "a {$parent_rule} element";
-                return "A {$child} element goes only in {$home}, not in {$where}.";
+                $home = 'region' === $parent_rule ? 'the top level' : "the {$parent_rule} element";
+                return "The {$child} element goes only in {$home}, not in {$where}.";
             }
 
             return null;
