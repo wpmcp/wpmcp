@@ -69,6 +69,7 @@ class Get_Connection_Info
                     'note'        => 'Easiest: in wp-admin, open wpmcp -> Connection, create an application password, then download the wpmcp.mcpb bundle there and double-click it; it asks for the username and password and needs nothing else installed. For a manual setup, add this block to claude_desktop_config.json under "mcpServers", then fully quit and reopen Claude Desktop. Claude Desktop\'s config file only runs local servers and skips an entry with "url" or "headers", so this block starts the mcp-remote bridge through npx, which needs Node.js installed. Replace the placeholder in env with the base64 value from the auth steps. The other route, Settings -> Connectors -> Add custom connector, signs in with OAuth instead and needs OAuth switched on for this site: see custom-connector.',
                 ],
                 'custom-connector' => Client_Config_Generator::custom_connector(),
+                'chatgpt'          => Client_Config_Generator::chatgpt(),
             ],
             'note'     => 'This tool never returns a real credential. The wpmcp -> Connection screen in wp-admin creates an application password and shows the same snippets filled in, plus the Claude Desktop bundle (.mcpb).',
         ];

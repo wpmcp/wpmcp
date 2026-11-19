@@ -32,6 +32,8 @@ class GetBackupStatusTest extends \WP_UnitTestCase
 
         $out = (new Get_Backup_Status())->handle(['job_id' => $job['id']]);
 
+        $this->assertArrayHasKey('storage', $out);
+        unset($out['storage']);
         $this->assertSame($job, $out);
     }
 

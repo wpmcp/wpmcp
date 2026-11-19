@@ -30,7 +30,7 @@ class Get_Top_Pages
 
         $limit = Analytics_Adapter::clamp_limit($this->to_int_or_null($args['limit'] ?? null));
 
-        return Analytics_Adapter::top_pages($range['start_date'], $range['end_date'], $limit);
+        return Analytics_Adapter::top_pages($range['start_date'], $range['end_date'], $limit, Get_Analytics_Summary::source($args));
     }
 
     /**

@@ -206,6 +206,29 @@ class OAuthScopesTest extends \WP_UnitTestCase
         $this->assertStringContainsString('mcp', $denied->get_error_message());
     }
 
+    /**
+     * Issue #1029: the refusal put the operation after a fixed "a", so an
+     * update ability read "is a update ability". It now reads correctly for
+     * every non-read operation.
+     */
+    public function test_the_read_only_refusal_reads_correctly_for_every_write_operation(): void
+    {
+        $session = $this->connect($this->admin(), 'mcp:read');
+        $this->present($session['tokens']['access_token']);
+
+        foreach (['create', 'update', 'delete'] as $operation) {
+            $ability = new \WPMCP\MCP\Ability('wpmcp/' . $operation . '-thing', 'free', 'desc', [], fn() => [], 'edit_posts', 'content', $operation);
+            $denied  = Client_Access::denial($ability);
+
+            $this->assertInstanceOf(\WP_Error::class, $denied, $operation);
+            $this->assertSame(
+                'This connection is read-only: "wpmcp/' . $operation . '-thing" changes the site (its operation is "' . $operation . '"), so it needs the "mcp" scope.',
+                $denied->get_error_message()
+            );
+            $this->assertDoesNotMatchRegularExpression('/\ba [aeiou]/i', $denied->get_error_message(), $operation);
+        }
+    }
+
     public function test_a_full_token_can_still_write(): void
     {
         $session = $this->connect($this->admin(), 'mcp');
