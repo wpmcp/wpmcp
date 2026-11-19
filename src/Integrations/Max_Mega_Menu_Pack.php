@@ -494,7 +494,7 @@ final class Max_Mega_Menu_Pack
     /** @return array<string, mixed> */
     private static function list_items(int $menu): array
     {
-        $items = wp_get_nav_menu_items($menu, [ 'post_status' => 'any' ]);
+        $items = wp_get_nav_menu_items($menu);
         $out   = [];
         foreach (is_array($items) ? $items : [] as $item) {
             $out[] = self::view_item((int) $item->ID, false);
