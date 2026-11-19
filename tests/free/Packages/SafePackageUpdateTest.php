@@ -36,15 +36,34 @@ class SafePackageUpdateTest extends \WP_UnitTestCase
     /** @var string[] */
     private array $probed = [];
 
+    /**
+     * The stub table's DDL (and the dump import's) commits the test
+     * transaction, so what these tests write is not rolled back by the
+     * framework: the options table is saved here and put back row for row
+     * in tearDown(), and the snapshot rows they add are deleted. The
+     * built-in admin (user 1) is used rather than a factory user for the
+     * same reason.
+     *
+     * @var array<string, array<string, string>>
+     */
+    private array $saved = [];
+
+    private int $last_snapshot_id = 0;
+
     protected function setUp(): void
     {
         parent::setUp();
         global $wpdb;
 
         Snapshot_Store::install();
+        $this->saved = [];
+        foreach ((array) $wpdb->get_results("SELECT option_name, option_value, autoload FROM {$wpdb->options}", ARRAY_A) as $row) {
+            $this->saved[ $row['option_name'] ] = $row;
+        }
+        $this->last_snapshot_id = (int) $wpdb->get_var('SELECT COALESCE(MAX(id), 0) FROM ' . Snapshot_Store::table_name());
         delete_option(Safe_Package_Update::RUNS_OPTION);
-        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
-        wpmcp_test_grant_network_admin(get_current_user_id());
+        wp_set_current_user(1);
+        wpmcp_test_grant_network_admin(1);
 
         $this->dir = WP_PLUGIN_DIR . '/' . self::SLUG;
         $this->remove_dir($this->dir);
@@ -90,11 +109,18 @@ class SafePackageUpdateTest extends \WP_UnitTestCase
                 }
             }
         }
-        delete_option(Safe_Package_Update::RUNS_OPTION);
-        delete_option('stub_safe_update_db');
-        delete_option('stub_safe_update_added');
-        update_option('active_plugins', array_values(array_diff((array) get_option('active_plugins', []), [self::FILE])));
         delete_site_transient('update_plugins');
+        // Put the options table back row for row, as it was before setUp().
+        foreach ((array) $wpdb->get_results("SELECT option_name, option_value, autoload FROM {$wpdb->options}", ARRAY_A) as $row) {
+            if (! isset($this->saved[ $row['option_name'] ])) {
+                $wpdb->delete($wpdb->options, ['option_name' => $row['option_name']]);
+            }
+        }
+        foreach ($this->saved as $row) {
+            $wpdb->replace($wpdb->options, $row);
+        }
+        wp_cache_flush();
+        $wpdb->query($wpdb->prepare('DELETE FROM ' . Snapshot_Store::table_name() . ' WHERE id > %d', $this->last_snapshot_id));
         $this->remove_dir($this->dir);
         $wpdb->query("DROP TABLE IF EXISTS {$this->table}");
         $wpdb->query("DROP TABLE IF EXISTS {$this->extra_table}");
