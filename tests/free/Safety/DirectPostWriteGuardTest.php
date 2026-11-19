@@ -133,6 +133,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new MemberPress membership or rule post.',
         ],
+        'Integrations/EDD_Pack.php'                   => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new Easy Digital Downloads download post.',
+        ],
     ];
 
     private static function src(): string
