@@ -237,6 +237,13 @@ through their own reporting code, which uses the account that plugin is
 already connected to. This plugin holds no analytics credentials of its own
 and talks to no analytics provider directly.
 
+With `checks:["compromise"]`, `scan-security` also fetches up to three of
+this site's pages as a browser, as a search crawler (a Googlebot user agent)
+and with a www.google.com Referer header, to spot content shown only to
+search engines, and sends HEAD requests for backup or dump files it finds in
+public folders. Nothing is sent to www.google.com: the Referer is only a
+header on the request to your own site.
+
 = WP MCP Cloud (only if a cloud connection was saved elsewhere) =
 
 This build ships no tool that can connect to the author's optional cloud
