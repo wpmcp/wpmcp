@@ -100,6 +100,11 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // GTranslate's settings, whose language lists the
             // gtranslate-set-languages op changes (issue #690).
             'GTranslate',
+            // WPCode's global header, body and footer scripts, replaced by
+            // the wpcode-set-header-footer op (issue #697).
+            'ihaf_insert_header',
+            'ihaf_insert_body',
+            'ihaf_insert_footer',
             // FiboSearch's settings, changed by update-fibosearch-settings
             // on the theme pair (issue #700).
             'dgwt_wcas_settings',

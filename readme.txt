@@ -56,6 +56,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * With Pro, BetterDocs: knowledge base docs and categories (read, and undoable doc creates and edits)
 * With Pro, WP Offload Media (read): the storage provider, bucket and offload switches with credentials never returned, how many attachments are offloaded, and per attachment whether it is in the bucket, its object key and the URL the site serves
 * With Pro, Fluent Support and Awesome Support: tickets and their threads (read, customer emails masked in lists), and undoable replies, notes and status changes, off until the site turns them on
+* With Pro, WPCode: snippets and the global header and footer scripts read, and undoable snippet creates (always inactive), edits, activation and deactivation and global script changes, off until the site turns them on; PHP activation needs PHP execution enabled and HTML, CSS and JS activation needs custom code injection enabled
 * With Pro, SureCart: products, orders, customers (masked) and coupons read, and undoable product edits and coupon creates (off until the site turns them on)
 * With Pro, Weglot and GTranslate: languages and URL exclusions read (Weglot API keys never returned), and undoable GTranslate language list changes (off until the site turns them on)
 * With Pro, Checkout Field Editor for WooCommerce: billing, shipping and additional checkout fields read, and undoable field changes (labels, required, enabled, order, validations), off until the site turns them on
