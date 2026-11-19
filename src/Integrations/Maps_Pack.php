@@ -325,7 +325,7 @@ final class Maps_Pack
             ],
             'wpsl-save-stores'   => $base + self::write_base() + [
                 'objects'      => [ 'stores.*.id' => [ 'type' => 'post', 'own_type' => true, 'access' => 'write' ] ],
-                'description'  => 'Create or change WP Store Locator stores in batch (max 50): a row with id changes that store (only the fields given), one without needs title, address, city and country (status publish by default). An address with no lat/lng is geocoded through the plugin\'s own geocoder. Answers per row. Undo: rollback-session',
+                'description'  => 'Create or change WP Store Locator stores in batch (max 50): a row with id changes that store (only the fields given), one without needs title, address, city and country (status draft by default; publish needs publish_stores). An address with no lat/lng is geocoded through the plugin\'s own geocoder. Answers per row. Undo: rollback-session',
                 'input_schema' => [
                     'type'                 => 'object',
                     'properties'           => [ 'stores' => [ 'type' => 'array', 'minItems' => 1, 'maxItems' => self::MAX_BATCH, 'items' => $row ] ],
@@ -1064,7 +1064,9 @@ final class Maps_Pack
                 $results[] = [ 'index' => $index, 'ok' => false, 'error' => self::row_error('nothing_to_change', 'Give at least one field to change.') ];
                 continue;
             }
-            $status = (string) ($row['status'] ?? (null === $existing ? 'publish' : ''));
+            // A new store is a draft unless the caller asks for publish (and holds
+            // publish_stores), as create-post defaults to draft.
+            $status = (string) ($row['status'] ?? (null === $existing ? 'draft' : ''));
             if ('' !== $status && in_array($status, [ 'publish', 'private' ], true) && ! current_user_can('publish_stores')) {
                 $results[] = [ 'index' => $index, 'ok' => false, 'error' => self::row_error('operation_denied', 'Publishing a store needs the publish_stores capability.') ];
                 continue;

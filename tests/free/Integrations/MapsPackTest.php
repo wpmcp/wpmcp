@@ -390,7 +390,7 @@ class MapsPackTest extends \WP_UnitTestCase
         $this->assertTrue($results[0]['geocoded']);
         $this->assertSame('address_required', $results[1]['error']['code']);
         $id = $results[0]['store']['id'];
-        $this->assertSame('publish', get_post_status($id));
+        $this->assertSame('draft', get_post_status($id), 'a new store is a draft unless the call asks for publish');
         $this->assertSame('52.370216', get_post_meta($id, 'wpsl_lat', true));
         $this->assertSame('4.895168', get_post_meta($id, 'wpsl_lng', true));
         $this->assertSame('utrecht@shop.example.com', get_post_meta($id, 'wpsl_email', true));
@@ -438,6 +438,25 @@ class MapsPackTest extends \WP_UnitTestCase
         $this->assertSame([], $out['operation_ids']);
         $this->assertSame(0, (int) (new \WP_Query([ 'post_type' => 'wpsl_stores', 'post_status' => 'any', 'title' => 'X' ]))->found_posts, 'nothing created');
         delete_option('wpsl_api');
+    }
+
+    public function test_a_new_store_is_published_only_when_asked_and_allowed(): void
+    {
+        $out = $this->ok($this->write('wpsl-save-stores', [ 'stores' => [
+            [ 'title' => 'Asked', 'address' => 'Oudegracht 1', 'city' => 'Utrecht', 'country' => 'Netherlands', 'lat' => '52.1', 'lng' => '5.1', 'status' => 'publish' ],
+        ] ]));
+        $this->assertTrue($out['result']['results'][0]['ok'], (string) wp_json_encode($out['result']['results'][0]));
+        $this->assertSame('publish', get_post_status($out['result']['results'][0]['store']['id']));
+
+        $author = self::factory()->user->create([ 'role' => 'author' ]);
+        $user   = get_user_by('id', $author);
+        $user->add_cap('edit_stores');
+        wp_set_current_user($author);
+        $out = $this->write('wpsl-save-stores', [ 'stores' => [
+            [ 'title' => 'Not allowed', 'address' => 'A 1', 'city' => 'B', 'country' => 'C', 'lat' => '1', 'lng' => '1', 'status' => 'publish' ],
+        ] ]);
+        $row = $out['result']['results'][0] ?? $out;
+        $this->assertSame('operation_denied', $row['error']['code'] ?? ($out['error']['code'] ?? null), (string) wp_json_encode($out));
     }
 
     public function test_delete_stores_trashes_and_rollback_restores(): void
