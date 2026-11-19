@@ -74,6 +74,7 @@ final class Opt_In_Settings
             'wpmcp_enable_font_library_write'      => [ 'owner' => $i . 'Core_Fonts_Pack.php', 'destructive' => true ],
             'wpmcp_enable_cache_settings_write'    => [ 'owner' => $i . 'Cache_Settings_Pack.php', 'destructive' => false ],
             'wpmcp_enable_site_gate_write'         => [ 'owner' => $i . 'Site_Gate_Pack.php', 'destructive' => true ],
+            'wpmcp_enable_consent_write'           => [ 'owner' => $i . 'Consent_Pack.php', 'destructive' => true ],
             'wpmcp_enable_action_scheduler_write'  => [ 'owner' => $i . 'Action_Scheduler_Pack.php', 'destructive' => true ],
             'wpmcp_enable_crm_send'                => [ 'owner' => $i . 'CRM_Adapter.php', 'destructive' => true ],
             'wpmcp_enable_helpdesk_write'          => [ 'owner' => $i . 'Helpdesk_Adapter.php', 'destructive' => true ],
