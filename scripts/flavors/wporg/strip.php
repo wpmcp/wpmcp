@@ -1440,14 +1440,16 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
 // file is removed by policy.php, so the line that merges their ops into the
 // theme pair, the docblock sentence describing them, and the rollback hook
 // that refreshes one suite's cache all leave with it. The dynamic template
-// ops (issue #290) and the FunnelKit funnel reads (issue #356) leave through
-// the same two edits: their files are removed by policy.php too.
+// ops (issue #290), the FunnelKit funnel reads (issue #356) and the core
+// personal data request ops (issue #714) leave through the same two edits:
+// their files are removed by policy.php too.
 $edits['src/Integrations/Theme_Integration.php'] = [
     [
         "            Redirection_Pack::operations(),\n"
             . "            Rank_Math_Redirects_Pack::operations(),\n"
             . "            Elementor_Addon_Packs::operations(),\n"
             . "            FunnelKit_Pack::operations(),\n"
+            . "            Core_Privacy_Pack::operations(),\n"
             . "            \\WPMCP\\Tools\\ThemeBuilder\\Dynamic\\Dynamic_Template_Ops::operations()\n",
         "            Redirection_Pack::operations(),\n            Rank_Math_Redirects_Pack::operations()\n",
         1,
@@ -1461,7 +1463,10 @@ $edits['src/Integrations/Theme_Integration.php'] = [
             . "     * (Dynamic_Template_Ops): source discovery, preview, and create/update of\n"
             . "     * single, archive and search templates on the site parts store.\n"
             . "     * Issue #356 adds the paid-tier FunnelKit funnel reads (FunnelKit_Pack),\n"
-            . "     * which answer funnelkit_inactive while FunnelKit is not loaded.\n",
+            . "     * which answer funnelkit_inactive while FunnelKit is not loaded.\n"
+            . "     * Issue #714 adds the paid-tier WordPress core personal data request\n"
+            . "     * ops (Core_Privacy_Pack): requests listed and read, export and erasure\n"
+            . "     * requests filed and marked complete, every write undoable.\n",
         "     * catalog only while that family is active.\n",
         1,
     ],
@@ -1480,6 +1485,20 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The WP Offload Media ops (issue #701) are the paid add-on's, removed
+    // by policy.php. Their lines go first, so every edit below matches the
+    // file as it was before them.
+    [
+        " *  - Issue #701 adds the paid-tier WP Offload Media ops\n"
+            . " *    (Offload_Media_Pack): offload status, bucket and counts, and per\n"
+            . " *    attachment whether it is in the bucket and the URL the site serves.\n",
+        '',
+        1,
+    ],
+    [ "            || Offload_Media_Pack::active()\n", '', 1 ],
+    [ "            . ', WP Offload Media status'\n", '', 1 ],
+    [ "        \$groups[] = [ 'WP Offload Media', false, Offload_Media_Pack::operations() ];\n", '', 1 ],
+    [ "            Offload_Media_Pack::operations(),\n", '', 1 ],
     // The per-op plugin names of the paid packs (issue #815) go with them,
     // and so does their part of the summary; these lines go first, so the
     // pack edits below still match.
@@ -1705,9 +1724,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans'\n"
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'\n"
             . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
-        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans';\n",
+        "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans';\n",
         1,
     ],
     [

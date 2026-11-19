@@ -29,7 +29,8 @@
  * Otherwise the selection is: tests that cover the changed src/ files (impact
  * map from per-test coverage), tests named by convention after them or that
  * reference their class, every test file the PR changes, and the always-run
- * guard set (GUARDS, plus every flavor and hardening test).
+ * guard set (GUARDS, every flavor and hardening test, and every test that
+ * scans all of src/, see src-scanners.php).
  */
 
 const CORE = array(
@@ -344,9 +345,12 @@ foreach ( $unresolved as $path => $status ) {
 	decide( 'full', "No test maps to $path (not in the impact map, no naming or reference match)." );
 }
 
+require_once __DIR__ . '/src-scanners.php';
+$scanners = array_flip( source_tree_scanning_tests( $all_tests ) );
 foreach ( $all_tests as $t ) {
 	$name = basename( $t, '.php' );
 	$why  = in_array( $name, GUARDS, true ) ? 'guard set' : null;
+	$why ??= isset( $scanners[ $t ] ) ? 'scans all of src/' : null;
 	foreach ( GUARD_GLOBS as $re ) {
 		$why ??= preg_match( $re, $t ) ? 'flavor and hardening set' : null;
 	}

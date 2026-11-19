@@ -298,6 +298,7 @@ class Content_Guard
         'template_id',
         'target_post_id',
         'media_id',
+        'media_ids',
         'attachment_id',
         'revision_id',
         'from_revision_id',

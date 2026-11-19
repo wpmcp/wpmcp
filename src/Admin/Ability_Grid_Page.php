@@ -5,6 +5,7 @@ namespace WPMCP\Admin;
 use WPMCP\Connect\Exposure;
 use WPMCP\Governance\Governance;
 use WPMCP\Governance\Governance_Audit_Log;
+use WPMCP\Governance\New_Tools_Policy;
 use WPMCP\Governance\Opt_In_Gates;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
@@ -74,9 +75,26 @@ class Ability_Grid_Page
                 return $this->toggle_ability($post);
             case 'toggle_domain':
                 return $this->toggle_domain($post);
+            case 'toggle_auto_enable_new':
+                return $this->toggle_auto_enable_new($post);
         }
 
         return ['error' => __('Unknown action.', 'wpmcp')];
+    }
+
+    /**
+     * "Switch on new tools after updates" (issue #853): one undo point and
+     * one audit row with the acting user, through New_Tools_Policy::set().
+     */
+    private function toggle_auto_enable_new(array $post): array
+    {
+        $enabled = '1' === self::str($post['enabled'] ?? '');
+        $user    = wp_get_current_user();
+        $actor   = $user instanceof \WP_User && $user->exists() ? $user->user_login : 'unknown';
+
+        $operation_id = New_Tools_Policy::set($enabled, 'ability-grid', 'user:' . $actor);
+
+        return ['action' => 'toggle_auto_enable_new', 'enabled' => $enabled, 'operation_id' => $operation_id];
     }
 
     private function toggle_ability(array $post): array
@@ -317,6 +335,14 @@ class Ability_Grid_Page
                     );
                     ?>
                 </p></div>
+            <?php elseif (isset($result['action']) && 'toggle_auto_enable_new' === $result['action']) : ?>
+                <div class="notice notice-success"><p>
+                    <?php
+                    echo $result['enabled']
+                        ? esc_html__('Updates will now switch on the new tools they add, except tools that are never switched on automatically.', 'wpmcp')
+                        : esc_html__('New tools that an update adds will now stay off until you switch them on.', 'wpmcp');
+                    ?>
+                </p></div>
             <?php elseif (isset($result['action']) && 'toggle_domain' === $result['action']) : ?>
                 <div class="notice notice-success"><p>
                     <?php
@@ -335,6 +361,21 @@ class Ability_Grid_Page
                     </p></div>
                 <?php endif; ?>
             <?php endif; ?>
+
+            <?php $auto_new = New_Tools_Policy::is_on(); ?>
+            <form method="post" style="margin: 1em 0;">
+                <input type="hidden" name="wpmcp_grid_action" value="toggle_auto_enable_new">
+                <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($nonce); ?>">
+                <input type="hidden" name="enabled" value="<?php echo $auto_new ? '0' : '1'; ?>">
+                <strong><?php echo esc_html__('Switch on new tools after updates:', 'wpmcp'); ?></strong>
+                <?php echo $auto_new ? esc_html__('on', 'wpmcp') : esc_html__('off', 'wpmcp'); ?>
+                <button type="submit" class="button button-small">
+                    <?php echo $auto_new ? esc_html__('Turn off', 'wpmcp') : esc_html__('Turn on', 'wpmcp'); ?>
+                </button>
+                <br><span class="description">
+                    <?php echo esc_html__('When on, tools that a WP MCP update adds arrive switched on. Tools that run code, write files or database rows, or manage users, plugins or themes always arrive off, and a tool you switched off stays off.', 'wpmcp'); ?>
+                </span>
+            </form>
 
             <?php
             $grid        = $this->rows();
