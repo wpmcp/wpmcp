@@ -18,9 +18,10 @@ if (! defined('ABSPATH')) {
  * agent can answer "what is on next week?" without the caller having to know
  * MEC's meta-key names.
  *
- * Read-only: creating and editing events is possible through the generic
- * content tools (mec-events is an ordinary CPT), which snapshot every write;
- * this integration adds a curated, MEC-aware read surface on top.
+ * Locations, organizers, categories and the event writes (create, update,
+ * cancel, create-location, create-organizer; off until
+ * wpmcp_enable_mec_write, issue #677) live in Modern_Events_Calendar_Writes
+ * on this same pair.
  */
 class Modern_Events_Calendar_Integration extends Integration_Dispatcher
 {
@@ -64,8 +65,11 @@ class Modern_Events_Calendar_Integration extends Integration_Dispatcher
 
     protected function operations(): array
     {
+        $requires = static fn () => Modern_Events_Calendar_Writes::presence();
+
         return [
             'list-events' => [
+                'requires'     => $requires,
                 'mode'         => 'read',
                 'description'  => 'List Modern Events Calendar events with id, title, status, and start/end date, newest first (paged; page_size default 20, max 100)',
                 'input_schema' => [
@@ -100,9 +104,10 @@ class Modern_Events_Calendar_Integration extends Integration_Dispatcher
                 },
             ],
             'get-event' => [
+                'requires'     => $requires,
                 'mode'         => 'read',
                 'objects'      => [ 'event_id' => [ 'type' => 'post', 'own_type' => true ] ],
-                'description'  => 'Read one event: title, content, status, and its curated MEC schedule (start/end date and time, all-day flag, location and organizer ids, cost)',
+                'description'  => 'Read one event: title, content, status, and its curated MEC schedule (start/end date and time, all-day flag, location and organizer ids, cost), category ids, read more URL, whether it repeats, and its MEC event status (canceled, postponed) with reason',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'event_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
@@ -120,10 +125,10 @@ class Modern_Events_Calendar_Integration extends Integration_Dispatcher
                             'status'   => (string) $post->post_status,
                             'content'  => (string) $post->post_content,
                             'schedule' => self::event_dates((int) $post->ID),
-                        ],
+                        ] + Modern_Events_Calendar_Writes::details((int) $post->ID),
                     ];
                 },
             ],
-        ];
+        ] + Modern_Events_Calendar_Writes::operations();
     }
 }
