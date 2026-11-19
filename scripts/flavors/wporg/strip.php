@@ -1485,6 +1485,41 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Checkout Field Editor ops (issue #660) are the paid add-on's,
+    // removed by policy.php; their lines go first, so every edit below
+    // still matches the text it was written against.
+    [
+        " *  - Issue #660 adds the paid-tier Checkout Field Editor for WooCommerce\n"
+            . " *    ops (Checkout_Field_Editor_Pack): billing, shipping and additional\n"
+            . " *    checkout fields listed, and existing fields changed (off until\n"
+            . " *    wpmcp_enable_checkout_field_editor_write), the write snapshotted on the\n"
+            . " *    section's option.\n",
+        '',
+        1,
+    ],
+    [
+        "            || Translation_Settings_Pack::active()\n"
+            . "            || Checkout_Field_Editor_Pack::active();\n",
+        "            || Translation_Settings_Pack::active();\n",
+        1,
+    ],
+    [
+        "            . ', Weglot and GTranslate language settings'\n"
+            . "            . ', Checkout Field Editor fields';\n",
+        "            . ', Weglot and GTranslate language settings';\n",
+        1,
+    ],
+    [
+        "        \$groups[] = [ 'Checkout Field Editor', false, Checkout_Field_Editor_Pack::operations() ];\n",
+        '',
+        1,
+    ],
+    [
+        "            Translation_Settings_Pack::operations(),\n"
+            . "            Checkout_Field_Editor_Pack::operations()\n",
+        "            Translation_Settings_Pack::operations()\n",
+        1,
+    ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.
