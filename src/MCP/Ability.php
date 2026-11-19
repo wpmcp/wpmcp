@@ -43,6 +43,15 @@ class Ability
      * of the operation it names, or null: a dispatcher pair's ops can need
      * more than the pair does, and a permission refusal names that one
      * (issue #875). Not advertised.
+     *
+     * $requires declares what the site needs before the ability can run
+     * (issue #627), for Availability::explain() and the tools/list notes
+     * (Tool_Annotations): 'plugin' => [slug => name], 'opt_in' => filter,
+     * 'constant' => a wp-config.php constant that switches it off,
+     * 'multisite' => true or 'network', 'tier' => a tier name, 'php' => a minimum
+     * version, 'extension' => PHP extension names. Scalars and lists only,
+     * so it can be sent as _meta. Empty means nothing beyond the tier and
+     * the capability.
      */
     public function __construct(
         public string $name,
@@ -58,7 +67,8 @@ class Ability
         ?bool $idempotent_hint = null,
         public array $read_keys = [],
         public ?\Closure $objects = null,
-        public ?\Closure $op_capability = null
+        public ?\Closure $op_capability = null,
+        public array $requires = []
     ) {
         $this->read_only_hint   = $read_only_hint ?? ('read' === $operation);
         $this->destructive_hint = $destructive_hint ?? ('delete' === $operation);

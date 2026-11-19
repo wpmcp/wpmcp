@@ -199,7 +199,53 @@ class Registrar
 
         // An input naming an agent memory entry is told to use the memory
         // tools (issue #517) rather than handed a bare permission denial.
-        return Client_Access::denial($a) ?? self::plugin_missing($a) ?? Content_Guard::input_refusal($a, $input) ?? self::capability_refusal($a, $input) ?? false;
+        // A refusal names the rule that stopped the call (issue #627): an
+        // identity whose scope or address rule refused it, or a project
+        // memory block, instead of a bare "Permission denied".
+        return Client_Access::denial($a)
+            ?? self::plugin_missing($a)
+            ?? self::identity_refusal($a)
+            ?? Content_Guard::input_refusal($a, $input)
+            ?? self::capability_refusal($a, $input)
+            ?? $this->memory_refusal($a, $input)
+            ?? false;
+    }
+
+    /**
+     * The refusal when the identity this connection acts as is why the call
+     * is denied (issue #627): an unknown identity, an address the identity
+     * does not allow (identity_ip_not_allowed), or a tool outside its scope
+     * (identity_scope). Null when no identity is active or it allows the
+     * tool. Never names the address or the identity's allowed list.
+     */
+    private static function identity_refusal(Ability $a): ?\WP_Error
+    {
+        if (null === Identity_Context::current() || Governance::is_within_identity_scope($a)) {
+            return null;
+        }
+        $unavailable = Availability::explain_identity($a);
+
+        return null === $unavailable ? null : $unavailable->to_wp_error();
+    }
+
+    /**
+     * The refusal when a published severity=block project memory entry is
+     * what denied the call (issue #627), as memory_blocked with the entry id.
+     * Asked only after every other refusal came back empty, and only when
+     * the denial's own reason is that memory block, so it never takes the
+     * blame for a post or object denial.
+     *
+     * @param array<string, mixed> $input
+     */
+    private function memory_refusal(Ability $a, array $input): ?\WP_Error
+    {
+        $reason = (string) $this->denial_reason($a, $input);
+        if (0 !== strpos($reason, 'memory-block:')) {
+            return null;
+        }
+        $entry = (int) substr($reason, strlen('memory-block:'));
+
+        return Availability::memory_blocked($a, $entry)->to_wp_error('', [ 'memory_entry' => $entry ]);
     }
 
     /**
@@ -355,7 +401,8 @@ class Registrar
             $data['operation'] = $operation;
         }
 
-        return new \WP_Error('operation_denied', $message, $data);
+        $unavailable = new Unavailable('capability_missing', '', 'Ask a site administrator for a role that has the capability.', [ 'admin_url' => admin_url('users.php') ]);
+        return $unavailable->attach(new \WP_Error('operation_denied', $message, $data));
     }
 
     /**
@@ -430,9 +477,10 @@ class Registrar
         if (self::plugin_loaded($a->domain)) {
             return null;
         }
-        $dependency = self::PLUGIN_DOMAINS[ $a->domain ];
+        $dependency  = self::PLUGIN_DOMAINS[ $a->domain ];
+        $unavailable = new Unavailable('plugin_missing', '', 'A site administrator installs and activates the plugin.', [ 'admin_url' => admin_url('plugins.php') ]);
 
-        return new \WP_Error(
+        return $unavailable->attach(new \WP_Error(
             'plugin_missing',
             sprintf(
                 '%1$s is not active on this site, so %2$s cannot run. Install and activate %1$s, then try again.',
@@ -440,7 +488,17 @@ class Registrar
                 $a->name
             ),
             [ 'status' => 403, 'plugin' => $dependency['slug'] ]
-        );
+        ));
+    }
+
+    /**
+     * plugin_missing() for Availability::explain() (issue #627): the
+     * refusal when the plugin the ability's domain depends on is not
+     * loaded, or null.
+     */
+    public static function domain_plugin_missing(Ability $a): ?\WP_Error
+    {
+        return self::plugin_missing($a);
     }
 
     /**
@@ -683,7 +741,8 @@ class Registrar
                     $plugins_url
                 );
 
-            return new \WP_Error('plugin_missing', $message, [ 'plugin' => $host['name'], 'operation' => $operation, 'plugins_url' => $plugins_url ]);
+            return ( new Unavailable('plugin_missing', '', 'A site administrator installs and activates the plugin, then the MCP client reconnects.', [ 'admin_url' => $plugins_url ]) )
+                ->attach(new \WP_Error('plugin_missing', $message, [ 'plugin' => $host['name'], 'operation' => $operation, 'plugins_url' => $plugins_url ]));
         }
 
         $message = $held['several']
@@ -700,7 +759,8 @@ class Registrar
                 $plugins_url
             );
 
-        return new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'], 'plugins_url' => $plugins_url ]);
+        return ( new Unavailable('plugin_missing', '', 'A site administrator installs and activates the plugin, then the MCP client reconnects.', [ 'admin_url' => $plugins_url ]) )
+            ->attach(new \WP_Error('plugin_missing', $message, [ 'plugin' => $held['plugin'], 'plugins_url' => $plugins_url ]));
     }
 
     /**
@@ -749,11 +809,15 @@ class Registrar
             $fix   = 'An administrator or developer has to change that filter in the site code before it can be used.';
         }
 
-        return new \WP_Error(
+        $unavailable = 'toggle' === $kind
+            ? new Unavailable('disabled_by_admin', '', 'A site administrator switches it back on under WP MCP > Abilities.', [ 'admin_url' => admin_url('admin.php?page=wpmcp-abilities') ])
+            : new Unavailable('disabled_by_code', '', 'A site developer changes the governance filter in the site code.');
+
+        return $unavailable->attach(new \WP_Error(
             'governance_disabled',
             sprintf('"%s" is registered on this site but disabled by governance: %s. %s', $name, $cause, $fix),
             [ 'layer' => $layer, 'dimension' => $dimension, 'key' => $key ]
-        );
+        ));
     }
 
     /**
@@ -806,6 +870,7 @@ class Registrar
                         'remaining'   => $status['remaining'],
                     ]
                 );
+                Availability::rate_limited($a, (int) $status['retry_after'])->attach($error);
                 $this->record_outcome($a, $client, $error, 0, $args, null);
                 return $error;
             }

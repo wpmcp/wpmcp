@@ -91,9 +91,13 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
             'MemberPress is not active on this site, so op "memberpress-list-memberships" of wpmcp/plugin-data-read cannot run. Install and activate MemberPress (' . admin_url('plugins.php') . '), then reconnect the MCP client so it reloads its tool list.',
             $result->get_error_message()
         );
+        $data = $result->get_error_data();
+        // Issue #627: the refusal also carries the unavailability contract.
+        $this->assertSame('plugin_missing', $data['unavailable']['reason']);
+        unset($data['unavailable']);
         $this->assertSame(
             [ 'plugin' => 'MemberPress', 'operation' => 'memberpress-list-memberships', 'plugins_url' => admin_url('plugins.php') ],
-            $result->get_error_data()
+            $data
         );
     }
 

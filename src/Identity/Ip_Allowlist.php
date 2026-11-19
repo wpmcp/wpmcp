@@ -231,7 +231,16 @@ final class Ip_Allowlist
             return $result;
         }
 
-        return new \WP_Error('rest_forbidden', __('Sorry, you are not allowed to do that.', 'wpmcp'), ['status' => 403]);
+        // Still rest_forbidden and still silent on the address rule (#416),
+        // but with the identity reason and where an admin finds the cause
+        // (issue #627).
+        return \WPMCP\MCP\Availability::identity_refused()->attach(
+            new \WP_Error(
+                'rest_forbidden',
+                __('Sorry, you are not allowed to do that. The WP MCP identity this connection acts as refused the request; a site administrator can see which rule refused it in the WP MCP governance audit log.', 'wpmcp'),
+                ['status' => 403]
+            )
+        );
     }
 
     public static function set_cli_for_tests(?bool $cli): void
