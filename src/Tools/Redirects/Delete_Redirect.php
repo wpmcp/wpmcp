@@ -23,8 +23,17 @@ if (! defined('ABSPATH')) {
  */
 class Delete_Redirect
 {
-    public function handle(array $args): array
+    /**
+     * @return array<string,mixed>|\WP_Error
+     */
+    public function handle(array $args)
     {
+        // Issue #930: the active redirect plugin's own redirects, when one is.
+        $routed = Redirect_Router::route('delete-redirect', $args);
+        if (null !== $routed) {
+            return $routed;
+        }
+
         $id  = (int) ($args['redirect_id'] ?? 0);
         $row = $id > 0 ? Redirect_Store::get($id) : null;
         if (null === $row) {
@@ -46,6 +55,7 @@ class Delete_Redirect
         );
 
         return [
+            'provider'     => Redirect_Router::BUILTIN,
             'operation_id' => $out['operation_id'],
             'redirect_id'  => $id,
             'source_path'  => $row['source_path'],

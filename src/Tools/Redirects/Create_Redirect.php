@@ -28,8 +28,17 @@ if (! defined('ABSPATH')) {
  */
 class Create_Redirect
 {
-    public function handle(array $args): array
+    /**
+     * @return array<string,mixed>|\WP_Error
+     */
+    public function handle(array $args)
     {
+        // Issue #930: the active redirect plugin's own redirects, when one is.
+        $routed = Redirect_Router::route('create-redirect', $args);
+        if (null !== $routed) {
+            return $routed;
+        }
+
         $source      = Redirect_Input::source((string) ($args['source'] ?? ''));
         $status_code = Redirect_Input::status_code($args);
         $notes       = Redirect_Input::notes($args);
@@ -77,6 +86,7 @@ class Create_Redirect
         Redirect_Suggestions::remove($source);
 
         return [
+            'provider'          => Redirect_Router::BUILTIN,
             'operation_id'      => $out['operation_id'],
             'redirect'          => Redirect_Store::get((int) $out['result']),
             'effective_target'  => $target_url,

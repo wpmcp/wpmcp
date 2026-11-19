@@ -144,6 +144,7 @@ use WPMCP\Tools\Redirects\Create_Redirect;
 use WPMCP\Tools\Redirects\Delete_Redirect;
 use WPMCP\Tools\Redirects\Find_Broken_Links;
 use WPMCP\Tools\Redirects\List_Redirects;
+use WPMCP\Tools\Redirects\Redirect_Router;
 use WPMCP\Tools\Redirects\Redirect_Handler;
 use WPMCP\Tools\Redirects\Redirect_Store;
 use WPMCP\Tools\Redirects\Run_Broken_Link_Scan;
@@ -797,6 +798,12 @@ final class Plugin
             // edit_post on it, mapped onto TablePress's own capabilities (#481).
             if (class_exists(\WPMCP\Integrations\TablePress_Pack::class)) {
                 add_filter('map_meta_cap', [\WPMCP\Integrations\TablePress_Pack::class, 'map_post_caps'], 10, 4);
+            }
+            // The generic redirect tools route to the active redirect plugin
+            // (issue #930); the providers live with the integrations, which
+            // the WooCommerce build prunes.
+            if (class_exists(\WPMCP\Integrations\Redirect_Providers::class)) {
+                add_filter('wpmcp_redirect_providers', [\WPMCP\Integrations\Redirect_Providers::class, 'register']);
             }
             // A shipping zone deleted through WooCommerce drops the creation
             // marker a woo-write create gave it, so a zone that later reuses
@@ -9207,14 +9214,15 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-redirects',
             'free',
-            'List this site\'s managed redirects (source path, resolved target, status code, enabled, hit count), plus pending suggestions raised when a published post was deleted or moved. Filter by enabled state or a search string. Read-only',
+            'List this site\'s redirects (the active redirect plugin\'s, else WP MCP\'s own: source path, resolved target, status code, enabled, hit count), plus pending suggestions raised when a published post was deleted or moved. Filter by enabled state or a search string. Read-only',
             [
                 'type'       => 'object',
                 'properties' => [
-                    'enabled' => [ 'type' => 'boolean' ],
-                    'search'  => [ 'type' => 'string' ],
-                    'limit'   => [ 'type' => 'integer' ],
-                    'offset'  => [ 'type' => 'integer' ],
+                    'enabled'  => [ 'type' => 'boolean' ],
+                    'search'   => [ 'type' => 'string' ],
+                    'limit'    => [ 'type' => 'integer' ],
+                    'offset'   => [ 'type' => 'integer' ],
+                    'provider' => [ 'type' => 'string', 'description' => Redirect_Router::PROVIDER_HINT ],
                 ],
             ],
             [new List_Redirects(), 'handle'],
@@ -9226,7 +9234,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/create-redirect',
             'free',
-            'Create a managed redirect from a source path to a target URL or target_post_id (which survives slug changes). Chains are flattened to one hop and loops refused; the stored target is reported. Snapshotted; rollback-operation removes it',
+            'Create a redirect (in the active redirect plugin, else WP MCP\'s own table) from a source path to a target URL or target_post_id (which survives slug changes). Chains are flattened to one hop and loops refused; the stored target is reported. Snapshotted; rollback-operation removes it',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9236,6 +9244,7 @@ final class Plugin
                     'status_code'    => [ 'type' => 'integer', 'enum' => Redirect_Store::ALLOWED_STATUS_CODES ],
                     'enabled'        => [ 'type' => 'boolean' ],
                     'notes'          => [ 'type' => 'string' ],
+                    'provider'       => [ 'type' => 'string', 'description' => Redirect_Router::PROVIDER_HINT ],
                     'session_id'     => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'source' ],
@@ -9249,7 +9258,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-redirect',
             'free',
-            'Change one managed redirect: its source, target/target_post_id, status code, enabled state or notes. Only the fields you pass change. Retargeting re-runs chain flattening and loop detection. Snapshotted and reversible',
+            'Change one redirect: its source, target/target_post_id, status code, enabled state or notes. Only the fields you pass change. Retargeting re-runs chain flattening and loop detection. Snapshotted and reversible',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -9260,6 +9269,7 @@ final class Plugin
                     'status_code'    => [ 'type' => 'integer', 'enum' => Redirect_Store::ALLOWED_STATUS_CODES ],
                     'enabled'        => [ 'type' => 'boolean' ],
                     'notes'          => [ 'type' => 'string' ],
+                    'provider'       => [ 'type' => 'string', 'description' => Redirect_Router::PROVIDER_HINT ],
                     'session_id'     => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'redirect_id' ],
@@ -9273,11 +9283,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/delete-redirect',
             'free',
-            'Delete one managed redirect. The whole row is snapshotted first, so rollback-operation brings the same redirect back; use update-redirect with enabled:false instead to stop it firing while keeping its hit history',
+            'Delete one redirect. The whole row is snapshotted first, so rollback-operation brings the same redirect back; use update-redirect with enabled:false instead to stop it firing while keeping its hit history',
             [
                 'type'       => 'object',
                 'properties' => [
                     'redirect_id' => [ 'type' => 'integer' ],
+                    'provider'    => [ 'type' => 'string', 'description' => Redirect_Router::PROVIDER_HINT ],
+                    'confirm'     => [ 'type' => 'boolean' ],
                     'session_id'  => [ 'type' => 'string' ],
                 ],
                 'required'   => [ 'redirect_id' ],
