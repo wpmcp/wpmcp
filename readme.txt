@@ -48,6 +48,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * With Pro, Tutor LMS, LifterLMS and LearnDash: courses, sections, lessons and quizzes (read and undoable writes) and enrollments (read); LearnDash also lists a learner's courses with progress and can enroll, unenroll or reset progress (off until the site turns them on), each undoable
 * With Pro, MemberPress: memberships and access rules (read and undoable writes, off until the site turns them on), members and transactions (read)
 * With Pro, BetterDocs: knowledge base docs and categories (read, and undoable doc creates and edits)
+* FileBird media folders: the folder tree with counts, a folder's attachments and an attachment's folder (read), and undoable folder creates, renames, moves and deletes and attachment moves between folders, off until the site turns them on; deleting a folder never deletes media
 * With Pro, WP Offload Media (read): the storage provider, bucket and offload switches with credentials never returned, how many attachments are offloaded, and per attachment whether it is in the bucket, its object key and the URL the site serves
 * With Pro, Fluent Support and Awesome Support: tickets and their threads (read, customer emails masked in lists), and undoable replies, notes and status changes, off until the site turns them on
 * With Pro, Weglot and GTranslate: languages and URL exclusions read (Weglot API keys never returned), and undoable GTranslate language list changes (off until the site turns them on)

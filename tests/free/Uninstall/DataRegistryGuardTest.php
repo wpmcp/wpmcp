@@ -102,6 +102,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // Relevanssi's own settings, one option per name, changed by
             // update-relevanssi-settings on the theme pair (issue #700).
             'relevanssi_*',
+            // FileBird's folder colours, keyed by folder id, which
+            // filebird-delete-folder drops for the folders it deletes
+            // (issue #906).
+            'fbv_folder_colors',
         ],
         'transient'      => [
             'scrape_key_*',
