@@ -22,8 +22,15 @@
  * The GFFormsModel double below writes one of those columns, which is what
  * GFFormsModel::update_form_meta() does (issue #674).
  *
- * Not reproduced: gf_entry_meta as a separate table, search criteria other
- * than status, and sorting other than newest first.
+ * install_table() also creates gf_entry_meta, gf_entry_notes and
+ * gf_addon_payment_transaction with Gravity Forms' own column names (2.9's
+ * class-gf-upgrade.php and class-gf-payment-addon.php), the rows delete-entry
+ * removes and checks (issue #675). get_entry() keeps reading values from the
+ * JSON column, so the separate meta rows are only seeded where a test needs
+ * them.
+ *
+ * Not reproduced: search criteria other than status, and sorting other than
+ * newest first.
  *
  * Only defined when the real GFAPI is absent, so a real install always wins.
  */
@@ -57,6 +64,37 @@ if (! class_exists('GFAPI')) {
                 meta longtext NOT NULL,
                 PRIMARY KEY  (id)
             )");
+            $wpdb->query('CREATE TABLE IF NOT EXISTS ' . $wpdb->prefix . 'gf_entry_meta (
+                id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+                form_id mediumint(8) unsigned NOT NULL DEFAULT 0,
+                entry_id bigint(20) unsigned NOT NULL,
+                meta_key varchar(255),
+                meta_value longtext,
+                item_index varchar(60),
+                PRIMARY KEY  (id),
+                KEY entry_id (entry_id)
+            )');
+            $wpdb->query('CREATE TABLE IF NOT EXISTS ' . $wpdb->prefix . "gf_entry_notes (
+                id int(10) unsigned NOT NULL AUTO_INCREMENT,
+                entry_id int(10) unsigned NOT NULL,
+                user_name varchar(250),
+                user_id bigint(20),
+                date_created datetime NOT NULL DEFAULT '2026-01-01 00:00:00',
+                value longtext,
+                note_type varchar(50),
+                sub_type varchar(50),
+                PRIMARY KEY  (id),
+                KEY entry_id (entry_id)
+            )");
+            $wpdb->query('CREATE TABLE IF NOT EXISTS ' . $wpdb->prefix . "gf_addon_payment_transaction (
+                id int(10) unsigned NOT NULL AUTO_INCREMENT,
+                lead_id int(10) unsigned NOT NULL,
+                transaction_type varchar(30) NOT NULL DEFAULT 'payment',
+                transaction_id varchar(50),
+                amount decimal(19,2),
+                PRIMARY KEY  (id),
+                KEY lead_id (lead_id)
+            )");
         }
 
         public static function uninstall_table(): void
@@ -64,6 +102,17 @@ if (! class_exists('GFAPI')) {
             global $wpdb;
             $wpdb->query('DROP TABLE IF EXISTS ' . self::table());
             $wpdb->query('DROP TABLE IF EXISTS ' . self::meta_table());
+            foreach ([ 'gf_entry_meta', 'gf_entry_notes', 'gf_addon_payment_transaction' ] as $suffix) {
+                $wpdb->query('DROP TABLE IF EXISTS ' . $wpdb->prefix . $suffix);
+            }
+        }
+
+        /** Test seam: one row in a child table (gf_entry_meta, gf_entry_notes, gf_addon_payment_transaction). */
+        public static function seed_row(string $suffix, array $row): int
+        {
+            global $wpdb;
+            $wpdb->insert($wpdb->prefix . $suffix, $row);
+            return (int) $wpdb->insert_id;
         }
 
         public static function meta_table(): string

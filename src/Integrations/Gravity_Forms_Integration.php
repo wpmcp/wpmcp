@@ -26,7 +26,16 @@ if (! defined('ABSPATH')) {
  * which is how Gravity Forms' own entry screen does it. Gravity Forms keeps
  * entries in its own gf_entry table, so the write is snapshotted as a
  * db_rows before-image of exactly that row and restorable with
- * rollback-operation. Entry deletion is deliberately not offered.
+ * rollback-operation.
+ *
+ * delete-entry (issue #675) removes the entry's rows of gf_entry_meta,
+ * gf_entry_notes and gf_entry directly, each table under its own db_rows
+ * before-image in one session, so rollback-session puts the whole entry back
+ * at its original id. It does not go through GFAPI::delete_entry(): that
+ * also unlinks the entry's uploaded files, which no snapshot can restore.
+ * Gravity Forms' gform_delete_entry action therefore does not fire. An entry
+ * with a payment (a gf_addon_payment_transaction row, or a payment status or
+ * transaction id on the entry) is refused, as in the other forms adapters.
  *
  * Issue #674: notifications and confirmations are editable (opt in with
  * wpmcp_enable_forms_write). Gravity Forms keeps each form's notifications
@@ -98,6 +107,77 @@ class Gravity_Forms_Integration extends Forms_Integration
             }
         }
         return $entry;
+    }
+
+    /** The Gravity Forms entry, or null when there is none with that id. */
+    private static function entry(int $entry_id): ?array
+    {
+        $entry = \GFAPI::get_entry($entry_id);
+        return is_array($entry) ? $entry : null;
+    }
+
+    /**
+     * The delete-entry operation (issue #675), behind the forms opt-in.
+     *
+     * @return array<string, mixed>
+     */
+    private static function delete_entry_operation(): array
+    {
+        return [
+            'mode'              => 'destructive',
+            'self_snapshotting' => true,
+            'objects'           => [ 'entry_id' => 'entry' ],
+            'capability'        => self::ENTRY_CAPABILITY,
+            'description'       => 'Permanently delete one Gravity Forms entry with its values and notes (the rows of gf_entry, gf_entry_meta and gf_entry_notes, removed directly: Gravity Forms\' gform_delete_entry action does not run, uploaded files stay on disk, and a post created from the entry stays). Refused with entry_has_payments when the entry has a payment. Off by default (opt in with wpmcp_enable_forms_write); needs confirm:true and manage_options. Reversible: every row is snapshotted first and rollback-session puts them back. ' . self::NOT_ERASURE,
+            'input_schema'      => [
+                'type'       => 'object',
+                'properties' => [ 'entry_id' => [ 'type' => 'integer', 'minimum' => 1 ] ],
+                'required'   => [ 'entry_id' ],
+            ],
+            'validate'          => static function (array $args): ?array {
+                $entry_id = (int) $args['entry_id'];
+                $entry    = self::entry($entry_id);
+                if (null === $entry) {
+                    return [ 'code' => 'entry_not_found', 'message' => 'Gravity Forms has no entry with that id.', 'data' => [ 'entry_id' => $entry_id ] ];
+                }
+                if ('' !== (string) ($entry['payment_status'] ?? '') || '' !== (string) ($entry['transaction_id'] ?? '')) {
+                    return [
+                        'code'    => 'entry_has_payments',
+                        'message' => 'This entry has payment records (orders, transactions or subscriptions). Financial records are not deleted here.',
+                        'data'    => [ 'entry_id' => $entry_id, 'table' => 'gf_entry' ],
+                    ];
+                }
+                return self::payment_refusal($entry_id, [ [ 'gf_addon_payment_transaction', 'lead_id' ] ]);
+            },
+            'confirm_preview'   => static function (array $args): array {
+                $entry_id = (int) $args['entry_id'];
+                $entry    = (array) self::entry($entry_id);
+                $form_id  = (int) ($entry['form_id'] ?? 0);
+                return self::delete_entry_preview(
+                    sprintf('Gravity Forms entry %d of form %d', $entry_id, $form_id),
+                    $entry_id,
+                    self::count_rows('gf_entry_meta', 'entry_id', $entry_id),
+                    'rollback-session',
+                    [
+                        'form_id' => $form_id,
+                        'date'    => (string) ($entry['date_created'] ?? ''),
+                        'notes'   => self::count_rows('gf_entry_notes', 'entry_id', $entry_id),
+                    ]
+                );
+            },
+            'handler'           => static function (array $args, array $context): array {
+                $entry_id = (int) $args['entry_id'];
+                $done     = self::delete_rows_in_session([
+                    [ 'table' => 'gf_entry_meta', 'primary_key' => [ 'id' ], 'where' => [ 'entry_id' => $entry_id ], 'optional' => true ],
+                    [ 'table' => 'gf_entry_notes', 'primary_key' => [ 'id' ], 'where' => [ 'entry_id' => $entry_id ], 'optional' => true ],
+                    [ 'table' => 'gf_entry', 'primary_key' => [ 'id' ], 'where' => [ 'id' => $entry_id ] ],
+                ], $args, $context);
+                return [
+                    'result'        => [ 'entry_id' => $entry_id, 'deleted' => ($done['result']['gf_entry'] ?? 0) > 0, 'rows' => $done['result'] ],
+                    'operation_ids' => $done['operation_ids'],
+                ];
+            },
+        ] + self::write_flags();
     }
 
     protected function operations(): array
@@ -306,6 +386,7 @@ class Gravity_Forms_Integration extends Forms_Integration
                 },
                 'snapshot'     => static fn (array $args): ?array => self::row_snapshot('gf_entry', 'id', (int) $args['entry_id'], [ 'status' => (string) $args['status'] ]),
             ],
+            'delete-entry' => self::delete_entry_operation(),
         ];
     }
 
