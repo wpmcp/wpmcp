@@ -15,6 +15,13 @@
  * set_up_before_class, never inside a test transaction. Forms and notes stay
  * in static arrays.
  *
+ * A form seeded with seed_form_meta() also gets a REAL gf_form_meta row
+ * (form_id, display_meta, confirmations, notifications as JSON, the Gravity
+ * Forms 2.9 layout), and get_form() then reads its notifications and
+ * confirmations from that row, the way GFFormsModel::get_form_meta() does.
+ * The GFFormsModel double below writes one of those columns, which is what
+ * GFFormsModel::update_form_meta() does (issue #674).
+ *
  * Not reproduced: gf_entry_meta as a separate table, search criteria other
  * than status, and sorting other than newest first.
  *
@@ -56,6 +63,56 @@ if (! class_exists('GFAPI')) {
         {
             global $wpdb;
             $wpdb->query('DROP TABLE IF EXISTS ' . self::table());
+            $wpdb->query('DROP TABLE IF EXISTS ' . self::meta_table());
+        }
+
+        public static function meta_table(): string
+        {
+            global $wpdb;
+            return $wpdb->prefix . 'gf_form_meta';
+        }
+
+        /** DDL for the form meta table (call from set_up_before_class). */
+        public static function install_meta_table(): void
+        {
+            global $wpdb;
+            $wpdb->query('CREATE TABLE IF NOT EXISTS ' . self::meta_table() . ' (
+                form_id mediumint(10) unsigned NOT NULL,
+                display_meta longtext,
+                entries_grid_meta mediumtext,
+                confirmations longtext,
+                notifications longtext,
+                PRIMARY KEY  (form_id)
+            )');
+        }
+
+        /** Test seam: store a form's notifications and confirmations in gf_form_meta. */
+        public static function seed_form_meta(int $form_id, array $notifications, array $confirmations): void
+        {
+            global $wpdb;
+            $wpdb->replace(self::meta_table(), [
+                'form_id'       => $form_id,
+                'display_meta'  => wp_json_encode([ 'id' => $form_id ]),
+                'notifications' => wp_json_encode($notifications),
+                'confirmations' => wp_json_encode($confirmations),
+            ]);
+        }
+
+        /** @return array<string, mixed>|null the decoded columns of a form's meta row */
+        public static function meta_row(int $form_id): ?array
+        {
+            global $wpdb;
+            if ((string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', self::meta_table())) !== self::meta_table()) {
+                return null;
+            }
+            $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM %i WHERE form_id = %d', self::meta_table(), $form_id), ARRAY_A);
+            if (! $row) {
+                return null;
+            }
+            return [
+                'notifications' => json_decode((string) $row['notifications'], true),
+                'confirmations' => json_decode((string) $row['confirmations'], true),
+            ];
         }
 
         /** Test seam: insert one entry; field values are keyed by field id. */
@@ -89,7 +146,12 @@ if (! class_exists('GFAPI')) {
 
         public static function get_form($form_id)
         {
-            return self::$forms[(int) $form_id] ?? false;
+            $form = self::$forms[(int) $form_id] ?? false;
+            if (false !== $form && null !== ($meta = self::meta_row((int) $form_id))) {
+                $form['notifications'] = is_array($meta['notifications']) ? $meta['notifications'] : [];
+                $form['confirmations'] = is_array($meta['confirmations']) ? $meta['confirmations'] : [];
+            }
+            return $form;
         }
 
         public static function count_entries($form_ids, $search_criteria = [])
@@ -134,6 +196,27 @@ if (! class_exists('GFAPI')) {
         {
             $entry_id = (int) ($search_criteria['entry_id'] ?? 0);
             return array_values(array_filter(self::$notes, static fn ($n) => (int) ($n['entry_id'] ?? 0) === $entry_id));
+        }
+    }
+}
+
+if (! class_exists('GFFormsModel')) {
+    class GFFormsModel
+    {
+        /** Calls to update_form_meta(), so a test can see the write went through it. */
+        public static array $meta_updates = [];
+
+        public static function get_meta_table_name(): string
+        {
+            return \GFAPI::meta_table();
+        }
+
+        /** GF 2.9: JSON-encodes $form_meta into one column of gf_form_meta and returns the query result. */
+        public static function update_form_meta($form_id, $form_meta, $meta_name = 'display_meta')
+        {
+            global $wpdb;
+            self::$meta_updates[] = [ (int) $form_id, (string) $meta_name ];
+            return $wpdb->update(\GFAPI::meta_table(), [ $meta_name => json_encode($form_meta) ], [ 'form_id' => (int) $form_id ]);
         }
     }
 }

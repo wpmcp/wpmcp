@@ -427,6 +427,15 @@ class Run_Backup_Job
         } catch (\Throwable $e) {
             unset($e);
         }
+
+        // Archives made before WPMCP_BACKUP_DIR was set move once no job
+        // holds a path into the old folder (issue #846). Local file moves
+        // only: the web self-check never runs on the schedule.
+        try {
+            Backup_Dir_Health::migrate_legacy();
+        } catch (\Throwable $e) {
+            unset($e);
+        }
     }
 
     /**

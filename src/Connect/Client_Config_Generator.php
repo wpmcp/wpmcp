@@ -106,31 +106,67 @@ class Client_Config_Generator
     /** The line that switches OAuth on in wp-config.php. */
     public const OAUTH_CONSTANT_LINE = "define('WPMCP_OAUTH_ENABLED', true);";
 
+    /** The name of the switch on the Connection screen (issue #842). */
+    public const OAUTH_SWITCH_LABEL = 'Allow OAuth sign-in';
+
     /**
      * How to switch OAuth on, in words that read the same on the Connection
      * screen, in get-connection-info and on the authorization address while
-     * OAuth is off (issues #720 and #581). It names the real switch and
-     * where it lives, never a key of the tool's result. On the Connection
-     * screen itself the steps are listed right below the note, so there it
-     * says "below" instead of naming the screen the reader is on (#751).
+     * OAuth is off (issues #720, #581 and #842). It names the real switch
+     * and where it lives, never a key of the tool's result. On the
+     * Connection screen itself the switch is right below the note, so there
+     * it says "below" instead of naming the screen the reader is on (#751).
+     * When the constant or the filter fixes the value, the switch cannot
+     * help, so the text says what does.
      *
      * @param bool $on_connection_screen True when the text is shown on the Connection screen.
      */
     public static function oauth_switch_on(bool $on_connection_screen = false): string
     {
+        $locked = OAuth_Config::locked_by();
+        if ('constant' === $locked) {
+            return sprintf(
+                /* translators: %s: the PHP line, define('WPMCP_OAUTH_ENABLED', true); */
+                __('OAuth is fixed by WPMCP_OAUTH_ENABLED in wp-config.php, so the switch on the Connection screen cannot change it: a site administrator changes that line to %s. Or use the desktop bundle or config file instead, which use an application password.', 'wpmcp'),
+                self::OAUTH_CONSTANT_LINE
+            );
+        }
+        if ('filter' === $locked) {
+            return __('OAuth is fixed by the wpmcp_oauth_enabled filter in a plugin or mu-plugin, so the switch on the Connection screen cannot change it: whoever added that filter changes it. Or use the desktop bundle or config file instead, which use an application password.', 'wpmcp');
+        }
+
         if ($on_connection_screen) {
             return sprintf(
-                /* translators: %s: the PHP line to add, define('WPMCP_OAUTH_ENABLED', true); */
-                __('There is no OAuth switch in wp-admin: a site administrator switches it on by adding %s to wp-config.php, above the line "That\'s all, stop editing!" (the steps are listed below, under "To switch OAuth on"). Or use the desktop bundle or config file on this screen instead, which use an application password.', 'wpmcp'),
+                /* translators: 1: the switch label, Allow OAuth sign-in; 2: the PHP line, define('WPMCP_OAUTH_ENABLED', true); */
+                __('An administrator who manages WP MCP switches it on with "%1$s" below, under "To switch OAuth on". Or add %2$s to wp-config.php, above the line "That\'s all, stop editing!". Or use the desktop bundle or config file on this screen instead, which use an application password.', 'wpmcp'),
+                self::OAUTH_SWITCH_LABEL,
                 self::OAUTH_CONSTANT_LINE
             );
         }
 
         return sprintf(
-            /* translators: %s: the PHP line to add, define('WPMCP_OAUTH_ENABLED', true); */
-            __('There is no OAuth switch in wp-admin: a site administrator switches it on by adding %s to wp-config.php, above the line "That\'s all, stop editing!" (the steps to switch OAuth on are listed under "To switch OAuth on" in WP MCP, Connection, in wp-admin). Or use the desktop bundle or config file from that screen instead, which use an application password.', 'wpmcp'),
+            /* translators: 1: the switch label, Allow OAuth sign-in; 2: the PHP line, define('WPMCP_OAUTH_ENABLED', true); */
+            __('An administrator who manages WP MCP switches it on in wp-admin under WP MCP, Connection, with "%1$s" (listed under "To switch OAuth on"). Or add %2$s to wp-config.php, above the line "That\'s all, stop editing!". Or use the desktop bundle or config file from that screen instead, which use an application password.', 'wpmcp'),
+            self::OAUTH_SWITCH_LABEL,
             self::OAUTH_CONSTANT_LINE
         );
+    }
+
+    /**
+     * The ways to switch OAuth on, listed under "To switch OAuth on".
+     *
+     * @return string[]
+     */
+    private static function enable_oauth_steps(): array
+    {
+        return [
+            /* translators: %s: the switch label, Allow OAuth sign-in */
+            sprintf(__('In wp-admin, open WP MCP, Connection and turn on "%s" (administrators who can manage WP MCP).', 'wpmcp'), self::OAUTH_SWITCH_LABEL),
+            /* translators: %s: the PHP line to add, define('WPMCP_OAUTH_ENABLED', true); */
+            sprintf(__('Or add %s to wp-config.php, above the line "That\'s all, stop editing!". The constant decides instead of the switch.', 'wpmcp'), self::OAUTH_CONSTANT_LINE),
+            __('Or, from a plugin or mu-plugin: add_filter(\'wpmcp_oauth_enabled\', \'__return_true\');', 'wpmcp'),
+            __('Then reload the Connection screen: it shows "OAuth is on" and the OAuth discovery addresses clients use.', 'wpmcp'),
+        ];
     }
 
     /**
@@ -158,17 +194,49 @@ class Client_Config_Generator
             'note'          => $enabled
                 ? __('OAuth is on for this site, so the custom connector can sign in: add it with the steps below and approve the sign-in when your browser opens.', 'wpmcp')
                 : __('OAuth is off for this site (the default). The custom connector requires OAuth: it cannot send an application password, so on this site it fails with "Couldn\'t register with WP MCP\'s sign-in service".', 'wpmcp') . ' ' . self::oauth_switch_on($on_connection_screen),
-            'enable_oauth'  => [
-                /* translators: %s: the PHP line to add, define('WPMCP_OAUTH_ENABLED', true); */
-                sprintf(__('Add %s to wp-config.php, above the line "That\'s all, stop editing!".', 'wpmcp'), self::OAUTH_CONSTANT_LINE),
-                __('Or, from a plugin or mu-plugin: add_filter(\'wpmcp_oauth_enabled\', \'__return_true\');', 'wpmcp'),
-                __('Then reload the Connection screen: it shows "OAuth is on" and the OAuth discovery addresses clients use.', 'wpmcp'),
-            ],
+            'enable_oauth'  => self::enable_oauth_steps(),
             'steps'         => [
                 __('In Claude Desktop or on claude.ai, open Settings, then Connectors (under Customize in current versions), and choose "Add custom connector".', 'wpmcp'),
                 /* translators: %s: the MCP endpoint URL */
                 sprintf(__('Enter %s as the URL. Leave the OAuth Client ID and secret empty.', 'wpmcp'), self::endpoint()),
                 __('Click Connect, sign in to WordPress in the browser window that opens, and approve the access.', 'wpmcp'),
+            ],
+        ];
+    }
+
+    /**
+     * ChatGPT (issue #842). ChatGPT adds a remote MCP server by URL in
+     * Developer mode and signs in only with OAuth (dynamic client
+     * registration and PKCE, redirecting to chatgpt.com), so like the
+     * custom connector it needs OAuth on. Menu names follow the ChatGPT
+     * web UI at the time of writing; the note says where to look if they
+     * have moved.
+     *
+     * @param bool $on_connection_screen True when rendered on the Connection screen (#751).
+     *
+     * @return array{label: string, url: string, oauth_enabled: bool, note: string, enable_oauth: string[], steps: string[]}
+     */
+    public static function chatgpt(bool $on_connection_screen = false): array
+    {
+        $enabled  = OAuth_Config::is_enabled();
+        $endpoint = self::endpoint();
+
+        return [
+            'label'         => __('ChatGPT (web and desktop app): custom MCP connector', 'wpmcp'),
+            'url'           => $endpoint,
+            'oauth_enabled' => $enabled,
+            'note'          => ($enabled
+                ? __('OAuth is on for this site, so ChatGPT can sign in: add it with the steps below and approve the sign-in when the WordPress window opens.', 'wpmcp')
+                : __('OAuth is off for this site (the default). ChatGPT signs in only with OAuth, so it cannot connect until OAuth is on.', 'wpmcp') . ' ' . self::oauth_switch_on($on_connection_screen))
+                . ' ' . __('Custom MCP connectors need ChatGPT\'s Developer mode, on the plans that offer it; in a workspace, an admin may have to allow it. ChatGPT\'s menu names change from time to time: if a step does not match, look for Developer mode under Settings.', 'wpmcp'),
+            'enable_oauth'  => self::enable_oauth_steps(),
+            'steps'         => [
+                __('On chatgpt.com, open Settings, then Apps & Connectors, open Advanced settings and turn on Developer mode.', 'wpmcp'),
+                __('Back in Apps & Connectors, choose Create to add a connector, and name it, for example "WP MCP".', 'wpmcp'),
+                /* translators: %s: the MCP endpoint URL */
+                sprintf(__('Enter %s as the MCP server URL and choose OAuth as the authentication. Leave any client ID and secret empty: ChatGPT registers itself.', 'wpmcp'), $endpoint),
+                __('Confirm that you trust the connector and click Create. Sign in to WordPress in the window that opens and approve the access.', 'wpmcp'),
+                __('In a chat, open the + menu, choose Developer mode and turn on the WP MCP connector for that chat. The desktop app uses the connectors you added on the web.', 'wpmcp'),
             ],
         ];
     }
