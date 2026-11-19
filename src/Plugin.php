@@ -78,6 +78,7 @@ use WPMCP\Admin\Handshake_Settings_Page;
 use WPMCP\Admin\Connection_Page;
 use WPMCP\Admin\Announcements;
 use WPMCP\Admin\Snapshot_Retention_Notice;
+use WPMCP\Admin\Backup_Dir_Notice;
 use WPMCP\Admin\New_Tools_Notice;
 use WPMCP\Admin\Pro_Banner;
 use WPMCP\Admin\Ability_Grid_Page;
@@ -961,6 +962,9 @@ final class Plugin
             // a deeper history than the flat cap keeps it until the owner
             // decides, and this is the notice that asks.
             Snapshot_Retention_Notice::register();
+            // Backup folder served over the web (issue #846): a Dashboard
+            // warning from the stored self-check, no request on page load.
+            Backup_Dir_Notice::register();
             // Tools an update added and the state they arrived in (issue
             // #853), on the Dashboard until an administrator dismisses it.
             New_Tools_Notice::register();
@@ -2798,7 +2802,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/scan-security',
             'free',
-            'Scan this site for malware (deep=true: whole tree), core file integrity, hardening gaps, outdated software and known vulnerabilities (vulnerabilities=true; sends slugs and versions to wpvulnerability.net). Returns a 0-100 score, A-F grade and ranked fixes',
+            'Scan this site for malware (deep=true: whole tree), core file integrity, hardening gaps, outdated software and known vulnerabilities (vulnerabilities=true; sends slugs and versions to wpvulnerability.net); checks:[compromise] looks for hack traces. Returns a 0-100 score, A-F grade and ranked fixes',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2806,7 +2810,7 @@ final class Plugin
                         'type'  => 'array',
                         'items' => [
                             'type' => 'string',
-                            'enum' => ['malware', 'integrity', 'hardening', 'software'],
+                            'enum' => ['malware', 'integrity', 'hardening', 'software', 'compromise'],
                         ],
                     ],
                     'deep'            => [ 'type' => 'boolean' ],

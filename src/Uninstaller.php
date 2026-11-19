@@ -75,6 +75,14 @@ class Uninstaller
             }
         }
 
+        // Archives kept outside uploads with WPMCP_BACKUP_DIR (issue #846),
+        // laid out as Site_Backup_Dir does it.
+        $backup_base = self::backup_dir_base();
+        if (null !== $backup_base) {
+            $site = (! is_multisite() || is_main_site()) ? '' : '/sites/' . (int) get_current_blog_id();
+            self::delete_owned_dir($backup_base . $site, 'wpmcp-site-backups');
+        }
+
         wp_cache_delete('alloptions', 'options');
         wp_cache_delete('notoptions', 'options');
     }
@@ -129,6 +137,27 @@ class Uninstaller
         self::delete_tree($path);
 
         return ! file_exists($path);
+    }
+
+    /** @var array{0: bool, 1: mixed}|null */
+    private static ?array $backup_dir_for_tests = null;
+
+    /** WPMCP_BACKUP_DIR as a folder path, or null when unset or not a string. */
+    private static function backup_dir_base(): ?string
+    {
+        [ $defined, $value ] = self::$backup_dir_for_tests
+            ?? (defined(Data_Registry::BACKUP_DIR_CONSTANT) ? [ true, constant(Data_Registry::BACKUP_DIR_CONSTANT) ] : [ false, null ]);
+        if (! $defined || ! is_string($value) || '' === trim($value)) {
+            return null;
+        }
+
+        return rtrim(str_replace('\\', '/', trim($value)), '/');
+    }
+
+    /** Test seam: behave as if WPMCP_BACKUP_DIR were (or were not) defined. */
+    public static function set_backup_dir_for_tests(?array $defined_value): void
+    {
+        self::$backup_dir_for_tests = $defined_value;
     }
 
     /** Test seam: the wp-content directory uninstall cleans. */

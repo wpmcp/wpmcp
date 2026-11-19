@@ -818,6 +818,16 @@ tests_add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
     return $pre;
 }, 10, 3 );
 
+// The backup folder self-check (issue #846) requests a canary file from the
+// site's own URL, which in the test suite is a host on the internet. Answer
+// it as not served unless a test mocks it first (at a lower priority).
+tests_add_filter( 'pre_http_request', function ( $pre, $args, $url ) {
+    if ( false === $pre && false !== strpos( (string) $url, '/wpmcp-canary-' ) ) {
+        return [ 'headers' => [], 'body' => '', 'response' => [ 'code' => 404, 'message' => 'Not Found' ], 'cookies' => [], 'filename' => null ];
+    }
+    return $pre;
+}, 10, 3 );
+
 if ( ! function_exists( 'wpmcp_record_adapter_boot_doing_it_wrong' ) ) {
     /** Records one boot-time _doing_it_wrong call for the adapter leg (issue #501). */
     function wpmcp_record_adapter_boot_doing_it_wrong( $function_name, $message, $version ): void {
