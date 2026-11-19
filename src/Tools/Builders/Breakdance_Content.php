@@ -57,20 +57,18 @@ class Breakdance_Content
             'tree'          => Breakdance_Tree::nodes($doc),
         ];
 
-        // Oxygen 6 writes are pinned to the hash of the stored row (issue
-        // #635), and the read names the loaded version and the revisions
-        // restore can put back.
-        if ('oxygen' === $builder) {
-            $version = Oxygen_Page::plugin_version();
-            $out    += [
-                'plugin_version' => $version,
-                'hash'           => Oxygen_Page::hash($post_id),
-                'revisions'      => Oxygen_Page::revisions($post_id),
-            ];
-            $note = Oxygen_Page::version_note($version);
-            if (null !== $note) {
-                $out['version_note'] = $note;
-            }
+        // Writes on both products are pinned to the hash of the stored row
+        // (issues #634, #635), and the read names the loaded version and the
+        // revisions restore can put back.
+        $version = Breakdance_Page::plugin_version($builder);
+        $out    += [
+            'plugin_version' => $version,
+            'hash'           => Breakdance_Page::hash($post_id, $builder),
+            'revisions'      => Breakdance_Page::revisions($post_id, $builder),
+        ];
+        $note = Breakdance_Page::version_note($builder, $version);
+        if (null !== $note) {
+            $out['version_note'] = $note;
         }
 
         return $out;

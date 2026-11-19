@@ -41,9 +41,9 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new theme add-on layout post (issue #656); every field is new. Updates go through Save_Filters.',
         ],
-        'Tools/Builders/Oxygen_Page.php'              => [
+        'Tools/Builders/Breakdance_Page.php'          => [
             'calls'  => ['wp_insert_post' => 1],
-            'reason' => 'Creates a new Oxygen Component from a page node (issue #635); every field is new.',
+            'reason' => 'Creates a new Breakdance Global Block or Oxygen Component from a page node (issues #634, #635); every field is new.',
         ],
         'Tools/SiteEditor/Site_Templates_Write.php'   => [
             'calls'  => ['wp_insert_post' => 1],

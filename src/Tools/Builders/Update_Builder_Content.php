@@ -73,6 +73,12 @@ if (! defined('ABSPATH')) {
  * id} (one Component instance), and save_template, which saves a node or
  * the whole page as a new Component recorded for undo (see Oxygen_Page).
  *
+ * Breakdance pages take the same (issue #634, see Breakdance_Page):
+ * Breakdance loaded, expected_hash once the page holds a layout, publish,
+ * restore, add with element {template: id} (a template, header, footer,
+ * Global Block, popup or part) and save_template, which saves a node or the
+ * page as a new Global Block recorded for undo.
+ *
  * BeTheme pages (issue #643) need BeTheme active (plugin_missing
  * otherwise) and expected_hash, the read's hash of the stored layout row, on
  * any write to a page that has a layout. Content is the whole layout as a
@@ -192,31 +198,31 @@ class Update_Builder_Content
             );
         }
 
-        $status = null;
-        if ('oxygen' === $builder) {
-            $refusal = $this->oxygen_refusal($post_id, $operation, $args);
+        // Both products (issues #634, #635): the product loaded, the read's
+        // hash on a page with a layout, and the page-level operations.
+        $status  = null;
+        $refusal = $this->breakdance_refusal($post_id, $operation, $args, $builder);
+        if (null !== $refusal) {
+            return $refusal;
+        }
+        if ('save_template' === $operation) {
+            return 'oxygen' === $builder ? Oxygen_Page::save_component($post_id, $args) : Breakdance_Page::save_block($post_id, $args, $builder, Breakdance_Tree::blank());
+        }
+        if ('publish' === $operation) {
+            $refusal = $this->publish_refusal($post_id, "invalid_{$builder}_request");
             if (null !== $refusal) {
                 return $refusal;
             }
-            if ('save_template' === $operation) {
-                return Oxygen_Page::save_component($post_id, $args);
-            }
-            if ('publish' === $operation) {
-                $refusal = $this->publish_refusal($post_id, 'invalid_oxygen_request');
-                if (null !== $refusal) {
-                    return $refusal;
-                }
-                $status = 'publish';
-            }
+            $status = 'publish';
         }
 
         $doc  = Breakdance_Content::get_document($post_id, $builder) ?? Breakdance_Tree::blank();
         $path = null;
         try {
-            if ('oxygen' === $builder && in_array($operation, ['publish', 'restore'], true)) {
-                $doc = 'restore' === $operation ? Oxygen_Page::revision_document($post_id, (string) ($args['path'] ?? '')) : $doc;
-            } elseif ('oxygen' === $builder && 'add' === $operation && $this->is_oxygen_insert($args['element'] ?? null)) {
-                [$doc, $path] = $this->apply_oxygen_insert($doc, $args);
+            if (in_array($operation, ['publish', 'restore'], true)) {
+                $doc = 'restore' === $operation ? Breakdance_Page::revision_document($post_id, (string) ($args['path'] ?? ''), $builder) : $doc;
+            } elseif ('add' === $operation && $this->is_breakdance_insert($args['element'] ?? null, $builder)) {
+                [$doc, $path] = $this->apply_breakdance_insert($doc, $args, $builder);
             } elseif ('' === $operation) {
                 $content = $args['content'] ?? null;
                 $list    = is_string($content) ? json_decode($content) : null;
@@ -250,9 +256,7 @@ class Update_Builder_Content
         );
 
         $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => $builder];
-        if ('oxygen' === $builder) {
-            $result['hash'] = Oxygen_Page::hash($post_id);
-        }
+        $result['hash'] = Breakdance_Page::hash($post_id, $builder);
         if (null !== $path) {
             $result['path'] = $path;
         }
@@ -261,51 +265,59 @@ class Update_Builder_Content
     }
 
     /**
-     * Why an Oxygen 6 write must not run (issue #635), or null: Oxygen must
-     * be loaded, and a page that already holds a layout is changed only
-     * against the hash it was read with, since node ids of a page changed
-     * since could point elsewhere. Saving a Component writes no page, so it
-     * needs no hash.
+     * Why a Breakdance or Oxygen 6 write must not run (issues #634, #635),
+     * or null: the product must be loaded, and a page that already holds a
+     * layout is changed only against the hash it was read with, since node
+     * ids of a page changed since could point elsewhere. Saving a block
+     * writes no page, so it needs no hash.
      */
-    private function oxygen_refusal(int $post_id, string $operation, array $args): ?\WP_Error
+    private function breakdance_refusal(int $post_id, string $operation, array $args, string $builder): ?\WP_Error
     {
-        $unavailable = Oxygen_Page::unavailable();
+        $unavailable = Breakdance_Page::unavailable($builder);
         if (null !== $unavailable) {
             return $unavailable;
         }
-        if ('save_template' === $operation || ! Oxygen_Page::has_layout($post_id)) {
+        if ('save_template' === $operation || ! Breakdance_Page::has_layout($post_id, $builder)) {
             return null;
         }
 
+        $label    = 'oxygen' === $builder ? 'an Oxygen' : 'a Breakdance';
         $expected = (string) ($args['expected_hash'] ?? '');
         if ('' === $expected) {
-            return new \WP_Error('missing_expected_hash', 'expected_hash is required to change an Oxygen page: pass the hash get-builder-content returned for it.');
+            return new \WP_Error('missing_expected_hash', "expected_hash is required to change {$label} page: pass the hash get-builder-content returned for it.");
         }
-        if (! hash_equals(Oxygen_Page::hash($post_id), $expected)) {
+        if (! hash_equals(Breakdance_Page::hash($post_id, $builder), $expected)) {
             return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
         }
 
         return null;
     }
 
-    /** @param mixed $element */
-    private function is_oxygen_insert($element): bool
+    /**
+     * Whether an add places library content: element {template: id} on
+     * both products, {component: id} on Oxygen 6.
+     *
+     * @param mixed $element
+     */
+    private function is_breakdance_insert($element, string $builder): bool
     {
-        return is_array($element) && (array_key_exists('template', $element) || array_key_exists('component', $element));
+        return is_array($element) && (array_key_exists('template', $element) || ('oxygen' === $builder && array_key_exists('component', $element)));
     }
 
     /**
-     * Oxygen's add from the library: element {template: id} copies that
-     * template's, Component's or part's elements in with new ids, and
-     * element {component: id} places one instance of a Component.
+     * Add from the library: element {template: id} copies that template's,
+     * header's, footer's, block's, popup's or part's elements in with new
+     * ids, and on Oxygen 6 element {component: id} places one instance of a
+     * Component.
      *
      * @return array{0:object,1:string}
      */
-    private function apply_oxygen_insert(object $doc, array $args): array
+    private function apply_breakdance_insert(object $doc, array $args, string $builder): array
     {
         $element = $args['element'];
         if (1 !== count($element)) {
-            throw new \InvalidArgumentException(esc_html('element takes either {template: <id>} or {component: <id>} alone.'));
+            $forms = 'oxygen' === $builder ? 'either {template: <id>} or {component: <id>}' : '{template: <id>}';
+            throw new \InvalidArgumentException(esc_html("element takes {$forms} alone."));
         }
         $to    = (string) ($args['to'] ?? '');
         $index = isset($args['index']) ? (int) $args['index'] : null;
@@ -315,7 +327,7 @@ class Update_Builder_Content
         }
 
         if (array_key_exists('template', $element)) {
-            return Oxygen_Page::insert_template($doc, $to, $index, (int) $id);
+            return Breakdance_Page::insert_template($doc, $to, $index, (int) $id, $builder);
         }
 
         return Breakdance_Tree::add($doc, $to, $index, Oxygen_Page::component_spec((int) $id));
@@ -355,8 +367,7 @@ class Update_Builder_Content
                 return [Breakdance_Tree::move($doc, $path, $to, $index), $path];
         }
 
-        $more = 'oxygen' === ($args['builder'] ?? '') ? ', move, publish, restore or save_template' : ' or move';
-        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove{$more}."));
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move, publish, restore or save_template."));
     }
 
     private function update_beaver_builder(int $post_id, array $args)
