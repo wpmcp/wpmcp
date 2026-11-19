@@ -82,10 +82,10 @@ final class Brizy_Tree
         }
         $is_block = in_array($type, self::BLOCK_TYPES, true);
         if ($top && ! $is_block) {
-            throw new \InvalidArgumentException(esc_html("A {$type} cannot sit at the top of a Brizy page; the top holds blocks (" . implode(', ', self::BLOCK_TYPES) . ').'));
+            throw new \InvalidArgumentException(esc_html("Type '{$type}' cannot sit at the top of a Brizy page; the top holds blocks (" . implode(', ', self::BLOCK_TYPES) . ').'));
         }
         if (! $top && $is_block) {
-            throw new \InvalidArgumentException(esc_html("A {$type} block can only sit at the top of a Brizy page."));
+            throw new \InvalidArgumentException(esc_html("Block type '{$type}' can only sit at the top of a Brizy page."));
         }
         if ($top && (! is_string($node['blockId'] ?? null) || '' === $node['blockId'])) {
             $node['blockId'] = self::BLANK_BLOCK_ID;

@@ -87,7 +87,6 @@ final class Brizy_Design
             'orderby'          => 'ID',
             'order'            => 'DESC',
             'fields'           => 'ids',
-            'suppress_filters' => true,
         ]);
         $row  = [] === $project ? null : get_post_meta((int) $project[0], self::PROJECT_TYPE, true);
         $raw  = is_array($row) && is_string($row['data'] ?? null) ? $row['data'] : '';
