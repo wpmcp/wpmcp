@@ -297,7 +297,7 @@ class Dynamic_Template_Ops
                     return [
                         'code'    => 'wpmcp_condition_context_mismatch',
                         'message' => sprintf(
-                            'A "%s" include rule can never match a %s template. Use: %s.',
+                            'A "%s" include rule can never match in the %s template context. Use: %s.',
                             $type,
                             $context,
                             implode(', ', self::CONTEXT_RULES[$context])
