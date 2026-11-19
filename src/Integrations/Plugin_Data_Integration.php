@@ -45,6 +45,11 @@ if (! defined('ABSPATH')) {
  *    listed (reviewer emails and IPs masked), read one at a time and
  *    summarised, and approved, unapproved, trashed or replied to (off until
  *    wpmcp_enable_site_reviews_write), each write under a post snapshot.
+ *  - Issue #902 adds the Smash Balloon Instagram Feed ops
+ *    (Instagram_Feed_Pack): feeds, their placements and cache age, and
+ *    connected accounts with their connection state (tokens never
+ *    returned), read; display settings changed and a feed's cache cleared
+ *    (off until wpmcp_enable_instagram_feed_write), each write undoable.
  *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS,
  *    LifterLMS and LearnDash course, section, lesson and quiz trees with
  *    snapshotted writes, and read-only enrollments (LearnDash also enrolls,
@@ -131,7 +136,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || Instagram_Feed_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || Offload_Media_Pack::active()
             || TablePress_Pack::active()
@@ -152,7 +157,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans, Smash Balloon Instagram Feed feeds'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', WP Offload Media status'
             . ', FluentCRM and MailPoet'
@@ -189,6 +194,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'WP Simple Pay', false, Simple_Pay_Pack::operations() ],
             [ 'Paid Member Subscriptions', false, Paid_Member_Subscriptions_Pack::operations() ],
             [ 'WPGraphQL', false, WPGraphQL_Pack::operations() ],
+            [ Instagram_Feed_Pack::PLUGIN, false, Instagram_Feed_Pack::operations() ],
         ];
         foreach (LMS_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
@@ -236,6 +242,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Thirsty_Affiliates_Pack::operations(),
             Advanced_Ads_Pack::operations(),
             Site_Reviews_Pack::operations(),
+            Instagram_Feed_Pack::operations(),
             Simple_Pay_Pack::operations(),
             Paid_Member_Subscriptions_Pack::operations(),
             WPGraphQL_Pack::operations(),

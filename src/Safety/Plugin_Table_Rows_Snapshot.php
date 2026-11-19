@@ -56,9 +56,16 @@ if (! defined('ABSPATH')) {
  * "links") are keyed by their own id. A create reserves its id before the
  * snapshot, so the restore removes the row the write inserted.
  *
+ * Smash Balloon Instagram Feed (issue #902) keeps its feeds in
+ * `sbi_feeds` and their fetched and rendered data in `sbi_feed_caches`,
+ * both keyed by id (kind sbi, suffixes "feeds" and "feed_caches" only, so
+ * its `sbi_sources` table, which holds access tokens, can never be
+ * captured). After a restore the plugin's object cache entry for each
+ * restored feed is dropped, so the next page view reads the rows back.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
- * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
+ * for a dictionary row, a Pretty Links link or an Instagram Feed row, and Wordfence's own admin capability (manage_options,
  * manage_network on a multisite network) for a Wordfence row.
  */
 final class Plugin_Table_Rows_Snapshot
@@ -72,6 +79,7 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'mepr_rule_access_',
         'rank_math'        => 'rank_math_',
         'prli'             => 'prli_',
+        'sbi'              => 'sbi_',
     ];
 
     /**
@@ -94,6 +102,7 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => [ 'conditions' ],
         'rank_math'        => [ 'redirections' ],
         'prli'             => [ 'links' ],
+        'sbi'              => [ 'feeds', 'feed_caches' ],
     ];
 
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
@@ -308,7 +317,24 @@ final class Plugin_Table_Rows_Snapshot
         if ('rank_math' === $kind) {
             self::purge_rank_math_cache($ids);
         }
+        if ('sbi' === $kind) {
+            self::drop_instagram_feed_cache((string) ($data['suffix'] ?? ''), (array) ($data['rows'] ?? []));
+        }
         self::after_wordfence_restore($kind);
+    }
+
+    /**
+     * Drop Instagram Feed's object cache entry (sbi_feed_<feed>_1, the key
+     * its cache class reads first) for every feed whose rows were restored.
+     */
+    private static function drop_instagram_feed_cache(string $suffix, array $rows): void
+    {
+        foreach ($rows as $row) {
+            $feed = 'feeds' === $suffix ? (string) ($row['id'] ?? '') : (string) ($row['feed_id'] ?? '');
+            if ('' !== $feed) {
+                wp_cache_delete('sbi_feed_' . $feed . '_1');
+            }
+        }
     }
 
     /**
@@ -462,6 +488,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('prli' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring Pretty Links links requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('sbi' === $kind) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring Instagram Feed feeds or caches requires the manage_options capability.');
             }
             return;
         }

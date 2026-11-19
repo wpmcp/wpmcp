@@ -42,6 +42,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * Email logs (read): WP Mail Logging, Check and Log Email and Email Log emails listed with recipients masked and no bodies, and read one at a time with the body cut and reset or login links removed
 * Site operations status (read): UpdraftPlus, Duplicator, Solid Security, Sucuri Security, All In One WP Security, Limit Login Attempts Reloaded, MonsterInsights and W3 Total Cache, plus W3 Total Cache purge
 * Image optimization: Smush, ShortPixel, EWWW Image Optimizer and Imagify status (compression level, WebP and AVIF, images optimized and pending, cached quota, API keys never returned), and one image optimized through the plugin itself, undoable (off until the site turns it on)
+* Smash Balloon Instagram Feed: feeds with their settings, where each is embedded and how old its cache is, and connected accounts with their connection state (tokens never returned, reconnecting stays in wp-admin); undoable display setting changes and cache clears (off until the site turns them on)
 * WPGraphQL (read): run GraphQL queries as the signed-in user, with mutations refused and emails, phones and IPs masked, and summarise the schema
 * WP Mail SMTP: the active mailer and from identity with credentials never returned, the Pro email log, a test send to your own address, and an undoable from name and address change
 * With Pro, FunnelKit funnels and their steps, with linked pages, products and step counts, and changes to funnels, steps and checkout products through FunnelKit itself (free Funnel Builder), each one undoable
@@ -188,6 +189,7 @@ New:
 * Helpdesk get-ticket lists ticket and reply attachments for Fluent Support and Awesome Support: name, type, size and the plugin's own protected link, never file contents (#874).
 * bbPress topic tags on get-topic and list-topics, with a tag filter (#882).
 * Kadence element expiry settings in the layout operations (#892).
+* Smash Balloon Instagram Feed: list feeds, sources and their connection state, change display settings and clear a feed's cache, each undoable (#902).
 * MemberPress update-rule adds or removes one access condition, and create-membership fills in the same defaults as wp-admin (#822).
 
 = 0.9.1 =
