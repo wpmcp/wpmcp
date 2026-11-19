@@ -57,7 +57,7 @@ class Gateway_Provision
         if (! OAuth_Config::is_enabled()) {
             return new \WP_Error(
                 'oauth_disabled',
-                'The OAuth subsystem is off, so a gateway credential could never be redeemed: there is no token endpoint and bearer tokens are not accepted. Enable it (define WPMCP_OAUTH_ENABLED or filter wpmcp_oauth_enabled) before provisioning.'
+                'The OAuth subsystem is off, so a gateway credential could never be redeemed: there is no token endpoint and bearer tokens are not accepted. Enable it (the Allow OAuth sign-in switch on the WP MCP Connection screen, define WPMCP_OAUTH_ENABLED or filter wpmcp_oauth_enabled) before provisioning.'
             );
         }
 
