@@ -55,6 +55,18 @@ class Optimize_Media
 
     private const OPTIMIZERS_TRANSIENT = 'wpmcp_image_optimizer_scan';
 
+    /**
+     * Where a deferred call is handed off (issue #693): the theme pair ops
+     * that optimize through Smush, ShortPixel, EWWW Image Optimizer or
+     * Imagify themselves, every write undoable.
+     */
+    private const HANDOFF = [
+        'tool'     => 'theme-write',
+        'optimize' => 'optimize-attachment',
+        'status'   => 'get-image-optimizer-status',
+        'note'     => 'For Smush, ShortPixel, EWWW Image Optimizer or Imagify, read theme-read get-image-optimizer-status and optimize one image with theme-write optimize-attachment (media_id), which runs through the plugin and is undoable.',
+    ];
+
     /** @var array<string,string[]> active-plugins key => optimizer names, for this request */
     private static array $optimizers_cache = [];
 
@@ -106,6 +118,7 @@ class Optimize_Media
         if ([] !== $optimizers && ! $force) {
             $out['deferred_to'] = $optimizers;
             $out['reason']      = 'An active image-optimization plugin already handles this. Pass force:true to run anyway.';
+            $out['handoff']     = self::HANDOFF;
             if (! $dry_run) {
                 return $out;
             }
@@ -164,6 +177,7 @@ class Optimize_Media
             return [
                 'deferred_to' => $optimizers,
                 'reason'      => 'An active image-optimization plugin already handles this. Pass force:true to run anyway.',
+                'handoff'     => self::HANDOFF,
             ];
         }
 
