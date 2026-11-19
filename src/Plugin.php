@@ -812,6 +812,9 @@ final class Plugin
             add_action(Run_Restore_Job::HOOK, [new Run_Restore_Job(), 'handle']);
             // Recurring backups (issue #455): each run queues the job above.
             add_action(Backup_Schedule::HOOK, [Backup_Schedule::class, 'run']);
+            // Static HTML export (issue #854, Pro): trigger-backup
+            // type=static, its WP-Cron executor and its download link.
+            \WPMCP\Tools\Export\Static_Site\Static_Export::register();
             // The WP-Cron executor for dispatch-cli-job's scheduled events
             // (issue #84). It re-runs the FULL wp-cli guard chain before
             // executing anything, so hooking it here does not by itself let
@@ -5378,17 +5381,20 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
             'free',
-            'Queue a WP-Cron backup job; returns its job id. type=full: portable site archive (zip: full SQL dump, wp-content, origin manifest) to restore or migrate; database/files/uploads narrow it; content: WXR export. every=daily [HH:MM], weekly [mon-sun] [HH:MM] (site time) or off schedules that type instead; each run prunes its archives past keep (default 7), never manual ones or after a failed run',
+            'Queue a WP-Cron backup job; returns its job id. type=full: portable site archive (zip: full SQL dump, wp-content, origin manifest) to restore or migrate; database/files/uploads narrow it; content: WXR export; static: public pages as plain HTML with assets and relative links, as a zip (opt-in; plan:true lists URLs only; post_type or urls narrow it). every=daily [HH:MM], weekly [mon-sun] [HH:MM] (site time) or off schedules that type instead; each run prunes its archives past keep (default 7), never manual ones or after a failed run',
             [
                 'type'       => 'object',
                 'properties' => [
                     'type'  => [
                         'type' => 'string',
-                        'enum' => ['full', 'database', 'files', 'uploads', 'content'],
+                        'enum' => ['full', 'database', 'files', 'uploads', 'content', 'static'],
                     ],
                     'scope' => [ 'type' => 'string' ],
                     'every' => [ 'type' => 'string' ],
                     'keep'  => [ 'type' => 'integer' ],
+                    'plan'      => [ 'type' => 'boolean' ],
+                    'post_type' => [ 'type' => 'string' ],
+                    'urls'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
                 ],
             ],
             [$trigger_backup, 'handle'],
