@@ -299,7 +299,7 @@ final class Kirki_Tree
             throw new \InvalidArgumentException(esc_html("Element '{$name}': properties must be an object and children a list of elements."));
         }
         if (null !== $shape && ! $shape['container'] && [] !== $kids) {
-            throw new \InvalidArgumentException(esc_html("A {$name} element holds no children."));
+            throw new \InvalidArgumentException(esc_html("Element type '{$name}' holds no children."));
         }
         if (isset($spec['text'])) {
             if (! is_scalar($spec['text'])) {
