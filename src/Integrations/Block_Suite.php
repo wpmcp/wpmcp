@@ -42,6 +42,22 @@ if (! defined('ABSPATH')) {
  *
  * The Blocksy companion blocks build their CSS while they render, keyed by
  * uniqueId, like Kadence.
+ *
+ * Stackable (issue #649) registers its blocks with no attributes (they live
+ * in its editor script), so its schema is lenient like Spectra's. Each block
+ * saves its own CSS in a style tag in its markup, keyed by the stk-{uniqueId}
+ * class. On save_post Stackable gathers those styles into the
+ * stackable_optimized_css and stackable_optimized_css_raw meta, prints that
+ * in the head and strips the inline styles it holds; without the meta the
+ * inline styles render as saved. A restore bypasses save_post, so writes and
+ * rollbacks drop both meta and the saved markup's own styles apply until
+ * Stackable rebuilds the meta on the next save.
+ *
+ * Ultimate Blocks (issue #649) renders its blocks in PHP and builds their
+ * CSS from attributes at render time, keyed by blockID, the editor's whole
+ * client id. Its editor script adds blockID and ubCustomCSS to every ub/
+ * block, beyond what the server-side block.json schemas declare, so its
+ * schema is lenient too: declared attributes keep their types.
  */
 final class Block_Suite
 {
@@ -50,6 +66,8 @@ final class Block_Suite
     public const SPECTRA        = 'spectra';
     public const OTTER          = 'otter-blocks';
     public const BLOCKSY        = 'blocksy';
+    public const STACKABLE      = 'stackable';
+    public const ULTIMATE       = 'ultimate-blocks';
 
     /** Stands in for the unique id inside markup an agent writes before the id exists. */
     public const PLACEHOLDER = '__UNIQUE_ID__';
@@ -61,6 +79,7 @@ final class Block_Suite
     private const SPECTRA_META = [ '_uag_page_assets', '_uag_css_file_name', '_uag_js_file_name' ];
     private const OTTER_FILE   = '_themeisle_gutenberg_block_stylesheet';
     private const OTTER_STYLES = '_themeisle_gutenberg_block_styles';
+    private const STACKABLE_META = [ 'stackable_optimized_css', 'stackable_optimized_css_raw' ];
 
     /**
      * The Spectra blocks whose editor sets classMigrate, and childMigrate,
@@ -155,6 +174,26 @@ final class Block_Suite
                 'version'   => '',
                 'schema'    => 'registry',
             ],
+            self::STACKABLE      => [
+                'label'     => 'Stackable',
+                'namespace' => 'stackable/',
+                'id_attr'   => 'uniqueId',
+                'id_style'  => 'hex7',
+                'css_model' => 'per_post_cache',
+                'constant'  => 'STACKABLE_VERSION',
+                'version'   => 'STACKABLE_VERSION',
+                'schema'    => 'defaults',
+            ],
+            self::ULTIMATE       => [
+                'label'     => 'Ultimate Blocks',
+                'namespace' => 'ub/',
+                'id_attr'   => 'blockID',
+                'id_style'  => 'uuid',
+                'css_model' => 'render_time',
+                'constant'  => 'ULTIMATE_BLOCKS_VERSION',
+                'version'   => 'ULTIMATE_BLOCKS_VERSION',
+                'schema'    => 'defaults',
+            ],
         ];
     }
 
@@ -214,6 +253,12 @@ final class Block_Suite
                     break;
                 case 'block_prefixed':
                     $id = 'wp-block-' . str_replace('/', '-', $block_name) . '-' . substr($uuid, 0, 8);
+                    break;
+                case 'hex7':
+                    $id = substr($uuid, 0, 7);
+                    break;
+                case 'uuid':
+                    $id = $uuid;
                     break;
                 default:
                     $id = self::GENERATEBLOCKS === $suite ? str_replace('-', '', substr($uuid, 2, 9)) : substr($uuid, 0, 8);
@@ -292,6 +337,10 @@ final class Block_Suite
                 }
             } elseif (self::OTTER === $suite) {
                 self::drop_otter_stylesheet($post_id);
+            } elseif (self::STACKABLE === $suite) {
+                foreach (self::STACKABLE_META as $key) {
+                    delete_post_meta($post_id, $key);
+                }
             }
             $refreshed = true;
         }

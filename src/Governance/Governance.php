@@ -125,6 +125,7 @@ class Governance
     {
         delete_option(self::OPTION);
         delete_option(Site_Wide_Governance::OPTION);
+        New_Tools_Policy::reset_for_tests();
     }
 
     /**

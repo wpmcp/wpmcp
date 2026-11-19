@@ -45,7 +45,7 @@ class Gateway_Cloud
             return self::refuse($identity, 'gateway_forbidden', 'Only an administrator can provision a gateway credential.');
         }
         if (! OAuth_Config::is_enabled()) {
-            return self::refuse($identity, 'gateway_oauth_disabled', 'The OAuth subsystem is off, so a gateway credential could never be redeemed. Enable it (WPMCP_OAUTH_ENABLED or the wpmcp_oauth_enabled filter) first.');
+            return self::refuse($identity, 'gateway_oauth_disabled', 'The OAuth subsystem is off, so a gateway credential could never be redeemed. Enable it (the Allow OAuth sign-in switch on the WP MCP Connection screen, WPMCP_OAUTH_ENABLED or the wpmcp_oauth_enabled filter) first.');
         }
         if ($user_id <= 0 || ! user_can($user_id, 'manage_options')) {
             return self::refuse($identity, 'gateway_user_not_admin', 'A gateway credential can only be bound to an administrator.');
