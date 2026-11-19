@@ -68,6 +68,13 @@ if (! defined('ABSPATH')) {
  * membership restore PMPro's cached levels of each captured user are
  * dropped, so its next read sees the restored rows.
  *
+ * Restrict Content membership levels (issue #669, the
+ * `restrict_content_pro` table the plugin names its levels table, so kind
+ * rcp_levels with the prefix "restrict_content_" and the one suffix
+ * "pro") are keyed by their own id. After a restore the plugin's cached
+ * copies of the rows are dropped (its BerlinDB cache group
+ * rcp-membership_levels), as its own query does after a write.
+ *
  * Easy Digital Downloads discounts (issue #664, the `edd_adjustments` table,
  * the one suffix "adjustments") are keyed by their own id; a create
  * reserves its id the same way. EDD reads the table through BerlinDB, which
@@ -77,7 +84,7 @@ if (! defined('ABSPATH')) {
  *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
- * for a dictionary row, a Pretty Links link or an EDD discount, and Wordfence's own admin capability (manage_options,
+ * for a dictionary row, a Pretty Links link, a Restrict Content level or an EDD discount, and Wordfence's own admin capability (manage_options,
  * manage_network on a multisite network) for a Wordfence row.
  */
 final class Plugin_Table_Rows_Snapshot
@@ -94,6 +101,7 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_levels'     => 'pmpro_',
         'pmpro_members'    => 'pmpro_',
         'pmpro_codes'      => 'pmpro_',
+        'rcp_levels'       => 'restrict_content_',
         'edd'              => 'edd_',
     ];
 
@@ -121,6 +129,7 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_levels'     => [ 'membership_levels' ],
         'pmpro_members'    => [ 'memberships_users' ],
         'pmpro_codes'      => [ 'discount_codes' ],
+        'rcp_levels'       => [ 'pro' ],
         'edd'              => [ 'adjustments' ],
     ];
 
@@ -448,10 +457,28 @@ final class Plugin_Table_Rows_Snapshot
         if ('pmpro_members' === $kind) {
             self::clear_pmpro_user_cache($ids);
         }
+        if ('rcp_levels' === $kind) {
+            self::flush_rcp_level_cache($ids);
+        }
         if ('edd' === $kind) {
             self::purge_edd_cache((string) $data['suffix'], $ids);
         }
         self::after_wordfence_restore($kind);
+    }
+
+    /**
+     * Drop Restrict Content's cached copies of the given membership level
+     * rows and move its level query cache on, as its own BerlinDB query does
+     * after a write (cache group rcp-membership_levels).
+     *
+     * @param array<int, int|string> $ids
+     */
+    public static function flush_rcp_level_cache(array $ids): void
+    {
+        foreach ($ids as $id) {
+            wp_cache_delete((int) $id, 'rcp-membership_levels');
+        }
+        wp_cache_set('last_changed', microtime(), 'rcp-membership_levels');
     }
 
     /**
@@ -637,6 +664,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('prli' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring Pretty Links links requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('rcp_levels' === $kind) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring a Restrict Content membership level requires the manage_options capability.');
             }
             return;
         }
