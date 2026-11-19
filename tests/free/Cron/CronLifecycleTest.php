@@ -102,6 +102,10 @@ class CronLifecycleTest extends \WP_UnitTestCase
         $restore = Backup_Job_Store::create('restore', 'database');
         wp_schedule_single_event(time(), Run_Restore_Job::HOOK, [$restore['id']]);
 
+        // The static HTML export's hook (issue #854), by value: the class is Pro only.
+        $static = Backup_Job_Store::create('static', 'all');
+        wp_schedule_single_event(time(), 'wpmcp_run_static_export', [$static['id']]);
+
         $cli = Cli_Job_Store::create(['option', 'get', 'home'], 60);
         wp_schedule_single_event(time(), Run_Cli_Job::HOOK, [$cli['id']]);
 

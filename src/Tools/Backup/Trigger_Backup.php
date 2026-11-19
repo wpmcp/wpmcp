@@ -29,6 +29,17 @@ class Trigger_Backup
         $type  = isset($args['type']) ? (string) $args['type'] : 'full';
         $scope = isset($args['scope']) ? (string) $args['scope'] : 'all';
 
+        // A job kind a module adds on top of the backups (issue #854: the
+        // static HTML export, type=static) answers here, through a filter so
+        // this shared tool never names the module. Null means unhandled.
+        $kind = apply_filters('wpmcp_trigger_backup_kind', null, $type, $args);
+        if (null !== $kind) {
+            return $kind;
+        }
+        if ('static' === $type) {
+            return new \WP_Error('wpmcp_backup_type_unavailable', 'Static HTML export is not available on this install.');
+        }
+
         if (isset($args['every'])) {
             $keep = isset($args['keep']) ? (int) $args['keep'] : null;
             return Backup_Schedule::set($type, $scope, (string) $args['every'], $keep);

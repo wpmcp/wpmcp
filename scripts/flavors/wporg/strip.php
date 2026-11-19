@@ -1237,6 +1237,33 @@ $plugin_edits[] = [
     '',
     1,
 ];
+// Static HTML export (issue #854) is a paid module (policy.php
+// removed_paths), so its registration call, its trigger-backup type and the
+// inputs only it reads leave with it.
+$plugin_edits[] = [
+    "            // Static HTML export (issue #854, Pro): trigger-backup\n"
+        . "            // type=static, its WP-Cron executor and its download link.\n"
+        . "            \\WPMCP\\Tools\\Export\\Static_Site\\Static_Export::register();\n",
+    '',
+    1,
+];
+$plugin_edits[] = [
+    "; static: public pages as plain HTML with assets and relative links, as a zip (opt-in; plan:true lists URLs only; post_types or urls narrow it). every",
+    '. every',
+    1,
+];
+$plugin_edits[] = [
+    "'enum' => ['full', 'database', 'files', 'uploads', 'content', 'static'],",
+    "'enum' => ['full', 'database', 'files', 'uploads', 'content'],",
+    1,
+];
+$plugin_edits[] = [
+    "                    'plan'      => [ 'type' => 'boolean' ],\n"
+        . "                    'post_types' => [ 'type' => 'string' ],\n"
+        . "                    'urls'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],\n",
+    '',
+    1,
+];
 $edits['src/Plugin.php'] = $plugin_edits;
 
 // The chat surface is add-on-only, so the directory build must not carry the

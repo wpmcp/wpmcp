@@ -112,6 +112,8 @@ class CronHookRegistryTest extends \WP_UnitTestCase
             [
                 Run_Backup_Job::HOOK       => [ Backup_Job_Store::OPTION, 'jobs' ],
                 Run_Restore_Job::HOOK      => [ Backup_Job_Store::OPTION, 'jobs' ],
+                // Run_Static_Export::HOOK (issue #854), named by its value: the class is Pro only.
+                'wpmcp_run_static_export'  => [ Backup_Job_Store::OPTION, 'jobs' ],
                 Run_Cli_Job::HOOK         => [ Cli_Job_Store::OPTION, 'jobs' ],
                 Run_Broken_Link_Scan::HOOK => [ Broken_Link_Scan_Store::OPTION, 'scans' ],
                 Optimize_Media_Job::HOOK   => [ Optimize_Media_Job::OPTION, 'jobs' ],

@@ -90,6 +90,9 @@ return [
         'src/Tools/Performance/Curl_Dns_Pin.php',
         // Paid ability whose handler lives inside an otherwise free directory.
         'src/Tools/Media/Stock/Insert_Stock_Image.php',
+        // Static HTML export (issue #854): a paid module reached only
+        // through trigger-backup's wpmcp_trigger_backup_kind filter.
+        'src/Tools/Export/Static_Site',
         // Same shape: image compression and WebP/AVIF copies (issue #380).
         'src/Tools/Media/Optimize_Media.php',
         // Its background runs, tool-upload optimization and front-end

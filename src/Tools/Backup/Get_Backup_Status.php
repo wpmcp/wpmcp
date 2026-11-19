@@ -40,7 +40,9 @@ class Get_Backup_Status
         // progress record says how far the build got.
         unset($job['build']);
 
-        return $job;
+        // A job kind added by a module (issue #854) may add fields to its
+        // own records, such as a download link.
+        return apply_filters('wpmcp_backup_job_view', $job);
     }
 
     /** The record of a restore whose import is under way or died, or null. */
