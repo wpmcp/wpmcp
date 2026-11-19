@@ -48,8 +48,8 @@ final class FunnelKit_Funnel_Snapshot
     public const TYPE        = 'funnelkit_funnel';
     public const CREATE_TYPE = 'funnelkit_funnel_create';
 
-    /** The post types FunnelKit stores its steps as. */
-    public const STEP_POST_TYPES = [ 'wffn_landing', 'wffn_optin', 'wffn_oty', 'wfacp_checkout', 'wfocu_funnel', 'wfocu_offer', 'wffn_ty' ];
+    /** The post types FunnelKit stores its steps and substeps as (wfob_bump: a checkout's order bumps, issue #663). */
+    public const STEP_POST_TYPES = [ 'wffn_landing', 'wffn_optin', 'wffn_oty', 'wfacp_checkout', 'wfocu_funnel', 'wfocu_offer', 'wffn_ty', 'wfob_bump' ];
 
     /**
      * Whether FunnelKit's own access check lets the current user edit
