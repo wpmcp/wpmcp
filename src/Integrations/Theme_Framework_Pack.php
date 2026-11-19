@@ -84,6 +84,27 @@ final class Theme_Framework_Pack
         if ('blocksy' === $framework) {
             return Theme_Pack_Blocksy::spec();
         }
+        return self::free_spec($framework);
+    }
+
+    /**
+     * The free wordpress.org theme packs (issue #655), kept apart from the
+     * paid cases above so the release flavors keep them untouched.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function free_spec(?string $framework): ?array
+    {
+        switch ($framework) {
+            case 'oceanwp':
+                return Theme_Pack_OceanWP::spec();
+            case 'neve':
+                return Theme_Pack_Neve::spec();
+            case 'hestia':
+                return Theme_Pack_Hestia::spec();
+            case 'hello-elementor':
+                return Theme_Pack_Hello::spec();
+        }
         return null;
     }
 

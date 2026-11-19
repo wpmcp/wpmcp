@@ -170,6 +170,7 @@ class Theme_Integration extends Integration_Dispatcher
         'blocksy',
         'neve',
         'hello-elementor',
+        'hestia',
     ];
 
     /** Bundled core theme slugs, reported as the 'core' framework. */
