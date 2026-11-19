@@ -1383,6 +1383,19 @@ $edits['src/Integrations/ACF_Integration.php'] = [
     ["            'batch-update-fields' => ACF_Batch_Update::definition(),\n", '', 1],
 ];
 
+// The Paid Memberships Pro member, order and discount code reads and the
+// writes (issue #667) are the paid add-on's. Their file is removed by
+// policy.php, so the line that merges them into the pmpro pair leaves, and
+// the pair's summary goes back to what the free level reads cover.
+$edits['src/Integrations/Paid_Memberships_Pro_Integration.php'] = [
+    ["        return \$this->level_reads()\n            + Paid_Memberships_Pro_Pack::operations();\n", "        return \$this->level_reads();\n", 1],
+    [
+        "        return 'Paid Memberships Pro (membership levels, pricing, member counts, members, orders and discount codes)';\n",
+        "        return 'Paid Memberships Pro (membership levels, pricing, and member counts)';\n",
+        1,
+    ],
+];
+
 // All in One SEO support (issue #294) is the paid add-on's. Its store file
 // is removed by policy.php, so only its entry in the adapter's table-store
 // map leaves SEO_Adapter; detection then never reports it.

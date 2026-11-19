@@ -17,8 +17,9 @@ if (! defined('ABSPATH')) {
  * Gravity Tables integration reads its custom table, so an agent can inventory
  * a site's membership levels, their pricing, and their active member counts.
  *
- * Read-only: levels and memberships are managed through PMPro's admin and are
- * not a Safe_Mutation snapshot target, so writes are deferred.
+ * The member, order and discount code reads and the writes (create-level,
+ * update-level, change-member-level, create-discount-code, issue #667) come
+ * from their own pack file and join this catalog.
  */
 class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
 {
@@ -53,7 +54,7 @@ class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'Paid Memberships Pro (membership levels, pricing, and member counts)';
+        return 'Paid Memberships Pro (membership levels, pricing, member counts, members, orders and discount codes)';
     }
 
     private static function active_members(int $level_id): int
@@ -67,6 +68,13 @@ class Paid_Memberships_Pro_Integration extends Integration_Dispatcher
     }
 
     protected function operations(): array
+    {
+        return $this->level_reads()
+            + Paid_Memberships_Pro_Pack::operations();
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function level_reads(): array
     {
         return [
             'list-levels' => [

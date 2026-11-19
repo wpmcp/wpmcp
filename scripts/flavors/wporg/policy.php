@@ -243,6 +243,12 @@ return [
         // access rows stays: it acts on MemberPress's own table and needs
         // no MemberPress class.
         'src/Integrations/MemberPress_Pack.php',
+        // Paid Memberships Pro members, orders, discount codes and writes
+        // (issue #667), paid-tier. strip.php takes out the line in
+        // Paid_Memberships_Pro_Integration that merges them; the free level
+        // reads stay. The pmpro_* plugin_table_rows kinds stay: they act on
+        // PMPro's own tables and need no PMPro class.
+        'src/Integrations/Paid_Memberships_Pro_Pack.php',
         // Elementor Pro form submissions (issue #654), paid-tier. strip.php
         // takes out the lines in Plugin_Data_Integration that merge the ops
         // and count the pack towards availability. The dispatcher's
