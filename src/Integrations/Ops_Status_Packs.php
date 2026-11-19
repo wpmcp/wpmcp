@@ -27,7 +27,9 @@ if (! defined('ABSPATH')) {
  *  - WP Mail SMTP config, log, test send and set-from (WP_Mail_SMTP_Status)
  *  - FluentSMTP and Post SMTP config, log, test send and from (Fluent_SMTP_Status, Post_SMTP_Status)
  *  - get-image-optimizer-status and optimize-attachment for Smush, ShortPixel,
- *    EWWW Image Optimizer and Imagify (Image_Optimizer_Pack, #693)
+ *    EWWW Image Optimizer and Imagify (Image_Optimizer_Pack, #693),
+ *  - Relevanssi and FiboSearch settings, index status, top searches and
+ *    settings writes (Relevanssi_Status, FiboSearch_Status, #700)
  *
  * Every op runs at manage_options, the capability each plugin gates its own
  * settings behind, and declares a 'requires' check, so an inactive plugin is
@@ -73,7 +75,9 @@ final class Ops_Status_Packs
             WP_Mail_SMTP_Status::operations(),
             Fluent_SMTP_Status::operations(),
             Post_SMTP_Status::operations(),
-            Image_Optimizer_Pack::operations()
+            Image_Optimizer_Pack::operations(),
+            Relevanssi_Status::operations(),
+            FiboSearch_Status::operations()
         );
     }
 
