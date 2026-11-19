@@ -98,6 +98,7 @@ final class Opt_In_Settings
             'wpmcp_enable_loco_write'              => [ 'owner' => $i . 'Loco_Translate_Pack.php', 'destructive' => false ],
             'wpmcp_enable_give_write'              => [ 'owner' => $i . 'Give_Integration.php', 'destructive' => true ],
             'wpmcp_enable_search_write'            => [ 'owner' => $i . 'Search_Plugin_Support.php', 'destructive' => false ],
+            'wpmcp_enable_hardening_write'         => [ 'owner' => $i . 'Hardening_Pack.php', 'destructive' => false ],
             'wpmcp_enable_checkout_field_editor_write' => [ 'owner' => $i . 'Checkout_Field_Editor_Pack.php', 'destructive' => false ],
             'wpmcp_enable_pmpro_write'             => [ 'owner' => $i . 'Paid_Memberships_Pro_Pack.php', 'destructive' => true ],
         ];
@@ -153,6 +154,7 @@ final class Opt_In_Settings
             'wpmcp_enable_loco_write'              => __('Loco Translate: .po string edits and .mo compiles', 'wpmcp'),
             'wpmcp_enable_give_write'              => __('GiveWP: donation form and donation status writes', 'wpmcp'),
             'wpmcp_enable_search_write'            => __('Search plugins (Relevanssi, FiboSearch): settings writes', 'wpmcp'),
+            'wpmcp_enable_hardening_write'         => __('Security hardening settings: writes', 'wpmcp'),
             'wpmcp_enable_checkout_field_editor_write' => __('Checkout Field Editor: checkout field writes', 'wpmcp'),
             'wpmcp_enable_pmpro_write'             => __('Paid Memberships Pro: level, member and discount code writes', 'wpmcp'),
         ];

@@ -305,6 +305,9 @@ class Theme_Integration extends Integration_Dispatcher
      * Issue #711 adds WordPress core's synced patterns (Core_Patterns_Pack):
      * list, read and usage reads, plus snapshotted create, update and
      * detach writes, off until the site opts in.
+     * Issue #847 adds the hardening settings WP MCP applies itself
+     * (Hardening_Pack): get-hardening-status and set-hardening, one
+     * snapshot per write, off until the site opts in.
      * Issue #712 adds WordPress core's Font Library (Core_Fonts_Pack): list
      * and read installed families, install from Google Fonts or a font
      * file, and delete, every write undoable and off until the site opts in.
@@ -318,6 +321,7 @@ class Theme_Integration extends Integration_Dispatcher
             Theme_Framework_Pack::operations($this->detect_framework()),
             Core_Site_Pack::operations(),
             Core_Patterns_Pack::operations(),
+            Hardening_Pack::operations(),
             Core_Fonts_Pack::operations(),
             Ops_Status_Packs::operations(),
             Site_Gate_Pack::operations(),
