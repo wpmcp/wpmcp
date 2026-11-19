@@ -620,14 +620,16 @@ class Registrar
      * with $several, the plugins any one of which would do. $operations
      * names, for a dispatcher pair, the plugin each op needs (op name =>
      * ['name', 'several'], issue #815), so a refusal for one op names that
-     * op's plugin rather than every plugin the pair works with. Grants
-     * nothing.
+     * op's plugin rather than every plugin the pair works with.
+     * $unknown_operation, given an op name, returns the pair's own
+     * unknown_operation refusal for an op it does not define, else null
+     * (issue #1036). Grants nothing.
      *
      * @param array<string, array{name: string, several: bool}> $operations
      */
-    public function hold_for_plugin(Ability $a, string $plugin, bool $several = false, array $operations = []): void
+    public function hold_for_plugin(Ability $a, string $plugin, bool $several = false, array $operations = [], ?\Closure $unknown_operation = null): void
     {
-        $this->held_for_plugin[ $a->name ] = [ 'ability' => $a, 'plugin' => $plugin, 'several' => $several, 'operations' => $operations ];
+        $this->held_for_plugin[ $a->name ] = [ 'ability' => $a, 'plugin' => $plugin, 'several' => $several, 'operations' => $operations, 'unknown_operation' => $unknown_operation ];
     }
 
     /**
@@ -651,6 +653,18 @@ class Registrar
 
         $plugins_url = admin_url('plugins.php');
         $operation   = is_string($arguments['operation'] ?? null) ? $arguments['operation'] : '';
+        // Issue #1036: an op the pair does not define is unknown, as it is
+        // while the pair is registered, rather than a reason to install a
+        // plugin. Only for a caller holding the pair's capability, so one
+        // who could not run it learns no op list.
+        $unknown = $held['unknown_operation'] ?? null;
+        if ('' !== $operation && null !== $unknown && current_user_can($held['ability']->capability)) {
+            $refusal = $unknown($operation);
+            if (is_array($refusal) && isset($refusal['error']['code'])) {
+                return new \WP_Error((string) $refusal['error']['code'], (string) $refusal['error']['message'], (array) ($refusal['error']['data'] ?? []));
+            }
+        }
+
         $host        = '' === $operation ? null : ( $held['operations'][ $operation ] ?? null );
         if (null !== $host) {
             $message = $host['several']

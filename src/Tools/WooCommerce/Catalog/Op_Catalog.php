@@ -93,11 +93,16 @@ if (! defined('ABSPATH')) {
  * no prior state to capture, the same exemption create-post and
  * create-product carry, and the response names the op that undoes it.
  *
+ *  - ['type' => 'wc_tax_rate', 'param' => P]: one tax rate row with its
+ *    postcode and city rows, restored at its own id even after a delete;
+ *    ['type' => 'wc_tax_rate_create', 'create' => true]: Tax_Ops records
+ *    the creation row once the rate exists, and rollback deletes it while
+ *    it is unchanged (Safety\Wc_Tax_Rate_Creation_Snapshot, issue #657).
+ *
  * Deliberately NOT in the catalog yet (each needs a snapshot type that does
  * not exist today, and a write with no honest undo does not belong on this
- * surface): order deletes, customer deletion (the user snapshot cannot
- * resurrect a deleted user), and tax rate writes through this catalog (the
- * dedicated tax rate tools carry their own snapshot type).
+ * surface): order deletes and customer deletion (the user snapshot cannot
+ * resurrect a deleted user).
  *
  * The wc/v3 /batch endpoints are deliberately not rows either: woo-write
  * implements batching itself, one guarded and snapshotted op per item, so a
@@ -151,7 +156,7 @@ class Op_Catalog
      * left out of woo-ops and refused unless that plugin is active) and
      * 'handler' (the op runs in-process, through Brand_Ops or, for an
      * order_*, shipping_*, webhook_*, review_*, report_*, gateway_*,
-     * status_*, subscription_*, booking_* or membership_* handler, the matching *_Ops class,
+     * status_*, subscription_*, booking_*, membership_* or tax_* handler, the matching *_Ops class,
      * instead of dispatching its route; status_run_tool only validates, and
      * its route is dispatched).
      * Keep op names domain.kebab-case and route templates rooted at /wc/v3.
@@ -222,6 +227,12 @@ class Op_Catalog
         // may edit customers (a shop manager, say) promote one to
         // administrator.
         'customers.create'    => [ 'POST', '/wc/v3/customers', 'customers', self::CAP_ADD_CUSTOMERS, 'Create a customer account (email required; billing and shipping optional)', 'write', null, [ 'undo_op' => null, 'forbidden_meta' => self::PRIVILEGE_META ] ],
+        // A customer's downloads (issue #657). download_url carries the
+        // order key and the billing email, order_key is a capability token
+        // for the order and file names the protected file's real location,
+        // so all three are redacted: the product, file name, order id,
+        // remaining downloads and expiry stay readable.
+        'customers.downloads' => [ 'GET', '/wc/v3/customers/{customer_id}/downloads', 'customers', self::CAP_CUSTOMERS, 'Downloadable files one customer may download: product, file name, order id, downloads remaining, access expiry (links and order key redacted)', 'read', null, [ 'redact' => [ 'download_url', 'order_key', 'file' ] ] ],
         'customers.update'    => [ 'PUT', '/wc/v3/customers/{id}', 'customers', self::CAP_EDIT_CUSTOMERS, 'Update a customer\'s name, email, billing and shipping profile. Password changes are refused: they could not be rolled back', 'write', [ 'type' => 'user', 'param' => 'id' ], [ 'forbidden_params' => [ 'password' ], 'forbidden_meta' => self::PRIVILEGE_META ] ],
 
         // Brands (issue #293): WooCommerce's product_brand taxonomy. Brand
@@ -278,6 +289,18 @@ class Op_Catalog
         'reports.orders'      => [ 'GET', '/wc/v3/reports/orders/totals', 'reports', self::CAP_STORE, 'Order counts by status for a period', 'read', null, [ 'handler' => 'report_orders' ] ],
         'reports.customers'   => [ 'GET', '/wc/v3/reports/customers/totals', 'reports', self::CAP_STORE, 'Customer counts for a period: buying, registered, guest, repeat, new accounts', 'read', null, [ 'handler' => 'report_customers' ] ],
         'reports.coupons'     => [ 'GET', '/wc/v3/reports/coupons/totals', 'reports', self::CAP_STORE, 'Coupon use for a period: codes used, orders with coupons, discount per code', 'read', null, [ 'handler' => 'report_coupons' ] ],
+        // Catalog totals (issue #657), straight from the wc/v3 totals
+        // endpoints: counts only, no period.
+        'reports.products'    => [ 'GET', '/wc/v3/reports/products/totals', 'reports', self::CAP_STORE, 'Product counts by product type' ],
+        'reports.reviews'     => [ 'GET', '/wc/v3/reports/reviews/totals', 'reports', self::CAP_STORE, 'Product review counts by star rating' ],
+
+        // Store reference data (issue #657): countries with their states,
+        // continents, currencies and the store's own currency. Read only.
+        'data.countries'        => [ 'GET', '/wc/v3/data/countries', 'data', self::CAP_STORE, 'Every country WooCommerce knows, with its states' ],
+        'data.country'          => [ 'GET', '/wc/v3/data/countries/{location}', 'data', self::CAP_STORE, 'One country (location: a two-letter code) with its states' ],
+        'data.continents'       => [ 'GET', '/wc/v3/data/continents', 'data', self::CAP_STORE, 'Continents with their countries and states' ],
+        'data.currencies'       => [ 'GET', '/wc/v3/data/currencies', 'data', self::CAP_STORE, 'Every currency WooCommerce knows: code, name, symbol' ],
+        'data.currency-current' => [ 'GET', '/wc/v3/data/currencies/current', 'data', self::CAP_STORE, 'The store currency: code, name, symbol' ],
 
         // Payment gateways (issue #292), in-process through WooCommerce's
         // gateway registry (Gateway_Ops). Secret-like fields are masked in
@@ -303,6 +326,14 @@ class Op_Catalog
         // Taxes.
         'taxes.rates'         => [ 'GET', '/wc/v3/taxes', 'taxes', self::CAP_STORE, 'Tax rates, filterable by class' ],
         'taxes.classes'       => [ 'GET', '/wc/v3/taxes/classes', 'taxes', self::CAP_STORE, 'Defined tax classes' ],
+        // One rate, and rate writes (issue #657), so taxes batch through
+        // woo-write like every other domain. Each write to an existing rate
+        // snapshots its row, postcodes and cities; a create records a
+        // creation row whose rollback deletes the rate while it is unchanged.
+        'taxes.rate'          => [ 'GET', '/wc/v3/taxes/{id}', 'taxes', self::CAP_STORE, 'One tax rate with its postcodes and cities' ],
+        'taxes.create'        => [ 'POST', '/wc/v3/taxes', 'taxes', self::CAP_STORE, 'Create a tax rate: country, state, postcodes, cities, rate, name, priority, compound, shipping, order, class. Rollback deletes it', 'write', [ 'type' => 'wc_tax_rate_create', 'create' => true ], [ 'handler' => 'tax_create' ] ],
+        'taxes.update'        => [ 'PUT', '/wc/v3/taxes/{id}', 'taxes', self::CAP_STORE, 'Change any field of a tax rate; postcodes and cities replace the current lists', 'write', [ 'type' => 'wc_tax_rate', 'param' => 'id' ] ],
+        'taxes.delete'        => [ 'DELETE', '/wc/v3/taxes/{id}', 'taxes', self::CAP_STORE, 'Delete a tax rate; rollback restores it at its own id', 'destructive', [ 'type' => 'wc_tax_rate', 'param' => 'id' ], [ 'defaults' => [ 'force' => true ] ] ],
 
         // Webhooks. The signing secret is redacted from the body: it
         // authenticates deliveries to a third party and has no use in a
@@ -428,6 +459,7 @@ class Op_Catalog
         'coupons.update'     => [ 'id' => 'post' ],
         'coupons.delete'     => [ 'id' => 'post' ],
         'customers.get'      => [ 'id' => 'user' ],
+        'customers.downloads' => [ 'customer_id' => 'user' ],
         'customers.update'   => [ 'id' => 'user' ],
         'brands.get'         => [ 'id' => 'term' ],
         'brands.update'      => [ 'id' => 'term' ],

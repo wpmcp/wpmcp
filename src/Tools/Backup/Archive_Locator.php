@@ -50,17 +50,21 @@ class Archive_Locator
         }
 
         $real = realpath($path);
-        $root = realpath(Site_Backup_Dir::path());
 
         if (false === $real || ! is_file($real)) {
             throw new \RuntimeException('No such backup archive.');
         }
 
-        if (false === $root || ! str_starts_with($real, trailingslashit($root))) {
-            throw new \RuntimeException('That path is not inside the site-backup directory.');
+        // The current folder, and the uploads one while archives made
+        // before WPMCP_BACKUP_DIR was set wait to be moved (issue #846).
+        foreach (Site_Backup_Dir::roots() as $dir) {
+            $root = realpath($dir);
+            if (false !== $root && str_starts_with($real, trailingslashit($root))) {
+                return $real;
+            }
         }
 
-        return $real;
+        throw new \RuntimeException('That path is not inside the site-backup directory.');
     }
 
     /**

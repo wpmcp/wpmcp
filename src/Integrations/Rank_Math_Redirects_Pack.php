@@ -256,7 +256,7 @@ final class Rank_Math_Redirects_Pack
                 'id'                 => (int) $row['id'],
                 'uri'                => $uri,
                 'times_accessed'     => (int) $row['times_accessed'],
-                'last_access'        => (string) $row['accessed'],
+                'last_access'        => self::access_time($row['accessed'] ?? null),
                 'referer_host'       => self::host((string) ($row['referer'] ?? '')),
                 'user_agent'         => self::truncate((string) ($row['user_agent'] ?? ''), 120),
                 'already_redirected' => isset($covered[ self::clean($uri) ]),
@@ -317,8 +317,22 @@ final class Rank_Math_Redirects_Pack
             'hits'        => (int) $row['hits'],
             'created'     => (string) $row['created'],
             'updated'     => (string) $row['updated'],
-            'last_access' => (string) $row['last_accessed'],
+            'last_access' => self::access_time($row['last_accessed'] ?? null),
         ];
+    }
+
+    /**
+     * A last-access time, or null when the row was never hit. Rank Math writes
+     * 1000-01-01 00:00:00 for a new redirection and its column defaults to a
+     * zero date; neither is a real time, so neither is passed on (issue #1051).
+     */
+    private static function access_time($value): ?string
+    {
+        $value = is_string($value) ? trim($value) : '';
+        if ('' === $value || self::NEVER === $value || str_starts_with($value, '0000-00-00')) {
+            return null;
+        }
+        return $value;
     }
 
     private static function host(string $url): string

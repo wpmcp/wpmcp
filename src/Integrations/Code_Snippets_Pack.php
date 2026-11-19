@@ -382,7 +382,7 @@ final class Code_Snippets_Pack
             return null;
         }
         if ('php' !== (string) $snippet->type) {
-            return [ 'code' => 'unsupported_snippet_type', 'message' => sprintf('Snippet %d is a %s snippet; only PHP snippets are written here.', $id, (string) $snippet->type), 'data' => [ 'id' => $id ] ];
+            return [ 'code' => 'unsupported_snippet_type', 'message' => sprintf('Snippet %d has type "%s"; only PHP snippets are written here.', $id, (string) $snippet->type), 'data' => [ 'id' => $id ] ];
         }
         if (! empty($snippet->locked)) {
             return [ 'code' => 'snippet_locked', 'message' => sprintf('Snippet %d is locked in Code Snippets.', $id), 'data' => [ 'id' => $id ] ];
@@ -402,7 +402,7 @@ final class Code_Snippets_Pack
             return self::writable_refusal($id);
         }
         if ($with_code) {
-            return [ 'code' => 'unsupported_snippet_type', 'message' => sprintf('Snippet %d is a %s snippet; code is the PHP-only field, so drop code to change its name, description, tags or priority.', $id, (string) $snippet->type), 'data' => [ 'id' => $id, 'field' => 'code' ] ];
+            return [ 'code' => 'unsupported_snippet_type', 'message' => sprintf('Snippet %d has type "%s"; code is the PHP-only field, so drop code to change its name, description, tags or priority.', $id, (string) $snippet->type), 'data' => [ 'id' => $id, 'field' => 'code' ] ];
         }
         if (! empty($snippet->locked)) {
             return [ 'code' => 'snippet_locked', 'message' => sprintf('Snippet %d is locked in Code Snippets.', $id), 'data' => [ 'id' => $id ] ];
