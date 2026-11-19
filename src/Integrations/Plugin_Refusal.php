@@ -73,6 +73,7 @@ final class Plugin_Refusal
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
         'Checkout Field Editor for WooCommerce' => [ 'file' => 'woo-checkout-field-editor-pro/checkout-form-designer.php', 'slug' => 'woo-checkout-field-editor-pro' ],
+        'Max Mega Menu'    => [ 'file' => 'megamenu/megamenu.php', 'slug' => 'megamenu' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */

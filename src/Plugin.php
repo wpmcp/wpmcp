@@ -522,6 +522,10 @@ final class Plugin
         // An undo of a cache plugin settings write lets the plugin rebuild
         // what it derives from its settings, as its own save does (#692).
         [\WPMCP\Integrations\Cache_Settings_Pack::class, 'after_options_restored'],
+        // An undo of a Max Mega Menu settings, theme or menu item write
+        // rebuilds its generated CSS, as the write did (issue #908).
+        [\WPMCP\Integrations\Max_Mega_Menu_Pack::class, 'after_options_restored'],
+        [\WPMCP\Integrations\Max_Mega_Menu_Pack::class, 'after_post_restored', 'wpmcp_rollback_post_restored'],
         [\WPMCP\Tools\I18n\I18n_Adapter::class, 'restore_translation_group', 'wpmcp_rollback_translation_group'],
         [\WPMCP\Tools\I18n\I18n_Adapter::class, 'hold_sync', 'wpmcp_rollback_hold_translation_sync'],
         [\WPMCP\Tools\I18n\I18n_Adapter::class, 'release_sync', 'wpmcp_rollback_release_translation_sync'],
