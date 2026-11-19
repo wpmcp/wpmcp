@@ -357,6 +357,16 @@ class Get_Page_Snapshot
             ];
         }
 
+        if ('siteorigin' === $builder) {
+            return [
+                'source'             => 'post_content',
+                'complete'           => false,
+                'unmeasured'         => self::CONTENT_SECTIONS,
+                'stale_post_content' => false,
+                'note'               => 'SiteOrigin Page Builder renders this page from its panels_data postmeta; post_content holds its HTML copy only when the copy-content setting is on, so the element inventory may miss widgets (get-builder-content reads the layout).',
+            ];
+        }
+
         if ('thrive' === $builder) {
             return [
                 'source'             => 'post_content',

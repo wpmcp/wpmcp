@@ -410,6 +410,7 @@ namespace WPMCP\Tests\Pro\Builders {
                 'cornerstone' => 'Install and activate Cornerstone (Themeco), or the X or Pro theme that bundles it, then try again.',
                 'divi'       => 'Install and activate the Divi theme (Divi 5), then try again.',
                 'oxygen'     => 'Install and activate the Oxygen 6 plugin, then try again.',
+                'siteorigin' => 'Install and activate the SiteOrigin Page Builder plugin, then try again.',
                 'thrive'     => 'Install and activate the Thrive Architect plugin, then try again.',
                 'wpbakery'   => 'Install and activate the WPBakery Page Builder plugin, then try again.',
             ];
