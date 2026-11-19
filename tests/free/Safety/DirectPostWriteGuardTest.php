@@ -41,6 +41,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new font family or font face post (issue #712), as core\'s font endpoints do; every field is new.',
         ],
+        'Integrations/Maps_Pack.php'                  => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new WP Store Locator store post (issue #907); every field is new. Updates and trashing go through Save_Filters.',
+        ],
         'Integrations/CartFlows_Pack.php'             => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new CartFlows flow or step post (issue #662); every field is new. Changes to existing flows and steps are meta writes.',

@@ -106,6 +106,12 @@ if (! defined('ABSPATH')) {
  *    status, test or live mode, display type, prices) and Paid Member
  *    Subscriptions plans and members (Paid_Member_Subscriptions_Pack,
  *    member names and emails masked).
+ *  - Issue #907 adds the maps and store locator ops (Maps_Pack): WP Go
+ *    Maps maps and markers, WP Store Locator stores (phone, fax and email
+ *    masked in lists) and settings without keys, and WP Maps maps and
+ *    locations read, with batch marker and store saves (geocoded with the
+ *    site's own configuration) and deletes, off until
+ *    wpmcp_enable_maps_write, each row its own undo point.
  *  - Issue #704 adds the read-only WPGraphQL ops (WPGraphQL_Pack): a
  *    GraphQL query run as the current user with mutations and
  *    subscriptions refused and personal values masked, and a schema
@@ -136,7 +142,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || Maps_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || Offload_Media_Pack::active()
             || TablePress_Pack::active()
@@ -158,7 +164,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans, WP Go Maps, WP Maps and WP Store Locator locations'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', WP Offload Media status'
             . ', FluentCRM and MailPoet'
@@ -196,6 +202,9 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'WP Simple Pay', false, Simple_Pay_Pack::operations() ],
             [ 'Paid Member Subscriptions', false, Paid_Member_Subscriptions_Pack::operations() ],
             [ 'WPGraphQL', false, WPGraphQL_Pack::operations() ],
+            [ 'WP Go Maps', false, Maps_Pack::go_maps_operations() ],
+            [ 'WP Store Locator', false, Maps_Pack::store_locator_operations() ],
+            [ 'WP Maps', false, Maps_Pack::wp_maps_operations() ],
         ];
         foreach (LMS_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
@@ -247,6 +256,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Simple_Pay_Pack::operations(),
             Paid_Member_Subscriptions_Pack::operations(),
             WPGraphQL_Pack::operations(),
+            Maps_Pack::operations(),
             BuddyPress_Pack::operations(),
             LMS_Pack::operations(),
             Offload_Media_Pack::operations(),

@@ -62,6 +62,17 @@ WP MCP keeps copies of site data it needs to work: undo snapshots of what an age
 
 == External services ==
 
+= Google Geocoding API, WP Go Maps markers (maps.googleapis.com) =
+
+Used only when WP Go Maps is active, the site has opted in to map writes
+(`wpmcp_enable_maps_write`) and you or your agent save a marker with an
+address but no coordinates through the `wpgomaps-save-markers` operation.
+What is sent: that address and the Google Maps API key already saved in WP Go
+Maps' own settings, nothing else. No key is configured, no request is made.
+WP Store Locator addresses are geocoded through that plugin's own geocoder,
+with the provider it is set to. Terms: https://cloud.google.com/maps-platform/terms
+Privacy policy: https://policies.google.com/privacy
+
 = WordPress.org core checksums API (api.wordpress.org) =
 
 Used by the `scan-security` ability to compare this site's core files

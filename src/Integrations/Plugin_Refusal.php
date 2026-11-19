@@ -79,6 +79,9 @@ final class Plugin_Refusal
         'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
+        'WP Go Maps'       => [ 'file' => 'wp-google-maps/wpGoogleMaps.php', 'slug' => 'wp-google-maps' ],
+        'WP Store Locator' => [ 'file' => 'wp-store-locator/wp-store-locator.php', 'slug' => 'wp-store-locator' ],
+        'WP Maps'          => [ 'file' => 'wp-google-map-plugin/wp-google-map-plugin.php', 'slug' => 'wp-google-map-plugin' ],
         'Checkout Field Editor for WooCommerce' => [ 'file' => 'woo-checkout-field-editor-pro/checkout-form-designer.php', 'slug' => 'woo-checkout-field-editor-pro' ],
     ];
 

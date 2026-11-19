@@ -56,6 +56,12 @@ if (! defined('ABSPATH')) {
  * "links") are keyed by their own id. A create reserves its id before the
  * snapshot, so the restore removes the row the write inserted.
  *
+ * WP Go Maps markers (issue #907, the `wpgmza` table, kind wpgmza with the
+ * one suffix "markers") are keyed by their own id. Their latlng POINT column
+ * rides as lowercase hex of its stored bytes and goes back with UNHEX(), so
+ * the restore puts the geometry back byte for byte. A create reserves its id
+ * before the snapshot, so the restore removes the row the write inserted.
+ *
  * Paid Memberships Pro (issue #667) keeps levels, memberships and discount
  * codes in tables of its own, each kind with its one suffix: levels
  * (`pmpro_membership_levels`) and discount codes (`pmpro_discount_codes`)
@@ -70,7 +76,7 @@ if (! defined('ABSPATH')) {
  *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
- * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
+ * for a dictionary row, a Pretty Links link or a WP Go Maps marker, and Wordfence's own admin capability (manage_options,
  * manage_network on a multisite network) for a Wordfence row.
  */
 final class Plugin_Table_Rows_Snapshot
@@ -84,6 +90,7 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'mepr_rule_access_',
         'rank_math'        => 'rank_math_',
         'prli'             => 'prli_',
+        'wpgmza'           => 'wpgmza',
         'pmpro_levels'     => 'pmpro_',
         'pmpro_members'    => 'pmpro_',
         'pmpro_codes'      => 'pmpro_',
@@ -110,9 +117,15 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => [ 'conditions' ],
         'rank_math'        => [ 'redirections' ],
         'prli'             => [ 'links' ],
+        'wpgmza'           => [ 'markers' ],
         'pmpro_levels'     => [ 'membership_levels' ],
         'pmpro_members'    => [ 'memberships_users' ],
         'pmpro_codes'      => [ 'discount_codes' ],
+    ];
+
+    /** kind => suffix => the unprefixed table, for a kind whose one table is not prefix plus suffix. */
+    private const FIXED_TABLES = [
+        'wpgmza' => [ 'markers' => 'wpgmza' ],
     ];
 
     /**
@@ -128,6 +141,7 @@ final class Plugin_Table_Rows_Snapshot
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
     private const BINARY_COLUMNS = [
         'wordfence_blocks' => [ 'IP' ],
+        'wpgmza'           => [ 'latlng' ],
     ];
 
     /** The column a kind's ids name. */
@@ -193,6 +207,9 @@ final class Plugin_Table_Rows_Snapshot
         if (isset(self::SUFFIXES[ $kind ]) && ! in_array($suffix, self::SUFFIXES[ $kind ], true)) {
             return null;
         }
+        if (isset(self::FIXED_TABLES[ $kind ])) {
+            return isset(self::FIXED_TABLES[ $kind ][ $suffix ]) ? $wpdb->prefix . self::FIXED_TABLES[ $kind ][ $suffix ] : null;
+        }
         return $wpdb->prefix . self::KINDS[ $kind ] . $suffix;
     }
 
@@ -205,6 +222,14 @@ final class Plugin_Table_Rows_Snapshot
         global $wpdb;
 
         if (! isset(self::KINDS[ $kind ])) {
+            return null;
+        }
+        foreach (self::FIXED_TABLES[ $kind ] ?? [] as $suffix => $name) {
+            if ($wpdb->prefix . $name === $table) {
+                return (string) $suffix;
+            }
+        }
+        if (isset(self::FIXED_TABLES[ $kind ])) {
             return null;
         }
         $prefix = $wpdb->prefix . self::KINDS[ $kind ];
@@ -473,8 +498,8 @@ final class Plugin_Table_Rows_Snapshot
         }
 
         global $wpdb;
-        $in = implode(',', array_fill(0, count($ids), 'UNHEX(%s)'));
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of a third-party table; $in holds only UNHEX(%s) placeholders.
+        $in = implode(',', array_fill(0, count($ids), self::binary_key($kind) ? 'UNHEX(%s)' : '%d'));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of a third-party table; $in holds only UNHEX(%s) or %d placeholders.
         $rows = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY id ASC", $table, self::key_column($kind), ...$ids), ARRAY_A);
 
         $out = [];
@@ -501,8 +526,8 @@ final class Plugin_Table_Rows_Snapshot
     {
         global $wpdb;
 
-        $in = implode(',', array_fill(0, count($ids), 'UNHEX(%s)'));
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- third-party table with no WP API; $in holds only UNHEX(%s) placeholders.
+        $in = implode(',', array_fill(0, count($ids), self::binary_key($kind) ? 'UNHEX(%s)' : '%d'));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- third-party table with no WP API; $in holds only UNHEX(%s) or %d placeholders.
         if (false === $wpdb->query($wpdb->prepare("DELETE FROM %i WHERE %i IN ($in)", $table, self::key_column($kind), ...$ids))) {
             throw new Mutation_Failed('Could not clear the rows being restored in ' . esc_html($table) . '.');
         }
@@ -599,6 +624,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('prli' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring Pretty Links links requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('wpgmza' === $kind) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring WP Go Maps markers requires the manage_options capability.');
             }
             return;
         }
