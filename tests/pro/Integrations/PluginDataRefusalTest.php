@@ -34,6 +34,10 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
         'wpmcp_wp_mail_logging_active',
         'wpmcp_check_email_active',
         'wpmcp_email_log_active',
+        'wpmcp_weglot_active',
+        'wpmcp_gtranslate_active',
+        'wpmcp_wpgraphql_active',
+        'wpmcp_checkout_field_editor_active',
     ];
 
     private Registrar $original;
@@ -111,21 +115,67 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
         );
     }
 
-    public function test_an_unknown_op_or_no_op_lists_every_plugin(): void
+    public function test_no_op_lists_every_plugin(): void
     {
         self::register(new Plugin_Data_Integration());
 
-        foreach ([ ['operation' => 'list-memberships'], [] ] as $arguments) {
-            $message = self::call('wpmcp/plugin-data-read', $arguments)->get_error_message();
-            $this->assertStringStartsWith('None of the plugins wpmcp/plugin-data-read works with is active on this site (', $message);
-            foreach ([ 'MemberPress', 'Amelia', 'Polylang', 'WPML', 'Elementor Pro', 'WS Form', 'WP Activity Log', 'WP Mail Logging' ] as $plugin) {
-                $this->assertStringContainsString($plugin, $message);
-            }
+        $message = self::call('wpmcp/plugin-data-read', [])->get_error_message();
+        $this->assertStringStartsWith('None of the plugins wpmcp/plugin-data-read works with is active on this site (', $message);
+        foreach ([ 'MemberPress', 'Amelia', 'Polylang', 'WPML', 'Elementor Pro', 'WS Form', 'WP Activity Log', 'WP Mail Logging' ] as $plugin) {
+            $this->assertStringContainsString($plugin, $message);
         }
 
         $schema = (new Get_Tool_Schema())->handle(['name' => 'wpmcp/plugin-data-read']);
         $this->assertSame('plugin_missing', $schema->get_error_code());
         $this->assertStringContainsString('MemberPress', $schema->get_error_message());
+    }
+
+    /**
+     * Issue #1036: an op no pack defines answers unknown_operation with the
+     * valid ops, as it does while a covered plugin is active, not "install
+     * a plugin".
+     */
+    public function test_an_unknown_op_answers_unknown_operation_with_no_covered_plugin_active(): void
+    {
+        self::register(new Plugin_Data_Integration());
+
+        foreach ([ 'read' => 'jetengine-list-fields', 'write' => 'create-translation' ] as $channel => $valid) {
+            $tool = "wpmcp/plugin-data-{$channel}";
+            foreach ([ 'nosuch-operation', 'list-memberships' ] as $op) {
+                $result = (new Call_Tool())->handle(['name' => $tool, 'arguments' => ['operation' => $op]]);
+                $this->assertInstanceOf(\WP_Error::class, $result);
+                $this->assertSame('unknown_operation', $result->get_error_code(), "{$tool} {$op}");
+                $this->assertSame(sprintf('Unknown %s operation "%s" for the plugin-data integration.', $channel, $op), $result->get_error_message());
+                $this->assertContains($valid, $result->get_error_data()['operations'] ?? []);
+                $this->assertStringNotContainsString('Install and activate', $result->get_error_message());
+            }
+
+            // The same answer on the transports that see only the tool name.
+            $direct = Plugin::instance()->registrar()->plugin_inactive_for_tool(Stdio_Transport::tool_name($tool), [ 'operation' => 'nosuch-operation' ]);
+            $this->assertSame('unknown_operation', $direct->get_error_code());
+        }
+
+        // An op of the other half is unknown there, as it is while the pair is registered.
+        $this->assertSame(
+            'unknown_operation',
+            (new Call_Tool())->handle(['name' => 'wpmcp/plugin-data-write', 'arguments' => ['operation' => 'jetengine-list-fields']])->get_error_code()
+        );
+        // list-operations is the read half's own op, never unknown.
+        $this->assertSame('plugin_missing', self::call('wpmcp/plugin-data-read', ['operation' => 'list-operations'])->get_error_code());
+        // A known op still names its own plugin.
+        $this->assertStringStartsWith('MemberPress is not active', self::call('wpmcp/plugin-data-read', ['operation' => 'memberpress-list-memberships'])->get_error_message());
+    }
+
+    /** Issue #1036: the capability check comes first, so a caller who could not run the pair learns no op list. */
+    public function test_a_caller_without_the_capability_gets_no_op_list(): void
+    {
+        self::register(new Plugin_Data_Integration());
+        wp_set_current_user(self::factory()->user->create(['role' => 'subscriber']));
+
+        $result = (new Call_Tool())->handle(['name' => 'wpmcp/plugin-data-read', 'arguments' => ['operation' => 'nosuch-operation']]);
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertNotSame('unknown_operation', $result->get_error_code());
+        $this->assertArrayNotHasKey('operations', (array) $result->get_error_data());
     }
 
     /** Issue #876: a direct tools/call for the unregistered pair names the plugin over stdio. */
