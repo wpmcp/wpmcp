@@ -107,6 +107,13 @@ class OptInSettingsTest extends \WP_UnitTestCase
     }
 
     /** The core tool gates the ability grid refuses to open stay code-only. */
+    /** Every group the screen can list has a readable label (a group without one showed its raw filter name). */
+    public function test_every_group_has_a_label(): void
+    {
+        $missing = array_values(array_diff(array_keys(Opt_In_Settings::all_groups()), array_keys(Opt_In_Settings::labels())));
+        $this->assertSame([], $missing, 'Opt-in groups with no label in Opt_In_Settings::labels()');
+    }
+
     public function test_code_only_gates_have_no_toggle(): void
     {
         $groups = Opt_In_Settings::all_groups();

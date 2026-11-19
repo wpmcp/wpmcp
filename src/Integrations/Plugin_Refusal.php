@@ -29,9 +29,12 @@ final class Plugin_Refusal
         'WP Mail SMTP'     => [ 'file' => 'wp-mail-smtp/wp_mail_smtp.php', 'slug' => 'wp-mail-smtp' ],
         'Amelia'           => [ 'file' => 'ameliabooking/ameliabooking.php', 'slug' => 'ameliabooking' ],
         'FunnelKit'        => [ 'file' => 'funnel-builder/funnel-builder.php', 'slug' => 'funnel-builder' ],
+        'CartFlows'        => [ 'file' => 'cartflows/cartflows.php', 'slug' => 'cartflows' ],
+        'FunnelKit Funnel Builder Pro' => [ 'file' => 'funnel-builder-pro/funnel-builder-pro.php', 'url' => 'https://funnelkit.com/' ],
         'Duplicator'       => [ 'file' => 'duplicator/duplicator.php', 'slug' => 'duplicator' ],
         'TablePress'       => [ 'file' => 'tablepress/tablepress.php', 'slug' => 'tablepress' ],
         'MemberPress'      => [ 'file' => 'memberpress/memberpress.php', 'url' => 'https://memberpress.com/' ],
+        'Paid Memberships Pro' => [ 'file' => 'paid-memberships-pro/paid-memberships-pro.php', 'slug' => 'paid-memberships-pro' ],
         'LearnDash'        => [ 'file' => 'sfwd-lms/sfwd_lms.php', 'url' => 'https://www.learndash.com/' ],
         'LifterLMS'        => [ 'file' => 'lifterlms/lifterlms.php', 'slug' => 'lifterlms' ],
         'Tutor LMS'        => [ 'file' => 'tutor/tutor.php', 'slug' => 'tutor' ],
@@ -43,6 +46,8 @@ final class Plugin_Refusal
         'Wordfence'        => [ 'file' => 'wordfence/wordfence.php', 'slug' => 'wordfence' ],
         'MonsterInsights'  => [ 'file' => 'google-analytics-for-wordpress/googleanalytics.php', 'slug' => 'google-analytics-for-wordpress' ],
         'W3 Total Cache'   => [ 'file' => 'w3-total-cache/w3-total-cache.php', 'slug' => 'w3-total-cache' ],
+        'Relevanssi'       => [ 'file' => 'relevanssi/relevanssi.php', 'slug' => 'relevanssi' ],
+        'FiboSearch'       => [ 'file' => 'ajax-search-for-woocommerce/ajax-search-for-woocommerce.php', 'slug' => 'ajax-search-for-woocommerce' ],
         'Solid Security'   => [ 'file' => 'better-wp-security/better-wp-security.php', 'slug' => 'better-wp-security' ],
         'Sucuri Security'  => [ 'file' => 'sucuri-scanner/sucuri.php', 'slug' => 'sucuri-scanner' ],
         'All In One WP Security' => [ 'file' => 'all-in-one-wp-security-and-firewall/wp-security.php', 'slug' => 'all-in-one-wp-security-and-firewall' ],
@@ -60,6 +65,7 @@ final class Plugin_Refusal
         'Flamingo'         => [ 'file' => 'flamingo/flamingo.php', 'slug' => 'flamingo' ],
         'ACF Pro'          => [ 'file' => 'advanced-custom-fields-pro/acf.php', 'url' => 'https://www.advancedcustomfields.com/pro/' ],
         'SeedProd'         => [ 'file' => 'coming-soon/coming-soon.php', 'slug' => 'coming-soon' ],
+        'WPGraphQL'        => [ 'file' => 'wp-graphql/wp-graphql.php', 'slug' => 'wp-graphql' ],
         'Under Construction' => [ 'file' => 'under-construction-page/under-construction.php', 'slug' => 'under-construction-page' ],
         'Weglot'           => [ 'file' => 'weglot/weglot.php', 'slug' => 'weglot' ],
         'GTranslate'       => [ 'file' => 'gtranslate/gtranslate.php', 'slug' => 'gtranslate' ],
@@ -67,6 +73,7 @@ final class Plugin_Refusal
         'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
+        'Checkout Field Editor for WooCommerce' => [ 'file' => 'woo-checkout-field-editor-pro/checkout-form-designer.php', 'slug' => 'woo-checkout-field-editor-pro' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
