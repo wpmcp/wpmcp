@@ -37,6 +37,8 @@ if (! defined('ABSPATH')) {
  * before block markers, since Oxygen leaves post_content as it was),
  * a BeTheme BeBuilder layout (a non-empty `mfn-page-items` row, issue #643;
  * also before block markers, since BeTheme renders it beside post_content),
+ * a Kirki page builder page (`kirki_editor_mode` = 'kirki', issue #641;
+ * Kirki renders its layout from postmeta too),
  * Divi 5's `<!-- wp:divi/ -->` blocks (a Divi 5 layout whose flags were
  * never written, as on imported content), Gutenberg's `<!-- wp: -->` block
  * comment markers in post_content, then a WPBakery `[vc_row]` or
@@ -108,6 +110,13 @@ class Builder_Detector
         $mfn = get_post_meta($post_id, 'mfn-page-items', true);
         if ((is_array($mfn) && [] !== $mfn) || (is_string($mfn) && '' !== trim($mfn))) {
             return 'betheme';
+        }
+
+        // Kirki's builder renders the page from its `kirki` row while this
+        // flag is set (it deletes it when the owner goes back to the
+        // WordPress editor).
+        if ('kirki' === get_post_meta($post_id, 'kirki_editor_mode', true)) {
+            return 'kirki';
         }
 
         $post = get_post($post_id);
