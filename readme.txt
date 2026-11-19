@@ -38,6 +38,8 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * Events, donations, memberships (read)
 * GiveWP: donations, donors and campaigns listed with donor names and emails masked and read one at a time in full, a donation summary by status and currency, donation form title, status, amount and goal edits (undoable) and donation status changes (asks for confirmation, totals and emails not undoable); both writes are off until the site turns them on
 * BuddyPress and BuddyBoss Platform: groups (with their linked forums), group members, activity moderation and extended profile fields; BuddyBoss forums through the bbPress tools
+* Restrict Content and Restrict Content Pro: membership levels with member counts, memberships listed with names and emails masked, and undoable level changes (off until the site turns them on)
+* Ultimate Member: roles, members (masked), forms and member directories, and an undoable member role change that asks for confirmation (off until the site turns it on)
 * Activity logs (read): WP Activity Log and Simple History events listed with IP addresses and emails masked and read one at a time in full
 * Action Scheduler (WooCommerce and many plugins use it): queue actions listed by hook, group, status and date with emails, IPs and tokens masked, read one at a time with their log, and pending actions canceled (undoable) or run now (not undoable, asks for confirmation); both writes are off until the site turns them on
 * Email logs (read): WP Mail Logging, Check and Log Email and Email Log emails listed with recipients masked and no bodies, and read one at a time with the body cut and reset or login links removed
