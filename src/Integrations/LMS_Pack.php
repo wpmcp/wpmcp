@@ -12,13 +12,15 @@ if (! defined('ABSPATH')) {
  * LMS course structure and enrollments (issue #394) on the plugin-data pair,
  * paid-tier, so they add no top-level tools: for Tutor LMS (LMS_Tutor),
  * LifterLMS (LMS_LifterLMS) and LearnDash (LMS_LearnDash, which also adds
- * learner enrollment and progress ops), each op prefixed with the plugin
+ * learner enrollment and progress ops) and Sensei LMS (LMS_Sensei, issue
+ * #673, whose modules are terms and so are read but not written), each op
+ * prefixed with the plugin
  * (tutor-get-course, lifterlms-add-lesson, learndash-enroll-user, ...). What
  * every LMS shares, the op catalog, the checks and the snapshot discipline,
  * is LMS_Adapter.
  *
  * Presence is filterable per plugin (wpmcp_tutor_active,
- * wpmcp_lifterlms_active, wpmcp_learndash_active); an op whose plugin is not
+ * wpmcp_lifterlms_active, wpmcp_learndash_active, wpmcp_sensei_active); an op whose plugin is not
  * loaded stays documented in list-operations (dependency_met:false) and
  * answers <plugin>_inactive.
  */
@@ -27,7 +29,7 @@ final class LMS_Pack
     /** @return LMS_Adapter[] */
     public static function adapters(): array
     {
-        return [ new LMS_Tutor(), new LMS_LifterLMS(), new LMS_LearnDash() ];
+        return [ new LMS_Tutor(), new LMS_LifterLMS(), new LMS_LearnDash(), new LMS_Sensei() ];
     }
 
     /** Whether a supported LMS is loaded and this install may run the paid tier. */

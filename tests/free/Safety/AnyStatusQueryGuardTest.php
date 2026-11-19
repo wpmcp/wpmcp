@@ -44,6 +44,10 @@ class AnyStatusQueryGuardTest extends \WP_UnitTestCase
             'count'  => 1,
             'reason' => 'Unfiltered only with every_row, which only write paths pass: sibling_ids() for a reorder or insert (edit_refusal() refuses when a sibling the caller may not edit would change) and the course steps rebuild, which writes post ids only.',
         ],
+        'Integrations/LMS_Sensei.php::course_lessons'                      => [
+            'count'  => 1,
+            'reason' => 'Unfiltered only with every_row, which only write paths pass (as LMS_Adapter::child_posts): a reorder or insert renumbers every sibling under edit_refusal(), and the course _lesson_order rebuild writes post ids only.',
+        ],
         'Integrations/FunnelKit_Pack.php::offer_rows'                      => [
             'count'  => 1,
             'reason' => 'Runs only in get-funnelkit-funnel, gated on manage_woocommerce (the capability of FunnelKit\'s own funnel screens, which list every offer); returns offer ids.',
