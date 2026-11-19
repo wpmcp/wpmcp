@@ -349,4 +349,51 @@ class ConnectionPageTest extends \WP_UnitTestCase
         $this->assertStringEndsWith('.mcpb', $sent);
         unlink($sent);
     }
+
+    /**
+     * Issue #842: the screen has an "Allow OAuth sign-in" switch and a
+     * ChatGPT card; a filter or constant that fixes the value disables the
+     * switch and says which one.
+     */
+    public function test_render_has_the_oauth_switch_and_the_chatgpt_card(): void
+    {
+        remove_all_filters('wpmcp_oauth_enabled');
+        delete_option(\WPMCP\Auth\OAuth_Config::OPTION);
+        set_current_screen('admin_page_' . Connection_Page::SLUG);
+
+        ob_start();
+        (new Connection_Page())->render();
+        $html = ob_get_clean();
+
+        $this->assertStringContainsString('Allow OAuth sign-in', $html);
+        $this->assertStringContainsString('value="oauth_enabled"', $html);
+        $this->assertStringContainsString('ChatGPT', $html);
+        $this->assertStringContainsString('Developer mode', $html);
+
+        add_filter('wpmcp_oauth_enabled', '__return_true');
+        ob_start();
+        (new Connection_Page())->render();
+        $locked = ob_get_clean();
+        remove_filter('wpmcp_oauth_enabled', '__return_true');
+
+        $this->assertStringContainsString('OAuth is on', $locked);
+        $this->assertStringContainsString('fixed by the wpmcp_oauth_enabled filter', $locked);
+        $this->assertStringNotContainsString('value="oauth_enabled"', $locked);
+    }
+
+    /** Issue #842: the screen confirms the switch was saved. */
+    public function test_render_confirms_oauth_switch_saved(): void
+    {
+        remove_all_filters('wpmcp_oauth_enabled');
+        set_current_screen('admin_page_' . Connection_Page::SLUG);
+        $_POST = $this->post('oauth_enabled', ['enabled' => '1']);
+
+        ob_start();
+        (new Connection_Page())->render();
+        $html = ob_get_clean();
+        $_POST = [];
+        delete_option(\WPMCP\Auth\OAuth_Config::OPTION);
+
+        $this->assertStringContainsString('OAuth sign-in is on', $html);
+    }
 }

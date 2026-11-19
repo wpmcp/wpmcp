@@ -127,9 +127,9 @@ No. Snapshots are fine-grained, per-operation undo, not full-site backups. Keep 
 
 = Which AI clients work? =
 
-Any MCP client: Claude Code, Claude Desktop, Cursor, Windsurf, and others. Authentication works via OAuth 2.1 or WordPress application passwords.
+Any MCP client: Claude Code, Claude Desktop, ChatGPT, Cursor, Windsurf, and others. Authentication works via OAuth 2.1 or WordPress application passwords.
 
-OAuth is off by default. Clients configured with an application password (Claude Code, Cursor, the Claude Desktop bundle or config file) do not need it. The Claude Desktop and claude.ai "Add custom connector" option does: it can only sign in with OAuth, and on a site with OAuth off it fails with "Couldn't register with WP MCP's sign-in service". To switch OAuth on, add define('WPMCP_OAUTH_ENABLED', true); to wp-config.php, or return true from the wpmcp_oauth_enabled filter. The WP MCP Connection screen shows whether OAuth is on and the steps to add the connector.
+OAuth is off by default. Clients configured with an application password (Claude Code, Cursor, the Claude Desktop bundle or config file) do not need it. The Claude Desktop and claude.ai "Add custom connector" option does: it can only sign in with OAuth, and on a site with OAuth off it fails with "Couldn't register with WP MCP's sign-in service". ChatGPT is the same: it signs in only with OAuth. To switch OAuth on, turn on "Allow OAuth sign-in" on the WP MCP Connection screen; developers can instead add define('WPMCP_OAUTH_ENABLED', true); to wp-config.php or return true from the wpmcp_oauth_enabled filter, and either one wins over the switch. The Connection screen shows whether OAuth is on and the steps to add the Claude connector and ChatGPT.
 
 = Is it really free? =
 
