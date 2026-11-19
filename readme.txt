@@ -62,6 +62,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * With Pro, Elementor Pro forms: forms found in pages, and form submissions listed, read and exported as CSV, with undoable status changes and deletes (off until the site turns them on)
 * With Pro, Blocksy Companion extensions: listed with their on or off state and switched on or off through the companion's own manager, every toggle undoable (off until the site turns theme writes on)
 * With Pro, Elementor addon packs: Essential Addons, Premium Addons, Ultimate Addons and JetElements widgets listed with their controls, and each pack's modules switched on or off, every toggle undoable
+* With Pro, Ultimate Addons for Elementor header, footer and custom block templates: list, read, create, update and trash them and set their display rules, every write undoable
 * Media library plus stock image imports, and regeneration of the image sizes a new theme or plugin added (undoable)
 * REST passthrough for anything else, still snapshotted
 
