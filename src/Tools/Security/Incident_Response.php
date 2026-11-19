@@ -24,6 +24,9 @@ if (! defined('ABSPATH')) {
  *  - end-sessions: every login session of one user, or of all users.
  *  - rotate-salts: Salt_Rotator.
  *  - reinstall-core-files: Core_File_Repair.
+ *  - quarantine-file, list-quarantine, restore-quarantined-file,
+ *    purge-quarantined-file: File_Quarantine (issue #844), behind the
+ *    wpmcp_enable_fs_writes opt-in like the other file-changing tools.
  *
  * Every action but the listing needs confirm:true and is recorded in the
  * governance audit log, refusals included, with counts only: no secret, key
@@ -50,15 +53,21 @@ class Incident_Response
         'end-sessions',
         'rotate-salts',
         'reinstall-core-files',
+        'quarantine-file',
+        'list-quarantine',
+        'restore-quarantined-file',
+        'purge-quarantined-file',
     ];
 
     private ?Salt_Rotator $salts;
     private ?Core_File_Repair $core;
+    private ?File_Quarantine $quarantine;
 
-    public function __construct(?Salt_Rotator $salts = null, ?Core_File_Repair $core = null)
+    public function __construct(?Salt_Rotator $salts = null, ?Core_File_Repair $core = null, ?File_Quarantine $quarantine = null)
     {
-        $this->salts = $salts;
-        $this->core  = $core;
+        $this->salts      = $salts;
+        $this->core       = $core;
+        $this->quarantine = $quarantine;
     }
 
     public function handle(array $args): array
@@ -74,9 +83,17 @@ class Incident_Response
         if ('list-sessions' === $action) {
             return $this->list_sessions($args);
         }
+        if ('list-quarantine' === $action) {
+            $result = $this->quarantine()->list();
+            Governance_Audit_Log::record_quietly(self::ABILITY, true, 'list-quarantine:count=' . $result['count']);
+            return $result;
+        }
 
         if (true !== ($args['confirm'] ?? null)) {
-            throw Confirmation_Required::in_arguments(sprintf('%s cannot be undone in full and requires confirm:true.', esc_html($action)));
+            throw Confirmation_Required::in_arguments(sprintf(
+                false !== strpos($action, 'quarantine') ? '%s requires confirm:true.' : '%s cannot be undone in full and requires confirm:true.',
+                esc_html($action)
+            ));
         }
 
         try {
@@ -87,6 +104,10 @@ class Incident_Response
                     return $this->end_sessions($args);
                 case 'rotate-salts':
                     return $this->rotate_salts();
+                case 'quarantine-file':
+                case 'restore-quarantined-file':
+                case 'purge-quarantined-file':
+                    return $this->quarantine_action($action, $args);
                 default:
                     return $this->reinstall_core_files($args);
             }
@@ -350,6 +371,28 @@ class Incident_Response
             sprintf('reinstall-core-files:repaired=%d:skipped=%d', count($result['repaired']), count($result['skipped']))
         );
 
+        return $result;
+    }
+
+    private function quarantine(): File_Quarantine
+    {
+        return $this->quarantine ??= new File_Quarantine();
+    }
+
+    private function quarantine_action(string $action, array $args): array
+    {
+        $quarantine = $this->quarantine();
+        if ('quarantine-file' === $action) {
+            $result = $quarantine->quarantine($args);
+            $detail = 'id=' . $result['entry']['id'];
+        } elseif ('restore-quarantined-file' === $action) {
+            $result = $quarantine->restore($args);
+            $detail = 'id=' . $result['id'];
+        } else {
+            $result = $quarantine->purge($args);
+            $detail = 'id=' . $result['id'];
+        }
+        Governance_Audit_Log::record_quietly(self::ABILITY, true, $action . ':' . $detail);
         return $result;
     }
 

@@ -12,6 +12,7 @@ use WPMCP\Tools\Export\Export_Dir;
 use WPMCP\Tools\Filesystem\Filesystem_Guard;
 use WPMCP\Tools\Redirects\Redirect_Store;
 use WPMCP\Tools\Search\Search_Index_Store;
+use WPMCP\Tools\Security\File_Quarantine;
 use WPMCP\Tools\WidgetBuilder\Compiler\Compiled_Widget_Manifest;
 
 /**
@@ -78,6 +79,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // the Site_Gate_Pack ops on the theme pair (issue #903).
             'seedprod_settings',
             'ucp_options',
+            // Otter Blocks' feature switches and disabled blocks, set by
+            // update-otter-settings on the block-suites pair (issue #647).
+            'themeisle_blocks_settings_*',
+            'themeisle_disabled_blocks',
             // Avada's global options, written by the Avada design_system
             // scope on the builder pair (issue #637).
             'fusion_options',
@@ -96,6 +101,11 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // GTranslate's settings, whose language lists the
             // gtranslate-set-languages op changes (issue #690).
             'GTranslate',
+            // WPCode's global header, body and footer scripts, replaced by
+            // the wpcode-set-header-footer op (issue #697).
+            'ihaf_insert_header',
+            'ihaf_insert_body',
+            'ihaf_insert_footer',
             // FiboSearch's settings, changed by update-fibosearch-settings
             // on the theme pair (issue #700).
             'dgwt_wcas_settings',
@@ -270,7 +280,7 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             array_map(static fn ($t) => $wpdb->prefix . $t, Data_Registry::TABLES)
         );
         $this->assertSame(
-            [ File_Backup::BACKUP_DIR, Site_Backup_Dir::DIR_NAME, Export_Dir::DIR_NAME, Content_Mirror::DIR_NAME, Filesystem_Guard::BACKUP_DIR ],
+            [ File_Backup::BACKUP_DIR, Site_Backup_Dir::DIR_NAME, Export_Dir::DIR_NAME, Content_Mirror::DIR_NAME, Filesystem_Guard::BACKUP_DIR, File_Quarantine::DIR ],
             Data_Registry::UPLOADS_DIRS
         );
         $this->assertSame(
