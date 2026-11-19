@@ -70,6 +70,9 @@ final class Plugin_Refusal
         'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
+        'Happy Addons for Elementor' => [ 'file' => 'happy-elementor-addons/plugin.php', 'slug' => 'happy-elementor-addons' ],
+        'Royal Elementor Addons' => [ 'file' => 'royal-elementor-addons/wpr-addons.php', 'slug' => 'royal-elementor-addons' ],
+        'PowerPack Lite for Elementor' => [ 'file' => 'powerpack-lite-for-elementor/powerpack-lite-elementor.php', 'slug' => 'powerpack-lite-for-elementor' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */

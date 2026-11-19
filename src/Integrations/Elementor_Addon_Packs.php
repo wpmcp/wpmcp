@@ -2,6 +2,7 @@
 
 namespace WPMCP\Integrations;
 
+use WPMCP\Safety\Snapshot;
 use WPMCP\Tools\Elementor\Widget_View;
 
 if (! defined('ABSPATH')) {
@@ -10,9 +11,10 @@ if (! defined('ABSPATH')) {
 
 /**
  * Elementor addon suite packs (issue #286): Essential Addons, Premium Addons
- * and Ultimate Addons for Elementor, plus Crocoblock JetElements (issue
- * #653), as paid-tier ops on the theme dispatcher pair, so the suites add no
- * top-level tools.
+ * and Ultimate Addons for Elementor, plus Crocoblock JetElements, Happy
+ * Addons, Royal Elementor Addons and PowerPack Lite (issue #653), as
+ * paid-tier ops on the theme dispatcher pair, so the suites add no top-level
+ * tools.
  *
  * Per suite, three ops:
  *  - list-{suite}-widgets reads the suite's widgets as Elementor's own widgets
@@ -32,14 +34,17 @@ if (! defined('ABSPATH')) {
  *    in the suite's own format. The whole batch is validated first; only
  *    keys whose state really changes are written, and the option is
  *    snapshotted so rollback-operation restores it exactly (an option the
- *    write created is deleted again).
+ *    write created is deleted again). A suite that keeps its switches in
+ *    several options has every option the batch writes captured as one
+ *    option_set, so one rollback puts them all back.
  *
  * Every op declares a 'requires' check, so an inactive suite is skipped
  * cleanly: its ops stay documented in list-operations (dependency_met:false)
  * and answer addon_suite_inactive without touching anything. Presence is
  * filterable per suite (wpmcp_essential_addons_active,
  * wpmcp_premium_addons_active, wpmcp_ultimate_addons_active,
- * wpmcp_jet_elements_active).
+ * wpmcp_jet_elements_active, wpmcp_happy_addons_active,
+ * wpmcp_royal_addons_active, wpmcp_powerpack_active).
  *
  * Storage formats, verified against the free wordpress.org builds:
  *  - Essential Addons 6.8, eael_save_settings: module key => bool. A key
@@ -66,6 +71,28 @@ if (! defined('ABSPATH')) {
  *    plugins, so it is not used to recognize them. The suite caches the
  *    option on its settings singleton for the request, which is dropped
  *    after a write and after a rollback.
+ *  - Happy Addons 3.52 (HAPPY_ADDONS_VERSION): three lists of the keys that
+ *    are OFF, happyaddons_inactive_widgets, _features and _extensions; a key
+ *    is on unless its list names it, and an unsaved list is empty. Features
+ *    and extensions share names, so their keys carry a feature: or
+ *    extension: prefix; always-on features are not switches. Widgets are
+ *    Happy_Addons\Elementor\Widget\* classes.
+ *  - Royal Elementor Addons 1.7 (WPR_ADDONS_VERSION): one option per
+ *    module, wpr-element-{slug}, on while it is 'on' or unsaved; the
+ *    settings form saves an unchecked module as ''. A group (widgets, theme
+ *    builder, WooCommerce builder) with every module off loads the whole
+ *    group again while wpr-element-toggle-all was never saved, so a batch
+ *    that leaves a group all off saves that switch off too, and a batch in
+ *    a group running on that fallback writes the rest of it out as on.
+ *    Widgets are WprAddons\* classes.
+ *  - PowerPack Lite 3.2 (POWERPACK_ELEMENTS_LITE_VER): pp_elementor_modules
+ *    is a list of the widget names that are ON, or the string 'disabled'
+ *    for none (never an empty list); unsaved means every widget except the
+ *    ones that ship off. Legacy names read as their current name and are
+ *    saved as it. PowerPack flushes its own lookup on every write of the
+ *    option. On multisite it reads a network copy, so the pack refuses
+ *    there (addon_suite_multisite). Widgets are PowerpackElementsLite\*
+ *    classes. The paid PowerPack is a different plugin and is not covered.
  */
 final class Elementor_Addon_Packs
 {
@@ -111,7 +138,43 @@ final class Elementor_Addon_Packs
             'categories' => [],
             'namespaces' => [ 'Elementor\\Jet_Elements_' ],
         ],
+        'happy-addons'     => [
+            'label'      => 'Happy Addons',
+            'constant'   => 'HAPPY_ADDONS_VERSION',
+            'option'     => 'happyaddons_inactive_widgets, happyaddons_inactive_features, happyaddons_inactive_extensions',
+            'format'     => 'happy_lists',
+            'categories' => [],
+            'namespaces' => [ 'Happy_Addons\\Elementor\\Widget\\' ],
+        ],
+        'royal-addons'     => [
+            'label'      => 'Royal Elementor Addons',
+            'product'    => 'Royal Elementor Addons',
+            'constant'   => 'WPR_ADDONS_VERSION',
+            'option'     => 'wpr-element-{module}',
+            'format'     => 'royal_options',
+            'categories' => [],
+            'namespaces' => [ 'WprAddons\\' ],
+        ],
+        'powerpack'        => [
+            'label'      => 'PowerPack Lite',
+            'product'    => 'PowerPack Lite for Elementor',
+            'constant'   => 'POWERPACK_ELEMENTS_LITE_VER',
+            'option'     => 'pp_elementor_modules',
+            'format'     => 'powerpack_list',
+            'categories' => [],
+            'namespaces' => [ 'PowerpackElementsLite\\' ],
+        ],
     ];
+
+    /** Happy Addons' three lists of switched-off keys, by key prefix ('' for widgets). */
+    private const HAPPY_LISTS = [
+        ''           => 'happyaddons_inactive_widgets',
+        'feature:'   => 'happyaddons_inactive_features',
+        'extension:' => 'happyaddons_inactive_extensions',
+    ];
+
+    /** Royal Elementor Addons' master switch, which decides its all-off fallback. */
+    private const ROYAL_TOGGLE_ALL = 'wpr-element-toggle-all';
 
     /** The two module maps inside the JetElements settings option. */
     private const JET_WIDGETS    = 'avaliable_widgets';
@@ -180,10 +243,17 @@ final class Elementor_Addon_Packs
                     return self::plan($suite, (array) ($args['modules'] ?? []))['error'] ?? null;
                 },
                 'snapshot'     => static function (array $args) use ($suite): ?array {
-                    $plan = self::plan($suite, (array) ($args['modules'] ?? []));
-                    return empty($plan['changes'])
-                        ? null
-                        : [ 'object_type' => 'option', 'object_id' => self::SUITES[ $suite ]['option'] ];
+                    $plan  = self::plan($suite, (array) ($args['modules'] ?? []));
+                    $names = array_map('strval', array_keys($plan['writes'] ?? []));
+                    if (empty($plan['changes']) || [] === $names) {
+                        return null;
+                    }
+                    // Suites that keep their switches in several options
+                    // (Happy Addons, Royal Elementor Addons) are captured as
+                    // one option_set, so one rollback puts back all of them.
+                    return 1 === count($names)
+                        ? [ 'object_type' => 'option', 'object_id' => $names[0] ]
+                        : [ 'object_type' => 'option_set', 'object_id' => Snapshot::option_set_id($names) ];
                 },
                 'handler'      => static fn (array $args): array => self::write($suite, (array) $args['modules']),
             ];
@@ -215,6 +285,15 @@ final class Elementor_Addon_Packs
         if ('jet-elements' === $suite) {
             return (bool) apply_filters('wpmcp_jet_elements_active', $loaded);
         }
+        if ('happy-addons' === $suite) {
+            return (bool) apply_filters('wpmcp_happy_addons_active', $loaded);
+        }
+        if ('royal-addons' === $suite) {
+            return (bool) apply_filters('wpmcp_royal_addons_active', $loaded);
+        }
+        if ('powerpack' === $suite) {
+            return (bool) apply_filters('wpmcp_powerpack_active', $loaded);
+        }
         if ('essential-addons' === $suite) {
             return (bool) apply_filters('wpmcp_essential_addons_active', $loaded);
         }
@@ -229,7 +308,7 @@ final class Elementor_Addon_Packs
     {
         $label = self::SUITES[ $suite ]['label'];
         if (! self::active($suite)) {
-            return Plugin_Refusal::make('addon_suite_inactive', sprintf('%s for Elementor', $label));
+            return Plugin_Refusal::make('addon_suite_inactive', (string) (self::SUITES[ $suite ]['product'] ?? sprintf('%s for Elementor', $label)));
         }
         if ($widgets && ! class_exists('\\Elementor\\Plugin')) {
             return [
@@ -363,8 +442,38 @@ final class Elementor_Addon_Packs
     /** @return array<string,mixed> */
     private static function read(string $suite): array
     {
-        $option = self::SUITES[ $suite ]['option'];
-        return [ 'suite' => $suite, 'option' => $option, 'modules' => self::state($suite, get_option($option, null)) ];
+        $refusal = self::multisite_refusal($suite);
+        if (null !== $refusal) {
+            // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
+            throw new Operation_Refused((string) $refusal['code'], (string) $refusal['message'], (array) $refusal['data']);
+        }
+        return [ 'suite' => $suite, 'option' => self::SUITES[ $suite ]['option'], 'modules' => self::state($suite, self::raw($suite)) ];
+    }
+
+    /** The suite's one stored option, or null for suites that keep several. */
+    private static function raw(string $suite)
+    {
+        $def = self::SUITES[ $suite ];
+        return in_array($def['format'], [ 'happy_lists', 'royal_options', 'powerpack_list' ], true) ? null : get_option($def['option'], null);
+    }
+
+    /**
+     * PowerPack reads its network copy of the module list on multisite
+     * unless the site overrides it, so the pack does not guess which copy is
+     * live there and refuses instead.
+     *
+     * @return array{code: string, message: string, data: array<string,mixed>}|null
+     */
+    private static function multisite_refusal(string $suite): ?array
+    {
+        if ('powerpack' !== $suite || ! is_multisite()) {
+            return null;
+        }
+        return [
+            'code'    => 'addon_suite_multisite',
+            'message' => 'PowerPack Lite reads its module list from the network settings on multisite, so its modules are read and switched in its own settings screen there.',
+            'data'    => [ 'suite' => $suite ],
+        ];
     }
 
     /**
@@ -434,6 +543,15 @@ final class Elementor_Addon_Packs
         if ('jet_settings' === $format) {
             return self::jet_state($raw);
         }
+        if ('happy_lists' === $format) {
+            return self::happy_state();
+        }
+        if ('royal_options' === $format) {
+            return self::royal_state();
+        }
+        if ('powerpack_list' === $format) {
+            return self::powerpack_state();
+        }
         $stored = is_array($raw) ? $raw : [];
         $known  = self::known($suite) + array_fill_keys(array_map('strval', array_keys($stored)), false);
         $out    = [];
@@ -453,16 +571,20 @@ final class Elementor_Addon_Packs
     }
 
     /**
-     * Dry-run a toggle batch: every module known, and the option value that
-     * writing only the real changes would store.
+     * Dry-run a toggle batch: every module known, and the option values
+     * (option name => value) that writing only the real changes would store.
      *
      * @param array<string,mixed> $modules
-     * @return array{error?: array<string,mixed>, changes?: array<string,bool>, value?: array<mixed>}
+     * @return array{error?: array<string,mixed>, changes?: array<string,bool>, writes?: array<string,mixed>}
      */
     private static function plan(string $suite, array $modules): array
     {
-        $def   = self::SUITES[ $suite ];
-        $raw   = get_option($def['option'], null);
+        $def     = self::SUITES[ $suite ];
+        $refusal = self::multisite_refusal($suite);
+        if (null !== $refusal) {
+            return [ 'error' => $refusal ];
+        }
+        $raw   = self::raw($suite);
         $state = self::state($suite, $raw);
 
         $changes = [];
@@ -480,9 +602,20 @@ final class Elementor_Addon_Packs
             }
         }
 
+        if ('happy_lists' === $def['format']) {
+            return [ 'changes' => $changes, 'writes' => self::happy_writes($changes) ];
+        }
+        if ('royal_options' === $def['format']) {
+            return [ 'changes' => $changes, 'writes' => [] === $changes ? [] : self::royal_writes($state, $changes) ];
+        }
+        if ('powerpack_list' === $def['format']) {
+            return [ 'changes' => $changes, 'writes' => [] === $changes ? [] : [ $def['option'] => self::powerpack_value($changes) ] ];
+        }
+
         $value = is_array($raw) ? $raw : [];
         if ('jet_settings' === $def['format']) {
-            return [ 'changes' => $changes, 'value' => [] === $changes ? $value : self::jet_value($value, $state, $changes) ];
+            $value = [] === $changes ? $value : self::jet_value($value, $state, $changes);
+            return [ 'changes' => $changes, 'writes' => [ $def['option'] => $value ] ];
         }
         if ('enabled_only' === $def['format'] && ! is_array($raw)) {
             // No saved option means the suite's defaults are live; saving
@@ -503,7 +636,7 @@ final class Elementor_Addon_Packs
             }
         }
 
-        return [ 'changes' => $changes, 'value' => $value ];
+        return [ 'changes' => $changes, 'writes' => [ $def['option'] => $value ] ];
     }
 
     /** @return array<string,mixed> */
@@ -514,17 +647,18 @@ final class Elementor_Addon_Packs
             // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- surfaced as a JSON tool error by Integration_Dispatcher, never rendered as HTML.
             throw new Operation_Refused((string) $plan['error']['code'], (string) $plan['error']['message'], (array) $plan['error']['data']);
         }
-        $option = self::SUITES[ $suite ]['option'];
         if ([] !== $plan['changes']) {
-            update_option($option, $plan['value']);
+            foreach ($plan['writes'] as $name => $value) {
+                update_option((string) $name, $value);
+            }
             self::after_write($suite);
         }
 
         return [
             'suite'   => $suite,
-            'option'  => $option,
+            'option'  => self::SUITES[ $suite ]['option'],
             'changed' => $plan['changes'],
-            'modules' => self::state($suite, get_option($option, null)),
+            'modules' => self::state($suite, self::raw($suite)),
         ];
     }
 
@@ -616,5 +750,279 @@ final class Elementor_Addon_Packs
             $value[ $map ][ (string) $key ] = $on ? 'true' : 'false';
         }
         return $value;
+    }
+
+    /**
+     * Happy Addons' switchable keys per list prefix: every widget its
+     * register() loop knows, every feature but the always-on ones (which the
+     * suite enables whatever the list says) and every extension.
+     *
+     * @return array<string,string[]>
+     */
+    private static function happy_catalog(): array
+    {
+        $widgets    = '\\Happy_Addons\\Elementor\\Classes\\Widgets_Manager';
+        $extensions = '\\Happy_Addons\\Elementor\\Classes\\Extensions_Manager';
+        $out        = [ '' => [], 'feature:' => [], 'extension:' => [] ];
+        if (is_callable([ $widgets, 'get_local_widgets_map' ])) {
+            $out[''] = array_map('strval', array_keys((array) $widgets::get_local_widgets_map()));
+        }
+        if (is_callable([ $extensions, 'get_local_features_map' ])) {
+            $out['feature:'] = array_values(array_diff(array_map('strval', array_keys((array) $extensions::get_local_features_map())), self::happy_always_on()));
+        }
+        if (is_callable([ $extensions, 'get_local_extensions_map' ])) {
+            $out['extension:'] = array_map('strval', array_keys((array) $extensions::get_local_extensions_map()));
+        }
+        return $out;
+    }
+
+    /** @return string[] */
+    private static function happy_always_on(): array
+    {
+        $extensions = '\\Happy_Addons\\Elementor\\Classes\\Extensions_Manager';
+        return is_callable([ $extensions, 'get_always_on_features' ])
+            ? array_map('strval', (array) $extensions::get_always_on_features())
+            : [];
+    }
+
+    /**
+     * One Happy Addons list of switched-off keys as stored.
+     *
+     * @return string[]
+     */
+    private static function happy_list(string $option): array
+    {
+        $list = get_option($option, []);
+        return is_array($list) ? array_values(array_map('strval', array_filter($list, 'is_scalar'))) : [];
+    }
+
+    /**
+     * Happy Addons module state: a key is on unless its list names it.
+     * Widget keys are bare, feature and extension keys carry a feature: or
+     * extension: prefix, since the two maps share names.
+     *
+     * @return array<string,bool>
+     */
+    private static function happy_state(): array
+    {
+        $catalog   = self::happy_catalog();
+        $always_on = self::happy_always_on();
+        $out       = [];
+        foreach (self::HAPPY_LISTS as $prefix => $option) {
+            $off = self::happy_list($option);
+            foreach ($catalog[ $prefix ] as $key) {
+                $out[ $prefix . $key ] = ! in_array($key, $off, true);
+            }
+            foreach ($off as $key) {
+                if ('feature:' === $prefix && in_array($key, $always_on, true)) {
+                    continue;
+                }
+                $out[ $prefix . $key ] = false;
+            }
+        }
+        ksort($out);
+        return $out;
+    }
+
+    /**
+     * The Happy Addons lists the changes touch, each as the suite saves it:
+     * a plain list, order kept, a key switched off appended once and a key
+     * switched on removed.
+     *
+     * @param array<string,bool> $changes
+     * @return array<string,string[]>
+     */
+    private static function happy_writes(array $changes): array
+    {
+        $writes = [];
+        foreach ($changes as $key => $on) {
+            $prefix = '';
+            foreach ([ 'feature:', 'extension:' ] as $candidate) {
+                if (0 === strpos((string) $key, $candidate)) {
+                    $prefix = $candidate;
+                }
+            }
+            $option = self::HAPPY_LISTS[ $prefix ];
+            $bare   = substr((string) $key, strlen($prefix));
+            $list   = $writes[ $option ] ?? self::happy_list($option);
+            $list   = array_values(array_filter($list, static fn (string $item): bool => $item !== $bare));
+            if (! $on) {
+                $list[] = $bare;
+            }
+            $writes[ $option ] = $list;
+        }
+        return $writes;
+    }
+
+    /**
+     * Royal Elementor Addons' module slugs in the groups its Manager loads:
+     * the widgets, the theme builder modules and, with WooCommerce, the
+     * WooCommerce builder modules.
+     *
+     * @return array<string,string[]>
+     */
+    private static function royal_groups(): array
+    {
+        $utilities = '\\WprAddons\\Classes\\Utilities';
+        $lists     = [ 'widgets' => 'get_registered_modules', 'theme' => 'get_theme_builder_modules' ];
+        if (class_exists('WooCommerce')) {
+            $lists['woocommerce'] = 'get_woocommerce_builder_modules';
+        }
+        $out = [];
+        foreach ($lists as $group => $method) {
+            if (! is_callable([ $utilities, $method ])) {
+                continue;
+            }
+            $slugs = [];
+            foreach ((array) $utilities::$method() as $data) {
+                $slug = (string) (is_array($data) ? ($data[0] ?? '') : $data);
+                if ('' !== $slug) {
+                    $slugs[] = $slug;
+                }
+            }
+            $out[ $group ] = $slugs;
+        }
+        return $out;
+    }
+
+    /** Whether one Royal module's own option reads on (unsaved is on). */
+    private static function royal_saved_on(string $slug): bool
+    {
+        return 'on' === get_option('wpr-element-' . $slug, 'on');
+    }
+
+    /** Whether Royal's master switch was never saved, which turns on its all-off fallback. */
+    private static function royal_toggle_unsaved(): bool
+    {
+        return false === get_option(self::ROYAL_TOGGLE_ALL, false);
+    }
+
+    /**
+     * Royal module state, as its Manager resolves it: each module on while
+     * its option is 'on' or unsaved, except that a group with every module
+     * off loads the whole group again while the master switch is unsaved.
+     *
+     * @return array<string,bool>
+     */
+    private static function royal_state(): array
+    {
+        $fallback = self::royal_toggle_unsaved();
+        $out      = [];
+        foreach (self::royal_groups() as $slugs) {
+            $group = [];
+            foreach ($slugs as $slug) {
+                $group[ $slug ] = self::royal_saved_on($slug);
+            }
+            if ([] !== $group && $fallback && ! in_array(true, $group, true)) {
+                $group = array_fill_keys(array_keys($group), true);
+            }
+            $out += $group;
+        }
+        ksort($out);
+        return $out;
+    }
+
+    /**
+     * The Royal options a batch writes, in the settings form's own values
+     * ('on' when checked, '' when not). In every group the batch touches,
+     * each module whose saved value differs from the state wanted is
+     * written, so a module that was on only through the all-off fallback
+     * stays on. A group the batch leaves all off saves the master switch as
+     * off too, or Royal would load that group again.
+     *
+     * @param array<string,bool> $state
+     * @param array<string,bool> $changes
+     * @return array<string,string>
+     */
+    private static function royal_writes(array $state, array $changes): array
+    {
+        $wanted = array_merge($state, $changes);
+        $writes = [];
+        foreach (self::royal_groups() as $slugs) {
+            if ([] === array_intersect($slugs, array_map('strval', array_keys($changes)))) {
+                continue;
+            }
+            $any_on = false;
+            foreach ($slugs as $slug) {
+                $on     = (bool) ($wanted[ $slug ] ?? true);
+                $any_on = $any_on || $on;
+                if (self::royal_saved_on($slug) !== $on) {
+                    $writes[ 'wpr-element-' . $slug ] = $on ? 'on' : '';
+                }
+            }
+            if (! $any_on && self::royal_toggle_unsaved()) {
+                $writes[ self::ROYAL_TOGGLE_ALL ] = '';
+            }
+        }
+        return $writes;
+    }
+
+    /**
+     * The widgets PowerPack Lite has switched on, as its own
+     * powerpack_elements_lite_get_enabled_modules() reads them: the string
+     * 'disabled' is none, an unsaved option is every widget that does not
+     * ship off, and a saved list is read with legacy names as their current
+     * name.
+     *
+     * @param mixed $raw
+     * @return string[]
+     */
+    private static function powerpack_enabled($raw): array
+    {
+        if ('disabled' === $raw) {
+            return [];
+        }
+        if (! is_array($raw)) {
+            $catalog = function_exists('powerpack_elements_lite_get_modules') ? array_map('strval', array_keys((array) powerpack_elements_lite_get_modules())) : [];
+            $off     = function_exists('powerpack_elements_lite_get_default_off_modules') ? array_map('strval', (array) powerpack_elements_lite_get_default_off_modules()) : [];
+            return array_values(array_diff($catalog, $off));
+        }
+        $legacy = function_exists('powerpack_elements_lite_get_legacy_module_names') ? (array) powerpack_elements_lite_get_legacy_module_names() : [];
+        $out    = [];
+        foreach ($raw as $key => $value) {
+            $name = is_int($key) ? $value : $key;
+            if (! is_string($name) || '' === $name) {
+                continue;
+            }
+            $name = (string) ($legacy[ $name ] ?? $name);
+            if (! in_array($name, $out, true)) {
+                $out[] = $name;
+            }
+        }
+        return $out;
+    }
+
+    /** @return array<string,bool> */
+    private static function powerpack_state(): array
+    {
+        $enabled = self::powerpack_enabled(get_option(self::SUITES['powerpack']['option'], false));
+        $catalog = function_exists('powerpack_elements_lite_get_modules') ? array_map('strval', array_keys((array) powerpack_elements_lite_get_modules())) : [];
+        $out     = [];
+        foreach (array_unique(array_merge($catalog, $enabled)) as $name) {
+            $out[ $name ] = in_array($name, $enabled, true);
+        }
+        ksort($out);
+        return $out;
+    }
+
+    /**
+     * The pp_elementor_modules value after the changes, the way PowerPack's
+     * settings save stores it: a plain list of the enabled widget names
+     * (current names, unknown names kept), or the string 'disabled' when
+     * none is left, never an empty list.
+     *
+     * @param array<string,bool> $changes
+     * @return string[]|string
+     */
+    private static function powerpack_value(array $changes)
+    {
+        $list = self::powerpack_enabled(get_option(self::SUITES['powerpack']['option'], false));
+        foreach ($changes as $name => $on) {
+            $list = array_values(array_filter($list, static fn (string $item): bool => $item !== (string) $name));
+            if ($on) {
+                $list[] = (string) $name;
+            }
+        }
+        return [] === $list ? 'disabled' : $list;
     }
 }
