@@ -37,6 +37,9 @@ class Beaver_Builder_Content
     public const DRAFT_META_KEY   = '_fl_builder_draft';
     public const ENABLED_META_KEY = '_fl_builder_enabled';
 
+    /** Suffix of the layout settings (CSS/JS) row beside each node map row. */
+    public const SETTINGS_SUFFIX = '_settings';
+
     /**
      * The stored node map for a status, or [] when absent or unreadable.
      *
@@ -69,10 +72,105 @@ class Beaver_Builder_Content
         return [
             'post_id'       => $post_id,
             'builder'       => 'beaver-builder',
-            'plugin_active' => Beaver_Builder_Cache::plugin_active(),
-            'draft_pending' => self::draft_pending($post_id),
-            'tree'          => Beaver_Builder_Nodes::tree(self::get_nodes($post_id)),
+            'plugin_active'  => Beaver_Builder_Cache::plugin_active(),
+            'plugin_version' => self::plugin_version(),
+            'draft_pending'  => self::draft_pending($post_id),
+            'hash'           => self::hash($post_id),
+            'revisions'      => Beaver_Builder_Page::revisions($post_id),
+            'tree'           => Beaver_Builder_Nodes::tree(self::get_nodes($post_id)),
         ];
+    }
+
+    /** The loaded Beaver Builder's version, or null when it is not loaded. */
+    public static function plugin_version(): ?string
+    {
+        if (! Beaver_Builder_Cache::plugin_active() || ! defined('FL_BUILDER_VERSION')) {
+            return null;
+        }
+        $version = (string) constant('FL_BUILDER_VERSION');
+
+        return '' === $version ? null : $version;
+    }
+
+    /**
+     * sha256 over the published and draft node maps as stored, the hash
+     * writes are pinned to (issue #638): an editor save to either changes it.
+     */
+    public static function hash(int $post_id): string
+    {
+        $rows = [];
+        foreach ([self::DATA_META_KEY, self::DRAFT_META_KEY] as $key) {
+            $rows[] = metadata_exists('post', $post_id, $key) ? '1:' . maybe_serialize(get_post_meta($post_id, $key, true)) : '0:';
+        }
+
+        return hash('sha256', implode("\n", $rows));
+    }
+
+    /** Whether the page holds a layout, published or draft. */
+    public static function has_layout(int $post_id): bool
+    {
+        return [] !== self::get_nodes($post_id) || [] !== self::get_nodes($post_id, self::DRAFT_META_KEY);
+    }
+
+    /** A layout settings row (the CSS/JS object), or null when absent. */
+    public static function get_settings(int $post_id, string $key = self::DATA_META_KEY): ?object
+    {
+        $value = get_post_meta($post_id, $key . self::SETTINGS_SUFFIX, true);
+
+        return is_object($value) ? $value : null;
+    }
+
+    /**
+     * Put a whole layout live as Beaver Builder's restore_revision() and
+     * publish do: the node map and its settings to the published rows and,
+     * when the page has a draft, to the draft rows too; then enable the
+     * builder and clear the asset cache.
+     *
+     * @param array<string,object> $nodes
+     */
+    public static function save_layout(int $post_id, array $nodes, ?object $settings): void
+    {
+        foreach ([self::DATA_META_KEY, self::DRAFT_META_KEY] as $key) {
+            if (self::DRAFT_META_KEY === $key && ! metadata_exists('post', $post_id, $key)) {
+                continue;
+            }
+            if (null !== $settings) {
+                update_post_meta($post_id, $key . self::SETTINGS_SUFFIX, self::slash_value($settings));
+            }
+        }
+
+        self::save($post_id, $nodes);
+    }
+
+    /**
+     * Append a template's CSS and JS to the page's layout settings rows (the
+     * published one, and the draft's when there is one) the way Beaver
+     * Builder's merge_layout_settings() does: once, on a new line.
+     */
+    public static function merge_settings(int $post_id, ?object $merge): void
+    {
+        if (null === $merge) {
+            return;
+        }
+        foreach ([self::DATA_META_KEY, self::DRAFT_META_KEY] as $key) {
+            if (self::DRAFT_META_KEY === $key && ! metadata_exists('post', $post_id, $key)) {
+                continue;
+            }
+            $settings = self::get_settings($post_id, $key) ?? (object) ['css' => '', 'js' => ''];
+            $changed  = false;
+            foreach (['css', 'js'] as $part) {
+                $add = is_string($merge->{$part} ?? null) ? $merge->{$part} : '';
+                $now = is_string($settings->{$part} ?? null) ? $settings->{$part} : '';
+                if ('' === $add || false !== strpos($now, $add)) {
+                    continue;
+                }
+                $settings->{$part} = ('' === $now ? '' : $now . "\n") . $add;
+                $changed           = true;
+            }
+            if ($changed) {
+                update_post_meta($post_id, $key . self::SETTINGS_SUFFIX, self::slash_value($settings));
+            }
+        }
     }
 
     /**
@@ -111,5 +209,16 @@ class Beaver_Builder_Content
             Beaver_Builder_Nodes::copy($nodes),
             static fn ($value) => is_string($value) ? addslashes($value) : $value
         );
+    }
+
+    /**
+     * slash() for one stored value (a settings object).
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    private static function slash_value($value)
+    {
+        return self::slash(['v' => $value])['v'];
     }
 }
