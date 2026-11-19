@@ -59,6 +59,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
      */
     private const FOREIGN = [
         'option'         => [
+            // Core's active plugin list: a safe package update puts the
+            // plugin it swapped back on it, without loading the new code
+            // (issue #843).
+            'active_plugins',
             'sidebars_widgets',
             'bricks_global_classes_timestamp',
             'bricks_global_classes_user',
@@ -141,6 +145,7 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
         'src/Integrations/Site_Gate_Pack.php'                => 'puts back the one gate option (seedprod_settings or ucp_options) it just wrote, named by WRITABLE; both are FOREIGN',
         'src/Tools/Meta/Update_Option.php'                   => 'edits a named option on request',
         'src/Tools/Packages/Manage_Updates.php'              => 'core auto-update lists',
+        'src/Tools/Packages/Safe_Package_Update.php'         => 'puts back the options a rolled-back package update changed (issue #843)',
         'src/Tools/Sync/Change_Set_Applier.php'              => 'applies a change set to named options',
         'src/Tools/Backup/Restore_Session.php'               => 'puts back the restoring user\'s own session and meta',
         'src/Tools/Builders/Builder_Design_Write.php'        => 'page builder design options',
