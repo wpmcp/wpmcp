@@ -28,8 +28,10 @@ if (! defined('ABSPATH')) {
  *   family   string  slug, as detected from the template
  *   label    string  display name used in messages
  *   tier     string  op tier ('free' unless the spec says otherwise)
- *   stores   array   id => ['type' => 'theme_mods'|'option'|'json_option', 'option' => name,
+ *   stores   array   id => ['type' => 'theme_mods'|'option'|'json_option'|'scalar_option', 'option' => name,
  *                   'seed' => the theme's default for the whole store, used when it is not stored]
+ *                   (a scalar_option store is one plain option value, at path [SCALAR])
+ *   capability string  op capability ('edit_theme_options' unless the spec says otherwise)
  *   settings array   key => ['store' => id, 'path' => [...], 'rule' => rule, 'seed' => array]
  *   refresh  callable|null  the theme's own CSS cache refresh after a write
  *
@@ -42,12 +44,44 @@ if (! defined('ABSPATH')) {
  * for the path's top-level key, written first when that key is not stored,
  * so a sub-field write never leaves the theme reading a half-empty array.
  *
+ * A path element may also be ['key_from_path' => [...], 'default' => key]: the
+ * key is the string stored at that path from the store root.
+ *
  * A rule is a built-in name ('color', 'width', 'int', 'px', 'font', 'html',
- * 'bool'), with 'min'/'max' for the numeric ones and 'var' (a regex) for the
+ * 'bool', 'flag': a bool stored as 'true' or '' and read back as a bool), with 'min'/'max' for the numeric ones and 'var' (a regex) for the
  * palette references a color may be, or a list of literal allowed values.
  */
 final class Theme_Settings_Pack
 {
+    /** The path a scalar_option store's whole value lives at. */
+    public const SCALAR = 'value';
+
+    /**
+     * $path with every ['key_from_path' => [...], 'default' => key] element
+     * replaced by the string stored at that path from the store root (e.g.
+     * the active palette named next to, not inside, the palette list), or
+     * the default when it is unset.
+     *
+     * @param array<mixed> $data
+     * @return array<mixed>
+     */
+    private static function concrete(array $data, array $path): array
+    {
+        foreach ($path as $i => $step) {
+            if (is_array($step) && isset($step['key_from_path'])) {
+                $key        = self::path_get($data, (array) $step['key_from_path']);
+                $path[ $i ] = is_string($key) && '' !== $key ? $key : $step['default'];
+            }
+        }
+        return $path;
+    }
+
+    /** Whether a rule is the 'flag' rule (a bool stored as 'true' or ''). */
+    private static function is_flag($rule): bool
+    {
+        return is_array($rule) && 'flag' === ($rule['rule'] ?? null);
+    }
+
     /**
      * The get/set operation pair for one spec.
      *
@@ -59,20 +93,21 @@ final class Theme_Settings_Pack
         $family = (string) $spec['family'];
         $label  = (string) $spec['label'];
         $tier   = (string) ($spec['tier'] ?? 'free');
+        $cap    = (string) ($spec['capability'] ?? 'edit_theme_options');
 
         return [
             "get-{$family}-settings" => [
                 'mode'         => 'read',
                 'tier'         => $tier,
-                'capability'   => 'edit_theme_options',
-                'description'  => sprintf('Read the writable %s settings (global colors, typography, container width, header/footer basics) as stored, with the allowlist', $label),
+                'capability'   => $cap,
+                'description'  => (string) ($spec['read_description'] ?? sprintf('Read the writable %s settings (global colors, typography, container width, header/footer basics) as stored, with the allowlist', $label)),
                 'input_schema' => [ 'type' => 'object', 'properties' => [] ],
                 'handler'      => static fn (): array => self::read($spec),
             ],
             "set-{$family}-settings" => [
                 'mode'               => 'write',
                 'tier'               => $tier,
-                'capability'         => 'edit_theme_options',
+                'capability'         => $cap,
                 'enabled_by_default' => (bool) apply_filters('wpmcp_enable_theme_write', false),
                 'opt_in_filter'      => 'wpmcp_enable_theme_write',
                 'description'        => sprintf('Set allowlisted %s settings. One invalid value refuses the whole batch before any write. Snapshotted for rollback-operation. Disabled by default (wpmcp_enable_theme_write filter)', $label),
@@ -122,7 +157,8 @@ final class Theme_Settings_Pack
             if (! isset($data[ $store ])) {
                 $data[ $store ] = self::load($spec, $store);
             }
-            $out[ (string) $key ] = self::path_get($data[ $store ], (array) $def['path']);
+            $value                = self::path_get($data[ $store ], self::concrete($data[ $store ], (array) $def['path']));
+            $out[ (string) $key ] = self::is_flag($def['rule']) ? 'true' === $value : $value;
         }
         return [ 'framework' => (string) $spec['family'], 'settings' => $out, 'allowlist' => array_keys($settings) ];
     }
@@ -174,6 +210,7 @@ final class Theme_Settings_Pack
             if (is_string($head) && ! array_key_exists($head, $stores[ $store ]) && isset($def['seed'])) {
                 $stores[ $store ][ $head ] = $def['seed'];
             }
+            $path = self::concrete($stores[ $store ], $path);
             $next = self::path_set($stores[ $store ], $path, $clean);
             if (null === $next) {
                 return [ 'error' => [
@@ -200,6 +237,10 @@ final class Theme_Settings_Pack
         foreach ((array) $plan['stores'] as $store => $data) {
             $def  = (array) $spec['stores'][ $store ];
             $name = self::option_name($def);
+            if ('scalar_option' === $def['type']) {
+                update_option($name, $data[ self::SCALAR ] ?? '');
+                continue;
+            }
             update_option($name, 'json_option' === $def['type'] ? wp_json_encode($data) : $data);
         }
 
@@ -271,6 +312,9 @@ final class Theme_Settings_Pack
     {
         $def = (array) $spec['stores'][ $store ];
         $raw = get_option(self::option_name($def), []);
+        if ('scalar_option' === $def['type']) {
+            return false === $raw || is_array($raw) || is_object($raw) ? [] : [ self::SCALAR => $raw ];
+        }
         if ('json_option' === $def['type']) {
             $raw = is_string($raw) ? json_decode($raw, true) : $raw;
         }
@@ -381,6 +425,9 @@ final class Theme_Settings_Pack
 
         if ('bool' === $name) {
             return is_bool($value) ? $value : null;
+        }
+        if ('flag' === $name) {
+            return is_bool($value) ? ($value ? 'true' : '') : null;
         }
         if (is_array($value) || is_object($value) || is_bool($value)) {
             return null;

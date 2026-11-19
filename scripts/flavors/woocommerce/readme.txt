@@ -109,7 +109,7 @@ This build ships no tool that can connect to the author's optional cloud service
 
 = Loopback requests to this site itself =
 
-The connection self-test calls this site's own REST route, and `scan-security` fetches this site's front page to read its security headers. Both are requests to your own server, not calls to any third party.
+The connection self-test calls this site's own REST route, and `scan-security` fetches this site's front page to read its security headers. Both are requests to your own server, not calls to any third party. With `checks:["compromise"]`, `scan-security` also fetches up to three of this site's pages as a browser, as a search crawler (a Googlebot user agent) and with a www.google.com Referer header, to spot content shown only to search engines, and sends HEAD requests for backup or dump files it finds in public folders. Nothing is sent to www.google.com: the Referer is only a header on the request to your own site.
 
 == Installation ==
 
@@ -134,6 +134,10 @@ WP MCP asks before destructive actions: through your MCP client's confirmation p
 = Does this replace my backup plugin? =
 
 No. Snapshots are fine-grained, per-operation undo, not full-site backups. Keep your backup solution.
+
+= Where are site backup archives stored? =
+
+In wp-content/uploads/wpmcp-site-backups by default, behind a deny rule that Apache honours. On nginx and other servers that ignore .htaccess, define WPMCP_BACKUP_DIR in wp-config.php with a folder outside the web root, for example define( 'WPMCP_BACKUP_DIR', '/home/example/wpmcp-backups' ); archives then go to its wpmcp-site-backups subfolder, and archives made earlier are moved there after the next backup. When the folder is under the web root, trigger-backup and get-backup-status request a test file placed in it from this site's own URL (at most once a day) and warn on the Dashboard if the server returns it; get-backup-status reports the folder in use and the last result.
 
 = How is this different from the full WP MCP plugin? =
 
