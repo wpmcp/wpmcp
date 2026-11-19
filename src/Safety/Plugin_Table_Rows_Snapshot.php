@@ -68,9 +68,18 @@ if (! defined('ABSPATH')) {
  * membership restore PMPro's cached levels of each captured user are
  * dropped, so its next read sees the restored rows.
  *
+ * Forum rows (issue #671) come from two forum plugins' own tables. wpForo
+ * keeps its main board in {prefix}wpforo_forums, _topics, _posts and
+ * _postmeta, keyed by forumid and topicid (posts and postmeta captured by
+ * the topic they belong to, so a moved topic's rows all go back). Asgaros
+ * Forum keeps {prefix}forum_topics and forum_posts keyed by id, and a
+ * topic's posts by their parent_id. Each kind allows only its one table.
+ * After a wpForo restore its own cache is cleaned (wpforo_clean_cache), as
+ * its screens do after a change.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
- * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
+ * for a dictionary row, a Pretty Links link or a forum row, and Wordfence's own admin capability (manage_options,
  * manage_network on a multisite network) for a Wordfence row.
  */
 final class Plugin_Table_Rows_Snapshot
@@ -84,6 +93,13 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'mepr_rule_access_',
         'rank_math'        => 'rank_math_',
         'prli'             => 'prli_',
+        'wpforo_forum'          => 'wpforo_',
+        'wpforo_topic'          => 'wpforo_',
+        'wpforo_topic_posts'    => 'wpforo_',
+        'wpforo_topic_postmeta' => 'wpforo_',
+        'asgaros_topic'         => 'forum_',
+        'asgaros_post'          => 'forum_',
+        'asgaros_topic_posts'   => 'forum_',
         'pmpro_levels'     => 'pmpro_',
         'pmpro_members'    => 'pmpro_',
         'pmpro_codes'      => 'pmpro_',
@@ -103,6 +119,19 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'rule_id',
         'wordfence_blocks' => 'IP',
         'pmpro_members'    => 'user_id',
+        'wpforo_forum'          => 'forumid',
+        'wpforo_topic'          => 'topicid',
+        'wpforo_topic_posts'    => 'topicid',
+        'wpforo_topic_postmeta' => 'topicid',
+        'asgaros_topic_posts'   => 'parent_id',
+    ];
+
+    /** kind => the column its rows are read in order of, for a table with no `id` column. */
+    private const ORDER_COLUMNS = [
+        'wpforo_forum'          => 'forumid',
+        'wpforo_topic'          => 'topicid',
+        'wpforo_topic_posts'    => 'postid',
+        'wpforo_topic_postmeta' => 'metaid',
     ];
 
     /** kind => the only suffixes it allows, for a kind with a fixed table. */
@@ -110,6 +139,13 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => [ 'conditions' ],
         'rank_math'        => [ 'redirections' ],
         'prli'             => [ 'links' ],
+        'wpforo_forum'          => [ 'forums' ],
+        'wpforo_topic'          => [ 'topics' ],
+        'wpforo_topic_posts'    => [ 'posts' ],
+        'wpforo_topic_postmeta' => [ 'postmeta' ],
+        'asgaros_topic'         => [ 'topics' ],
+        'asgaros_post'          => [ 'posts' ],
+        'asgaros_topic_posts'   => [ 'posts' ],
         'pmpro_levels'     => [ 'membership_levels' ],
         'pmpro_members'    => [ 'memberships_users' ],
         'pmpro_codes'      => [ 'discount_codes' ],
@@ -245,7 +281,7 @@ final class Plugin_Table_Rows_Snapshot
      * @param int[] $ids
      * @return array<int, array<string, string|null>>
      */
-    public static function rows(string $table, array $ids, string $column = 'id'): array
+    public static function rows(string $table, array $ids, string $column = 'id', string $order = 'id'): array
     {
         global $wpdb;
 
@@ -256,7 +292,7 @@ final class Plugin_Table_Rows_Snapshot
         $in = implode(',', array_fill(0, count($ids), '%d'));
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of a third-party table; $in holds only %d placeholders.
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY id ASC", $table, $column, ...$ids), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY %i ASC", ...array_merge([ $table, $column ], $ids, [ $order ])), ARRAY_A);
 
         return array_values((array) $rows);
     }
@@ -439,6 +475,9 @@ final class Plugin_Table_Rows_Snapshot
         if ('pmpro_members' === $kind) {
             self::clear_pmpro_user_cache($ids);
         }
+        if (str_starts_with($kind, 'wpforo_') && function_exists('wpforo_clean_cache')) {
+            wpforo_clean_cache();
+        }
         self::after_wordfence_restore($kind);
     }
 
@@ -466,7 +505,7 @@ final class Plugin_Table_Rows_Snapshot
     private static function kind_rows(string $kind, string $table, array $ids): array
     {
         if (! isset(self::BINARY_COLUMNS[ $kind ])) {
-            return self::rows($table, $ids, self::key_column($kind));
+            return self::rows($table, $ids, self::key_column($kind), self::ORDER_COLUMNS[ $kind ] ?? 'id');
         }
         if ([] === $ids) {
             return [];
@@ -599,6 +638,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('prli' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring Pretty Links links requires the manage_options capability.');
+            }
+            return;
+        }
+        if (str_starts_with($kind, 'wpforo_') || str_starts_with($kind, 'asgaros_')) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring forum rows requires the manage_options capability.');
             }
             return;
         }

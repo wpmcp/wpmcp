@@ -229,6 +229,7 @@ New:
 * bbPress topic tags on get-topic and list-topics, with a tag filter (#882).
 * Kadence element expiry settings in the layout operations (#892).
 * MemberPress update-rule adds or removes one access condition, and create-membership fills in the same defaults as wp-admin (#822).
+* wpForo and Asgaros Forum: forums, topics and replies, with the bbPress operation names. wpForo topics can be closed, opened and moved; Asgaros Forum topics and replies can be posted, moderated, moved and deleted. Writes are off until the site turns them on, and each can be undone (#671).
 
 = 0.9.1 =
 This update tightens privacy and credential handling across many integrations and adds a dozen new ones.
