@@ -37,6 +37,8 @@ if (! defined('ABSPATH')) {
  * before block markers, since Oxygen leaves post_content as it was),
  * a BeTheme BeBuilder layout (a non-empty `mfn-page-items` row, issue #643;
  * also before block markers, since BeTheme renders it beside post_content),
+ * Brizy's `brizy_enabled` flag (issue #645, before block markers for the
+ * same reason),
  * Divi 5's `<!-- wp:divi/ -->` blocks (a Divi 5 layout whose flags were
  * never written, as on imported content), Gutenberg's `<!-- wp: -->` block
  * comment markers in post_content, then a WPBakery `[vc_row]` or
@@ -108,6 +110,12 @@ class Builder_Detector
         $mfn = get_post_meta($post_id, 'mfn-page-items', true);
         if ((is_array($mfn) && [] !== $mfn) || (is_string($mfn) && '' !== trim($mfn))) {
             return 'betheme';
+        }
+
+        // Brizy's own isBrizyEnabled() test (issue #645). Brizy renders the
+        // page from its compiled postmeta, whatever post_content holds.
+        if ((bool) get_post_meta($post_id, 'brizy_enabled', true)) {
+            return 'brizy';
         }
 
         $post = get_post($post_id);

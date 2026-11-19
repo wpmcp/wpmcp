@@ -80,6 +80,14 @@ if (! defined('ABSPATH')) {
  * add, remove, move; add also takes element {template: id}) and publish
  * sets the page live (see BeTheme_Content and BeTheme_Tree).
  *
+ * Brizy pages (issue #645) need Brizy active (plugin_missing otherwise), the
+ * caller's edit_post on the page and, once it holds editor data, the read's
+ * expected_hash. Content is the whole page JSON (an object with items, or a
+ * list of blocks); operations address elements by value._id (update merges
+ * value fields, add, remove, move; add also takes element {template: id})
+ * and publish sets the page live. Writes ask Brizy to recompile the page on
+ * its next view (see Brizy_Content and Brizy_Tree).
+ *
  * With `scope` 'design_system' the call edits one entry of the builder's
  * global design data instead of a post (issue #391): Bricks classes,
  * variables and palettes, Breakdance classes and palette colors, Avada
@@ -164,13 +172,17 @@ class Update_Builder_Content
             return $this->update_betheme($post_id, $args);
         }
 
+        if ('brizy' === $builder) {
+            return $this->update_brizy($post_id, $args);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return $this->update_breakdance($post_id, $args, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone' and 'betheme'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone', 'betheme' and 'brizy'; got '{$builder}'."
         );
     }
 
@@ -1046,6 +1058,143 @@ class Update_Builder_Content
 
             case 'move':
                 return [BeTheme_Tree::move($sections, $uid, $to, $index), $uid];
+        }
+
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move or publish."));
+    }
+
+    /**
+     * Brizy pages (issue #645): the whole page data or one operation by
+     * element id, on a page Brizy renders or a blank classic page (its
+     * first layout), while Brizy is active.
+     */
+    private function update_brizy(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $detected  = Builder_Detector::detect($post_id);
+        $blank     = 'classic' === $detected && '' === trim((string) get_post($post_id)->post_content);
+        if ('brizy' !== $detected && ! $blank) {
+            return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not a Brizy page.");
+        }
+        if (! Brizy_Content::plugin_active()) {
+            return Brizy_Content::unavailable();
+        }
+        if (! current_user_can('edit_post', $post_id)) {
+            return new \WP_Error('forbidden', 'You are not allowed to edit this page.', ['status' => 403]);
+        }
+
+        if (Brizy_Content::has_layout($post_id)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a Brizy page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(Brizy_Content::hash($post_id), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
+        }
+
+        $status = null;
+        $path   = null;
+        $data   = null;
+        try {
+            if ('publish' === $operation) {
+                $refusal = $this->publish_refusal($post_id, 'invalid_brizy_request');
+                if (null !== $refusal) {
+                    return $refusal;
+                }
+                $status = 'publish';
+            } else {
+                [$data, $path] = $this->apply_brizy_operation($post_id, $operation, $args);
+            }
+        } catch (\InvalidArgumentException $e) {
+            return new \WP_Error('invalid_brizy_request', $e->getMessage());
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $data, $status) {
+                if (null !== $status) {
+                    Save_Filters::set_post_status($post_id, $status);
+                } else {
+                    Brizy_Content::save($post_id, (array) $data);
+                }
+                return true;
+            }
+        );
+
+        $result = [
+            'operation_id'    => $out['operation_id'],
+            'post_id'         => $post_id,
+            'builder'         => 'brizy',
+            'hash'            => Brizy_Content::hash($post_id),
+            'compile_pending' => Brizy_Content::compile_pending($post_id),
+        ];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * The new page data for one Brizy operation, and the element id it
+     * names when it has one.
+     *
+     * @return array{0:array<string,mixed>,1:?string}
+     * @throws \InvalidArgumentException
+     */
+    private function apply_brizy_operation(int $post_id, string $operation, array $args): array
+    {
+        if ('' === $operation) {
+            $content = $args['content'] ?? null;
+            $decoded = is_string($content) ? json_decode($content, true) : null;
+            if (! is_array($decoded)) {
+                throw new \InvalidArgumentException(esc_html('Brizy content must be the page JSON (an object with items, or a list of blocks), or pass an operation.'));
+            }
+            return [Brizy_Tree::validate($decoded), null];
+        }
+
+        $data  = Brizy_Tree::validate(Brizy_Content::decode($post_id) ?? ['items' => []]);
+        $id    = (string) ($args['path'] ?? '');
+        $to    = (string) ($args['to'] ?? '');
+        $index = isset($args['index']) ? (int) $args['index'] : null;
+
+        switch ($operation) {
+            case 'update':
+                $attrs = $args['attrs'] ?? [];
+                if (! is_array($attrs) || [] === $attrs) {
+                    throw new \InvalidArgumentException(esc_html('update needs attrs: value fields to merge (null removes one).'));
+                }
+                return [Brizy_Tree::update($data, $id, $attrs), $id];
+
+            case 'add':
+                $element = $args['element'] ?? null;
+                if (! is_array($element)) {
+                    throw new \InvalidArgumentException(esc_html('add needs an element: {type, value} (blocks at the top also take blockId), or {template: id}.'));
+                }
+                if (array_key_exists('template', $element)) {
+                    if (1 !== count($element) || ! is_scalar($element['template'])) {
+                        throw new \InvalidArgumentException(esc_html('element {template} takes only a template id.'));
+                    }
+                    if ('' !== $to) {
+                        throw new \InvalidArgumentException(esc_html("A Brizy template adds blocks, so to must be '' (the top of the page)."));
+                    }
+                    $nodes = Brizy_Content::template_nodes((string) $element['template']);
+                    return Brizy_Tree::insert($data, '', $index, $nodes);
+                }
+                return Brizy_Tree::insert($data, $to, $index, [$element]);
+
+            case 'remove':
+                return [Brizy_Tree::remove($data, $id), null];
+
+            case 'move':
+                return [Brizy_Tree::move($data, $id, $to, $index), $id];
         }
 
         throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move or publish."));

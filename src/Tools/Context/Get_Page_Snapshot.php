@@ -357,6 +357,16 @@ class Get_Page_Snapshot
             ];
         }
 
+        if ('brizy' === $builder) {
+            return [
+                'source'             => 'post_content',
+                'complete'           => false,
+                'unmeasured'         => self::CONTENT_SECTIONS,
+                'stale_post_content' => false,
+                'note'               => 'Brizy renders this page from its compiled postmeta, not post_content; the element inventory covers post_content only (get-builder-content reads the Brizy elements).',
+            ];
+        }
+
         if ('thrive' === $builder) {
             return [
                 'source'             => 'post_content',

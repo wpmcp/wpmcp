@@ -25,7 +25,7 @@ class Builder_Design
 {
     public const SCOPES = ['design_system', 'templates', 'catalog'];
 
-    public const BUILDERS = ['bricks', 'breakdance', 'oxygen', 'divi', 'wpbakery', 'avada', 'thrive', 'cornerstone', 'betheme'];
+    public const BUILDERS = ['bricks', 'breakdance', 'oxygen', 'divi', 'wpbakery', 'avada', 'thrive', 'cornerstone', 'betheme', 'brizy'];
 
     /**
      * @param array<string,mixed> $args
@@ -49,11 +49,11 @@ class Builder_Design
         }
 
         if ('' === $builder) {
-            return new \WP_Error('missing_builder', 'A scope read needs builder (bricks, breakdance, oxygen, divi, wpbakery, avada, thrive, cornerstone or betheme) or a post_id to detect it from.');
+            return new \WP_Error('missing_builder', 'A scope read needs builder (bricks, breakdance, oxygen, divi, wpbakery, avada, thrive, cornerstone, betheme or brizy) or a post_id to detect it from.');
         }
 
         if (! in_array($builder, self::BUILDERS, true)) {
-            return new \WP_Error('unsupported_builder', "scope reads support 'bricks', 'breakdance', 'oxygen', 'divi', 'wpbakery', 'avada', 'thrive', 'cornerstone' and 'betheme'; got '{$builder}'.");
+            return new \WP_Error('unsupported_builder', "scope reads support 'bricks', 'breakdance', 'oxygen', 'divi', 'wpbakery', 'avada', 'thrive', 'cornerstone', 'betheme' and 'brizy'; got '{$builder}'.");
         }
 
         $element = (string) ($args['element'] ?? '');
@@ -80,6 +80,10 @@ class Builder_Design
 
         if ('betheme' === $builder) {
             return BeTheme_Design::read($scope, $element);
+        }
+
+        if ('brizy' === $builder) {
+            return Brizy_Design::read($scope, $element);
         }
 
         if ('divi' === $builder) {

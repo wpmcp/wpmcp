@@ -103,13 +103,17 @@ class Get_Builder_Content
             return BeTheme_Content::read($post_id);
         }
 
+        if ('brizy' === $builder) {
+            return Brizy_Content::read($post_id);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return Breakdance_Content::read($post_id, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone' and 'betheme'; this post was detected as '{$builder}'."
+            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone', 'betheme' and 'brizy'; this post was detected as '{$builder}'."
         );
     }
 }
