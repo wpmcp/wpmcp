@@ -80,6 +80,15 @@ if (! defined('ABSPATH')) {
  * add, remove, move; add also takes element {template: id}) and publish
  * sets the page live (see BeTheme_Content and BeTheme_Tree).
  *
+ * Visual Composer pages (issue #642) need Visual Composer loaded
+ * (plugin_missing otherwise) and expected_hash, the read's hash. Its
+ * browser editor renders the page markup and CSS, so only what can be kept
+ * in step in both the editor's document and the saved markup is written:
+ * update (path: an element id) of an attribute that is the element's whole
+ * rendered content (text sets the Text Block output) or of the layer name,
+ * and publish. Anything else is refused with editor_render_required (see
+ * Visual_Composer_Content).
+ *
  * With `scope` 'design_system' the call edits one entry of the builder's
  * global design data instead of a post (issue #391): Bricks classes,
  * variables and palettes, Breakdance classes and palette colors, Avada
@@ -164,13 +173,17 @@ class Update_Builder_Content
             return $this->update_betheme($post_id, $args);
         }
 
+        if ('visual-composer' === $builder) {
+            return $this->update_visual_composer($post_id, $args);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return $this->update_breakdance($post_id, $args, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone' and 'betheme'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone', 'betheme' and 'visual-composer'; got '{$builder}'."
         );
     }
 
@@ -1049,6 +1062,95 @@ class Update_Builder_Content
         }
 
         throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move or publish."));
+    }
+
+    /**
+     * Visual Composer pages (issue #642): update of an element's rendered
+     * content or layer name, or publish, on a page detected as Visual
+     * Composer, while the plugin is loaded and the page still has the hash
+     * the caller read. Every other change is refused before anything is
+     * written (see Visual_Composer_Content).
+     */
+    private function update_visual_composer(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $detected  = Builder_Detector::detect($post_id);
+        if ('visual-composer' !== $detected) {
+            return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not a Visual Composer page.");
+        }
+        if (! Visual_Composer_Content::plugin_active()) {
+            return Visual_Composer_Content::unavailable();
+        }
+        $expected = (string) ($args['expected_hash'] ?? '');
+        if ('' === $expected) {
+            return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a Visual Composer page: pass the hash get-builder-content returned for it.');
+        }
+        if (! hash_equals(Visual_Composer_Content::hash($post_id), $expected)) {
+            return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+        }
+
+        $doc  = null;
+        $html = '';
+        $path = null;
+        if ('publish' === $operation) {
+            $refusal = $this->publish_refusal($post_id, 'invalid_visual_composer_request');
+            if (null !== $refusal) {
+                return $refusal;
+            }
+        } elseif ('update' === $operation) {
+            $path  = (string) ($args['path'] ?? '');
+            $attrs = $args['attrs'] ?? [];
+            if (! is_array($attrs)) {
+                return new \WP_Error('invalid_visual_composer_request', 'attrs must be an object of attribute => new value.');
+            }
+            if (isset($args['text'])) {
+                $attrs['output'] = (string) $args['text'];
+            }
+            try {
+                [$doc, $html] = Visual_Composer_Content::update($post_id, $path, $attrs);
+            } catch (\DomainException $e) {
+                return Visual_Composer_Content::render_required($post_id, $e->getMessage());
+            } catch (\InvalidArgumentException $e) {
+                return new \WP_Error('invalid_visual_composer_request', $e->getMessage());
+            }
+        } else {
+            $what = '' === $operation ? 'a whole document' : "the {$operation} operation";
+            if (! in_array($operation, ['', 'add', 'remove', 'move', 'restore', 'save_template'], true)) {
+                return new \WP_Error('invalid_visual_composer_request', "Unknown operation {$operation}; Visual Composer pages take update and publish.");
+            }
+
+            return Visual_Composer_Content::render_required($post_id, $what);
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $doc, $html) {
+                if (null === $doc) {
+                    Save_Filters::set_post_status($post_id, 'publish');
+                } else {
+                    Visual_Composer_Content::save($post_id, $doc, $html);
+                }
+                return true;
+            }
+        );
+
+        $result = [
+            'operation_id' => $out['operation_id'],
+            'post_id'      => $post_id,
+            'builder'      => 'visual-composer',
+            'hash'         => Visual_Composer_Content::hash($post_id),
+        ];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
     }
 
     /**

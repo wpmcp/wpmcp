@@ -97,6 +97,7 @@ final class Builder_Design_Data
         'divi'       => 'the Divi theme (Divi 5)',
         'oxygen'     => 'the Oxygen 6 plugin',
         'thrive'     => 'the Thrive Architect plugin',
+        'visual-composer' => 'the Visual Composer Website Builder plugin',
         'wpbakery'   => 'the WPBakery Page Builder plugin',
     ];
 
