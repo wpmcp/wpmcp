@@ -215,7 +215,7 @@ final class Breakdance_Page
         $noun    = $product['block'];
         $invalid = "invalid_{$builder}_request";
         if (! post_type_exists($product['block_type'])) {
-            return new \WP_Error('builder_not_loaded', "Saving a {$noun} needs {$product['plugin']} loaded on this site, since the {$noun} post type is its own.");
+            return new \WP_Error('builder_not_loaded', "Saving the new {$noun} needs {$product['plugin']} loaded on this site, since the {$noun} post type is its own.");
         }
 
         // The engine lists only published blocks and a block renders
@@ -224,12 +224,12 @@ final class Breakdance_Page
         // (issue #947). Refused before anything is written or snapshotted.
         $type_object = get_post_type_object($product['block_type']);
         if ($type_object && ! current_user_can($type_object->cap->edit_posts)) {
-            return new \WP_Error('forbidden', "Saving a {$noun} needs the capability to create {$product['label']} {$noun}s.");
+            return new \WP_Error('forbidden', "Saving the new {$noun} needs the capability to create {$product['label']} {$noun}s.");
         }
         if ($type_object && ! current_user_can($type_object->cap->publish_posts)) {
             return new \WP_Error(
                 'forbidden',
-                sprintf('Saving a new %1$s %2$s needs the %3$s capability: %1$s publishes a %2$s as soon as it is saved. Ask an Editor or Administrator to save it.', $product['label'], $noun, $type_object->cap->publish_posts),
+                sprintf('Saving the new %1$s %2$s needs the %3$s capability: %1$s publishes every %2$s as soon as it is saved. Ask an Editor or Administrator to save it.', $product['label'], $noun, $type_object->cap->publish_posts),
                 ['status' => 403, 'capability' => $type_object->cap->publish_posts]
             );
         }
