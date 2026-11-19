@@ -181,6 +181,10 @@ return [
         'src/Integrations/Theme_Layouts_GeneratePress.php',
         'src/Integrations/Theme_Layouts_Hfe.php',
         'src/Integrations/Theme_Layouts_Target_Rules.php',
+        // The Blocksy Companion extension ops (issue #650), paid-tier.
+        // strip.php takes out the merge and the rollback refresh in
+        // Theme_Framework_Pack.
+        'src/Integrations/Theme_Blocksy_Extensions.php',
         // The Elementor addon suite packs (issue #286): widget catalog and
         // module toggle ops for three addon suites, all paid-tier. strip.php
         // takes out the line in Theme_Integration that merges them and the
@@ -192,6 +196,15 @@ return [
         // And its funnel, step and checkout product writes (issue #500),
         // merged only by FunnelKit_Pack.
         'src/Integrations/FunnelKit_Writes.php',
+        // CartFlows flows, steps and checkout products (issue #662),
+        // paid-tier. strip.php takes out the line in Theme_Integration that
+        // merges them.
+        'src/Integrations/CartFlows_Pack.php',
+        // WordPress core personal data request ops (issue #714), paid-tier.
+        // strip.php takes out the line in Theme_Integration that merges them.
+        'src/Integrations/Core_Privacy_Pack.php',
+        // And its order bump ops (issue #663), merged only by FunnelKit_Pack.
+        'src/Integrations/FunnelKit_Bumps.php',
         // LMS course structure and enrollments (issue #394), paid-tier.
         // strip.php takes out the lines in Plugin_Data_Integration that merge
         // the ops, count the pack towards availability and name it in the
@@ -226,12 +239,20 @@ return [
         // free i18n tools' adapter, stays.
         'src/Integrations/I18n_Pack.php',
         'src/Integrations/I18n_Page_Text.php',
+        // Theme and plugin string translation (issue #689), merged by I18n_Pack.
+        'src/Integrations/I18n_Strings.php',
         // MemberPress (issue #668), paid-tier. strip.php takes out the lines
         // in Plugin_Data_Integration that merge the ops and count the pack
         // towards availability. The plugin_table_rows kind for its rule
         // access rows stays: it acts on MemberPress's own table and needs
         // no MemberPress class.
         'src/Integrations/MemberPress_Pack.php',
+        // Paid Memberships Pro members, orders, discount codes and writes
+        // (issue #667), paid-tier. strip.php takes out the line in
+        // Paid_Memberships_Pro_Integration that merges them; the free level
+        // reads stay. The pmpro_* plugin_table_rows kinds stay: they act on
+        // PMPro's own tables and need no PMPro class.
+        'src/Integrations/Paid_Memberships_Pro_Pack.php',
         // Elementor Pro form submissions (issue #654), paid-tier. strip.php
         // takes out the lines in Plugin_Data_Integration that merge the ops
         // and count the pack towards availability. The dispatcher's
@@ -252,6 +273,10 @@ return [
         // the ops and count the pack towards availability. The option
         // snapshot it writes is generic and needs no plugin class.
         'src/Integrations/Translation_Settings_Pack.php',
+        // Checkout Field Editor for WooCommerce checkout fields (issue #660),
+        // paid-tier. strip.php takes out its lines in Plugin_Data_Integration;
+        // the option snapshot it writes is generic.
+        'src/Integrations/Checkout_Field_Editor_Pack.php',
         // Cache and performance plugin settings (issue #692), paid-tier.
         // strip.php takes out the line in Theme_Integration that merges the
         // ops and the rollback refresher in Plugin.
@@ -261,6 +286,10 @@ return [
         'src/Integrations/Cache_Settings_Perfmatters.php',
         'src/Integrations/Cache_Settings_FlyingPress.php',
         'src/Integrations/Cache_Settings_LiteSpeed.php',
+        // WP Offload Media offload status (issue #701), paid-tier and read
+        // only. strip.php takes out the lines in Plugin_Data_Integration that
+        // merge the ops and count the pack towards availability.
+        'src/Integrations/Offload_Media_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

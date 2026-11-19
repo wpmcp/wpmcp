@@ -4,6 +4,7 @@ namespace WPMCP\Tests\Free\Integrations;
 
 use WPMCP\Integrations\Plugin_Data_Integration;
 use WPMCP\Integrations\WS_Form_Pack;
+use WPMCP\MCP\Stdio_Transport;
 use WPMCP\Safety\Rollback_Service;
 use WPMCP\Safety\Snapshot_Store;
 
@@ -207,6 +208,40 @@ class WSFormPackTest extends \WP_UnitTestCase
         $out = $this->write('wsform-delete-entry', [ 'entry_id' => $id ], true);
         $this->assertSame('opt_in_required', $out['error']['code'] ?? null);
         $this->assertSame(1, $this->rows($id)['submit']);
+    }
+
+    /**
+     * Issue #1041: with WS Form inactive, an opt-in-gated write names WS
+     * Form rather than the opt-in filter, which would not help until the
+     * plugin is active, on the dispatcher and over stdio alike.
+     */
+    public function test_with_ws_form_inactive_an_opted_out_write_names_the_plugin_not_the_opt_in(): void
+    {
+        remove_all_filters('wpmcp_enable_ws_form_write');
+        remove_all_filters('wpmcp_ws_form_active');
+        add_filter('wpmcp_ws_form_active', '__return_false');
+        $call = [ 'operation' => 'wsform-update-entry-status', 'args' => [ 'entry_id' => 1, 'starred' => true ] ];
+
+        $out = (new Plugin_Data_Integration())->handle_write($call);
+        $this->assertSame('plugin_missing', $out['error']['code'] ?? null, (string) wp_json_encode($out));
+        $this->assertStringContainsString('Install and activate WS Form', $out['error']['message']);
+
+        $stdio = (new Stdio_Transport())->handle_request([
+            'jsonrpc' => '2.0',
+            'id'      => 1,
+            'method'  => 'tools/call',
+            'params'  => [ 'name' => 'wpmcp-plugin-data-write', 'arguments' => $call ],
+        ]);
+        $text = (string) wp_json_encode($stdio);
+        $this->assertStringContainsString('Install and activate WS Form', $text);
+        $this->assertStringNotContainsString('opt_in_required', $text);
+        $this->assertStringNotContainsString('wpmcp_enable_ws_form_write', $text);
+
+        // Once WS Form is active the opt-in refusal is the answer again.
+        remove_all_filters('wpmcp_ws_form_active');
+        add_filter('wpmcp_ws_form_active', '__return_true');
+        $out = (new Plugin_Data_Integration())->handle_write($call);
+        $this->assertSame('opt_in_required', $out['error']['code'] ?? null, (string) wp_json_encode($out));
     }
 
     public function test_every_op_takes_manage_options(): void
