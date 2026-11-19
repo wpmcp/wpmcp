@@ -1,38 +1,7 @@
 <?php
 
 namespace {
-    if (! class_exists('FLBuilderModel', false)) {
-        /**
-         * Stand-in for Beaver Builder's model class, recording the asset
-         * cache calls wpmcp makes. Only reached when the
-         * wpmcp_beaver_builder_active filter says the plugin is loaded.
-         */
-        class FLBuilderModel // phpcs:ignore
-        {
-            /** @var array<int,array{0:string,1:int}> */
-            public static array $calls = [];
-
-            public static function delete_all_asset_cache($post_id = false): void
-            {
-                self::$calls[] = ['delete_all_asset_cache', (int) $post_id];
-            }
-
-            public static function delete_node_template_asset_cache($post_id = false): void
-            {
-                self::$calls[] = ['delete_node_template_asset_cache', (int) $post_id];
-            }
-
-            /**
-             * The builder UI is never open in a test. Other plugins probe
-             * this whenever the class exists (Spectra does on every page view
-             * in the live blocks leg), so the stand-in answers like the real one.
-             */
-            public static function is_builder_active(): bool
-            {
-                return false;
-            }
-        }
-    }
+    require_once dirname(__DIR__, 2) . '/support/beaver-builder-model-double.php';
 }
 
 namespace WPMCP\Tests\Pro\Builders {
@@ -100,8 +69,11 @@ namespace WPMCP\Tests\Pro\Builders {
             return $post_id;
         }
 
+        /** A write pinned to the page as it is now, as an agent passes its read's hash. */
         private function update(int $post_id, array $args)
         {
+            $args += ['expected_hash' => Beaver_Builder_Content::hash($post_id)];
+
             return (new Update_Builder_Content())->handle(['post_id' => $post_id, 'builder' => 'beaver-builder'] + $args);
         }
 

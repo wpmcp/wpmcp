@@ -182,6 +182,109 @@ class Beaver_Builder_Nodes
     }
 
     /**
+     * Copy a saved template's nodes in under `to` ('' for top level) from
+     * `index` on (append when null), every id renewed, as Beaver Builder's
+     * apply_node_template() does. Each top-level node of the template is a
+     * root placed in order; with $roots_only (a global template) only the
+     * roots go in, keeping their template links, since Beaver Builder
+     * renders a global node's children from the template itself.
+     *
+     * @param array<string,object> $nodes
+     * @param array<string,object> $source the template's stored node map
+     * @return array{0:array<string,object>,1:string} nodes, first new root id
+     */
+    public static function graft(array $nodes, array $source, string $to, ?int $index, bool $roots_only = false): array
+    {
+        $nodes  = self::copy($nodes);
+        $source = self::copy($source);
+        $parent = '' === $to ? null : self::require_node($nodes, $to)->node;
+        $roots  = self::child_ids($source, null);
+        if ([] === $roots) {
+            throw new \InvalidArgumentException(esc_html('The template holds no nodes.'));
+        }
+        $count = count(self::child_ids($nodes, $parent));
+        $index = self::clamp_index($index, $count);
+
+        $keep = [];
+        foreach ($roots as $root) {
+            $keep = array_merge($keep, $roots_only ? [$root] : self::subtree_ids($source, $root));
+        }
+        $map = self::renew_ids($nodes, $keep);
+
+        foreach ($keep as $old) {
+            $node       = $source[$old];
+            $node->node = $map[$old];
+            if (in_array($old, $roots, true)) {
+                $node->parent   = $parent;
+                $node->position = $count + (int) array_search($old, $roots, true);
+                self::assert_placement($node, null === $parent ? null : $nodes[$parent]);
+            } else {
+                $node->parent = $map[ (string) $node->parent ];
+            }
+            $nodes[$map[$old]] = $node;
+        }
+        foreach ($roots as $i => $root) {
+            $nodes = self::place($nodes, $map[$root], $parent, $index + $i);
+        }
+
+        return [$nodes, $map[$roots[0]]];
+    }
+
+    /**
+     * The nodes a saved template stores for a node and its subtree ('' for
+     * the whole layout), as Beaver Builder's save_node_template() builds
+     * them: every id renewed, the root at the top at position 0, a column
+     * root at full width, and the children of nested global nodes left out
+     * (only their linked root is kept).
+     *
+     * @param array<string,object> $nodes
+     * @return array<string,object>
+     */
+    public static function extract(array $nodes, string $id): array
+    {
+        $nodes = self::copy($nodes);
+        if ('' === $id) {
+            $keep = array_map('strval', array_keys($nodes));
+        } else {
+            self::require_node($nodes, $id);
+            $keep = self::subtree_ids($nodes, $id);
+        }
+        $keep = array_values(array_filter(
+            $keep,
+            static fn (string $k): bool => $k === $id || ! isset($nodes[$k]->template_id) || isset($nodes[$k]->template_root_node)
+        ));
+        $map = self::renew_ids([], $keep);
+
+        $out = [];
+        foreach ($keep as $old) {
+            $node       = $nodes[$old];
+            $node->node = $map[$old];
+            if ($old === $id) {
+                $node->parent   = null;
+                $node->position = 0;
+                if ('column' === $node->type && is_object($node->settings ?? null)) {
+                    $node->settings->size = 100;
+                }
+            } elseif (null !== self::parent_key($node->parent ?? null)) {
+                $parent = (string) $node->parent;
+                if (! isset($map[$parent])) {
+                    continue;
+                }
+                $node->parent = $map[$parent];
+            }
+            $out[$map[$old]] = $node;
+        }
+
+        return $out;
+    }
+
+    /** A new node id in Beaver Builder's shape, unused in $nodes. */
+    public static function fresh_id(array $nodes = []): string
+    {
+        return self::new_id($nodes);
+    }
+
+    /**
      * Stable order of a parent's children: by position, then map order.
      *
      * @param array<string,object> $nodes
@@ -392,6 +495,26 @@ class Beaver_Builder_Nodes
         } while (ctype_digit($id) || isset($nodes[$id]));
 
         return $id;
+    }
+
+    /**
+     * Fresh ids for the given old ids, unused in $nodes and among themselves.
+     *
+     * @param array<string,object> $nodes
+     * @param string[]             $old
+     * @return array<string,string> old id => new id
+     */
+    private static function renew_ids(array $nodes, array $old): array
+    {
+        $map   = [];
+        $taken = $nodes;
+        foreach ($old as $id) {
+            $new             = self::new_id($taken);
+            $taken[$new]     = true;
+            $map[(string) $id] = $new;
+        }
+
+        return $map;
     }
 
     /**

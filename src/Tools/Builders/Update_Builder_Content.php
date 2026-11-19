@@ -359,6 +359,14 @@ class Update_Builder_Content
         throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove{$more}."));
     }
 
+    /**
+     * Beaver Builder pages: a whole node tree or one node operation, plus
+     * (issue #638) publish, restore, add from a saved template and
+     * save_template, only on a page detected as Beaver Builder or a blank
+     * one, and only against the hash the page was read with once it holds
+     * a layout. A page with unpublished editor changes takes only publish,
+     * which puts that draft live.
+     */
     private function update_beaver_builder(int $post_id, array $args)
     {
         $operation = (string) ($args['operation'] ?? '');
@@ -372,16 +380,58 @@ class Update_Builder_Content
             );
         }
 
-        if (Beaver_Builder_Content::draft_pending($post_id)) {
+        if ('save_template' === $operation) {
+            return Beaver_Builder_Page::save_template($post_id, $args);
+        }
+
+        if (Beaver_Builder_Content::has_layout($post_id)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a Beaver Builder page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(Beaver_Builder_Content::hash($post_id), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
+        }
+
+        $pending = Beaver_Builder_Content::draft_pending($post_id);
+        if ($pending && 'publish' !== $operation) {
             return new \WP_Error(
                 'beaver_builder_draft_pending',
-                'This page has unpublished Beaver Builder edits; publish or discard them in the editor first.'
+                'This page has unpublished Beaver Builder edits; publish them (operation publish) or discard them in the editor first.'
             );
         }
 
-        $path = null;
+        $path     = null;
+        $nodes    = null;
+        $settings = null;
+        $merge    = null;
+        $status   = null;
         try {
-            if ('' === $operation) {
+            $element = $args['element'] ?? null;
+            if ('publish' === $operation) {
+                if ('publish' !== get_post_status($post_id)) {
+                    $refusal = $this->publish_refusal($post_id, 'invalid_beaver_builder_request');
+                    if (null !== $refusal) {
+                        return $refusal;
+                    }
+                    $status = 'publish';
+                } elseif (! $pending) {
+                    return new \WP_Error('already_published', 'This page is already published and has no unpublished Beaver Builder edits.');
+                }
+                if ($pending) {
+                    $nodes    = Beaver_Builder_Content::get_nodes($post_id, Beaver_Builder_Content::DRAFT_META_KEY);
+                    $settings = Beaver_Builder_Content::get_settings($post_id, Beaver_Builder_Content::DRAFT_META_KEY);
+                }
+            } elseif ('restore' === $operation) {
+                [$nodes, $settings] = Beaver_Builder_Page::revision_layout($post_id, (string) ($args['path'] ?? ''));
+            } elseif ('add' === $operation && is_array($element) && array_key_exists('template', $element)) {
+                if (1 !== count($element) || ! is_scalar($element['template'])) {
+                    throw new \InvalidArgumentException(esc_html('element {template} takes only a template id.'));
+                }
+                $index = isset($args['index']) ? (int) $args['index'] : null;
+                [$nodes, $path, $merge] = Beaver_Builder_Page::insert_template(Beaver_Builder_Content::get_nodes($post_id), (string) ($args['to'] ?? ''), $index, $element['template']);
+            } elseif ('' === $operation) {
                 $content = $args['content'] ?? null;
                 $tree    = is_string($content) ? json_decode($content) : null;
                 if (! is_array($tree)) {
@@ -395,7 +445,8 @@ class Update_Builder_Content
             return new \WP_Error('invalid_beaver_builder_request', $e->getMessage());
         }
 
-        $out = Safe_Mutation::run(
+        $layout = in_array($operation, ['publish', 'restore'], true);
+        $out    = Safe_Mutation::run(
             [
                 'object_type' => 'post',
                 'object_id'   => $post_id,
@@ -403,13 +454,28 @@ class Update_Builder_Content
                 'tool_name'   => 'update-builder-content',
                 'args'        => $args,
             ],
-            function () use ($post_id, $nodes) {
-                Beaver_Builder_Content::save($post_id, $nodes);
+            function () use ($post_id, $nodes, $settings, $merge, $status, $layout) {
+                if (null !== $nodes) {
+                    if ($layout) {
+                        Beaver_Builder_Content::save_layout($post_id, $nodes, $settings);
+                    } else {
+                        Beaver_Builder_Content::merge_settings($post_id, $merge);
+                        Beaver_Builder_Content::save($post_id, $nodes);
+                    }
+                }
+                if (null !== $status) {
+                    Save_Filters::set_post_status($post_id, $status);
+                }
                 return true;
             }
         );
 
-        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'beaver-builder'];
+        $result = [
+            'operation_id' => $out['operation_id'],
+            'post_id'      => $post_id,
+            'builder'      => 'beaver-builder',
+            'hash'         => Beaver_Builder_Content::hash($post_id),
+        ];
         if (null !== $path) {
             $result['path'] = $path;
         }
@@ -452,7 +518,7 @@ class Update_Builder_Content
                 return [Beaver_Builder_Nodes::move($nodes, $path, $to, $index), $path];
         }
 
-        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove or move."));
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move, publish, restore or save_template."));
     }
 
     private function update_wpbakery(int $post_id, array $args)
