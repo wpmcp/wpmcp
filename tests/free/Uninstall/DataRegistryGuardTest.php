@@ -96,6 +96,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // GTranslate's settings, whose language lists the
             // gtranslate-set-languages op changes (issue #690).
             'GTranslate',
+            // Custom Post Type UI's post types and taxonomies, written by
+            // the cpt-create and cpt-update ops (issue #710).
+            'cptui_post_types',
+            'cptui_taxonomies',
             // FiboSearch's settings, changed by update-fibosearch-settings
             // on the theme pair (issue #700).
             'dgwt_wcas_settings',
@@ -108,6 +112,10 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
         ],
         'transient'      => [
             'scrape_key_*',
+            // Custom Post Type UI's own flush-on-next-admin-load flag, set
+            // after a cpt-create or cpt-update op the way its save sets it
+            // (issue #710).
+            'cptui_flush_rewrite_rules',
         ],
         'site_transient' => [],
         'site_option'    => [

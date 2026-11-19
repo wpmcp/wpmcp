@@ -45,6 +45,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new CartFlows flow or step post (issue #662); every field is new. Changes to existing flows and steps are meta writes.',
         ],
+        'Integrations/Cpt_Builder_Pack.php'           => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new MB Custom Post Types definition post (issue #710); every field is new. Updates go through Save_Filters.',
+        ],
         'Integrations/Theme_Layouts_Pack.php'         => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new theme add-on layout post (issue #656); every field is new. Updates go through Save_Filters.',

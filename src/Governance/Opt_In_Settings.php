@@ -93,6 +93,7 @@ final class Opt_In_Settings
             'wpmcp_enable_image_optimizer_write'   => [ 'owner' => $i . 'Image_Optimizer_Pack.php', 'destructive' => true ],
             'wpmcp_enable_give_write'              => [ 'owner' => $i . 'Give_Integration.php', 'destructive' => true ],
             'wpmcp_enable_search_write'            => [ 'owner' => $i . 'Search_Plugin_Support.php', 'destructive' => false ],
+            'wpmcp_enable_cpt_builder_write'       => [ 'owner' => $i . 'Cpt_Builder_Pack.php', 'destructive' => false ],
             'wpmcp_enable_checkout_field_editor_write' => [ 'owner' => $i . 'Checkout_Field_Editor_Pack.php', 'destructive' => false ],
             'wpmcp_enable_pmpro_write'             => [ 'owner' => $i . 'Paid_Memberships_Pro_Pack.php', 'destructive' => true ],
         ];
@@ -143,6 +144,7 @@ final class Opt_In_Settings
             'wpmcp_enable_image_optimizer_write'   => __('Image optimization plugins: optimize an image', 'wpmcp'),
             'wpmcp_enable_give_write'              => __('GiveWP: donation form and donation status writes', 'wpmcp'),
             'wpmcp_enable_search_write'            => __('Search plugins (Relevanssi, FiboSearch): settings writes', 'wpmcp'),
+            'wpmcp_enable_cpt_builder_write'       => __('Custom Post Type UI and MB Custom Post Types: post type and taxonomy writes', 'wpmcp'),
             'wpmcp_enable_checkout_field_editor_write' => __('Checkout Field Editor: checkout field writes', 'wpmcp'),
             'wpmcp_enable_pmpro_write'             => __('Paid Memberships Pro: level, member and discount code writes', 'wpmcp'),
         ];
