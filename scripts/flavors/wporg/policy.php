@@ -197,6 +197,8 @@ return [
         // WordPress core personal data request ops (issue #714), paid-tier.
         // strip.php takes out the line in Theme_Integration that merges them.
         'src/Integrations/Core_Privacy_Pack.php',
+        // And its order bump ops (issue #663), merged only by FunnelKit_Pack.
+        'src/Integrations/FunnelKit_Bumps.php',
         // LMS course structure and enrollments (issue #394), paid-tier.
         // strip.php takes out the lines in Plugin_Data_Integration that merge
         // the ops, count the pack towards availability and name it in the
