@@ -92,6 +92,11 @@ if (! defined('ABSPATH')) {
  *    GTranslate languages read and set (off until
  *    wpmcp_enable_translation_settings_write), the write snapshotted on the
  *    GTranslate option.
+ *  - Issue #900 adds the paid-tier email marketing ops
+ *    (Email_Marketing_Pack): MailerLite, Klaviyo, Kit, Omnisend and
+ *    ActiveCampaign connection, forms and list mapping read with keys never
+ *    returned, and Klaviyo checkout signup and Kit default forms set (off
+ *    until wpmcp_enable_email_marketing_write), snapshotted on each option.
  *  - Issue #702 adds the Action Scheduler ops (Action_Scheduler_Pack): queue
  *    actions listed with args masked and read one at a time with their log,
  *    and pending actions canceled (undoable, as an 'action_scheduler'
@@ -142,7 +147,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || Elementor_Pro_Forms_Pack::active()
             || BetterDocs_Pack::active()
             || Helpdesk_Pack::active()
-            || Translation_Settings_Pack::active();
+            || Translation_Settings_Pack::active()
+            || Email_Marketing_Pack::active();
     }
 
     public function registers_only_when_available(): bool
@@ -158,7 +164,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
             . ', BetterDocs docs, Fluent Support and Awesome Support tickets'
-            . ', Weglot and GTranslate language settings';
+            . ', Weglot and GTranslate language settings'
+            . ', MailerLite, Klaviyo, Kit, Omnisend and ActiveCampaign settings';
     }
 
     /**
@@ -208,6 +215,9 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         }
         $groups[] = [ 'Weglot', false, Translation_Settings_Pack::weglot_operations() ];
         $groups[] = [ 'GTranslate', false, Translation_Settings_Pack::gtranslate_operations() ];
+        foreach (Email_Marketing_Pack::groups() as [ $label, $ops ]) {
+            $groups[] = [ $label, false, $ops ];
+        }
 
         $hosts = [];
         foreach ($groups as [ $plugin, $several, $ops ]) {
@@ -250,7 +260,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Elementor_Pro_Forms_Pack::operations(),
             BetterDocs_Pack::operations(),
             Helpdesk_Pack::operations(),
-            Translation_Settings_Pack::operations()
+            Translation_Settings_Pack::operations(),
+            Email_Marketing_Pack::operations()
         );
     }
 

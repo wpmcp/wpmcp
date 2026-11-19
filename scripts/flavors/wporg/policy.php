@@ -257,6 +257,11 @@ return [
         // the ops and count the pack towards availability. The option
         // snapshot it writes is generic and needs no plugin class.
         'src/Integrations/Translation_Settings_Pack.php',
+        // Email marketing connectors (issue #900), paid-tier. strip.php takes
+        // out the lines in Plugin_Data_Integration that merge the ops and
+        // count the pack towards availability. The option snapshots it
+        // writes are generic and need no plugin class.
+        'src/Integrations/Email_Marketing_Pack.php',
         // Cache and performance plugin settings (issue #692), paid-tier.
         // strip.php takes out the line in Theme_Integration that merges the
         // ops and the rollback refresher in Plugin.
