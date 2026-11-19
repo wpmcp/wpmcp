@@ -8,6 +8,7 @@
     <file>tools/compliance</file>
     <file>scripts/lib</file>
     <file>tools/lint</file>
+    <file>tools/bench</file>
     <arg name="extensions" value="php"/>
     <arg value="np"/>
 
