@@ -33,7 +33,9 @@ if (! defined('ABSPATH')) {
  *    that plugin and is not part of this slice.
  *
  * Ops: emaillog-list-emails (newest first; filters recipient, subject,
- * status, since, until; page_size and offset) and emaillog-get-email.
+ * status, since, until; page_size and offset), emaillog-email-stats (sent
+ * and failed counts over a period, default the last 7 days, and the most
+ * recent failure in it, masked like a list) and emaillog-get-email.
  * Recipients and bodies are personal data: a list shows every recipient as
  * j***@example.com (display names dropped), the subject and the error with
  * addresses masked, and never a body, headers or an IP address;
@@ -232,6 +234,19 @@ final class Email_Log_Pack
                 ],
                 'validate'     => static fn (array $args): ?array => self::list_refusal($args),
                 'handler'      => static fn (array $args): array => self::list_emails($args),
+            ],
+            'emaillog-email-stats' => $base + [
+                'description'  => 'Count logged emails sent and failed over a period (since and until, site time; default the last 7 days) and show the most recent failure in it (id, time, masked recipient and subject, error). source when several plugins are active. Personal data',
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'source' => $source,
+                        'since'  => [ 'type' => 'string' ],
+                        'until'  => [ 'type' => 'string' ],
+                    ],
+                ],
+                'validate'     => static fn (array $args): ?array => self::list_refusal($args),
+                'handler'      => static fn (array $args): array => self::email_stats($args),
             ],
             'emaillog-get-email'   => $base + [
                 'description'  => 'One logged email: recipients in full, subject, status, error, headers, attachment names. NO body unless body is truncated (1,000 characters) or full (20,000); a returned body is best-effort redacted (links with tokens, passwords, codes) and may still hold a secret. Credential headers blanked, IP never returned. source when several plugins are active. Personal data',
@@ -462,6 +477,52 @@ final class Email_Log_Pack
             'masked'  => true,
             'offset'  => $offset,
             'hasMore' => $offset + count($emails) < $total,
+        ];
+    }
+
+    /** @return array<string, mixed> counts of one period and its most recent failure, masked like a list */
+    private static function email_stats(array $args): array
+    {
+        global $wpdb;
+        $source = self::resolve_source($args);
+        $source = is_string($source) ? $source : 'wp-mail-logging';
+        $c      = self::SOURCES[ $source ]['columns'];
+        $table  = self::table($source);
+        $until  = isset($args['until']) ? self::site_time((string) $args['until']) : null;
+        $until  = $until ?? current_time('mysql');
+        $since  = isset($args['since']) ? self::site_time((string) $args['since']) : null;
+        $since  = $since ?? (new \DateTimeImmutable($until, wp_timezone()))->modify('-7 days')->format('Y-m-d H:i:s');
+        $failed = self::failed_sql($source);
+        $clause = $wpdb->prepare('e.%i >= %s AND e.%i <= %s', $c['time'], $since, $c['time'], $until);
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $failed and $clause are built with prepare() and fixed fragments.
+        $counts = (array) $wpdb->get_row($wpdb->prepare("SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN {$failed} THEN 1 ELSE 0 END), 0) AS failed FROM %i e WHERE {$clause}", $table), ARRAY_A);
+        $select = self::select_sql($source, false);
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $select, $failed and $clause are built with prepare() and fixed fragments.
+        $row = $wpdb->get_row($wpdb->prepare("SELECT {$select} FROM %i e WHERE {$clause} AND {$failed} ORDER BY e.%i DESC, e.%i DESC LIMIT 1", $table, $c['time'], $c['id']), ARRAY_A);
+
+        $total = (int) ($counts['total'] ?? 0);
+        $fails = (int) ($counts['failed'] ?? 0);
+        $last  = null;
+        if (is_array($row)) {
+            $last = [
+                'id'        => (int) $row['id'],
+                'time'      => (string) $row['ts'],
+                'recipient' => self::mask_recipients((string) $row['recipient']),
+                'subject'   => Activity_Log_Pack::mask_text(self::redact_links((string) $row['subject'])),
+                'error'     => self::cut(Activity_Log_Pack::mask_text(self::redact_links((string) $row['error_text'])), self::ERROR_LIST),
+            ];
+        }
+
+        return [
+            'source'       => $source,
+            'since'        => $since,
+            'until'        => $until,
+            'total'        => $total,
+            'sent'         => $total - $fails,
+            'failed'       => $fails,
+            'last_failure' => $last,
+            'masked'       => true,
         ];
     }
 

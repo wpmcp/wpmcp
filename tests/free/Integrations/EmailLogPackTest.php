@@ -76,7 +76,7 @@ class EmailLogPackTest extends \WP_UnitTestCase
     public function test_the_ops_are_free_tier_reads_that_need_manage_options(): void
     {
         $ops = Email_Log_Pack::operations();
-        $this->assertSame([ 'emaillog-list-emails', 'emaillog-get-email' ], array_keys($ops));
+        $this->assertSame([ 'emaillog-list-emails', 'emaillog-email-stats', 'emaillog-get-email' ], array_keys($ops));
         foreach ($ops as $def) {
             $this->assertSame('read', $def['mode']);
             $this->assertSame('manage_options', $def['capability']);
