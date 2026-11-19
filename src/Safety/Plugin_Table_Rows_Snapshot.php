@@ -56,6 +56,18 @@ if (! defined('ABSPATH')) {
  * "links") are keyed by their own id. A create reserves its id before the
  * snapshot, so the restore removes the row the write inserted.
  *
+ * Paid Memberships Pro (issue #667) keeps levels, memberships and discount
+ * codes in tables of its own, each kind with its one suffix: levels
+ * (`pmpro_membership_levels`) and discount codes (`pmpro_discount_codes`)
+ * by id, and a member's membership rows (`pmpro_memberships_users`) by
+ * user_id, so a snapshot taken before a level change covers the row PMPro
+ * inserts as well as the ones it ends. A level's group assignment
+ * (`pmpro_membership_levels_groups`, by level) and a code's level pricing
+ * (`pmpro_discount_codes_levels`, by code_id) are companion rows: captured
+ * and put back with their parent rows, when their table exists. After a
+ * membership restore PMPro's cached levels of each captured user are
+ * dropped, so its next read sees the restored rows.
+ *
  * Forum rows (issue #671) come from two forum plugins' own tables. wpForo
  * keeps its main board in {prefix}wpforo_forums, _topics, _posts and
  * _postmeta, keyed by forumid and topicid (posts and postmeta captured by
@@ -88,6 +100,9 @@ final class Plugin_Table_Rows_Snapshot
         'asgaros_topic'         => 'forum_',
         'asgaros_post'          => 'forum_',
         'asgaros_topic_posts'   => 'forum_',
+        'pmpro_levels'     => 'pmpro_',
+        'pmpro_members'    => 'pmpro_',
+        'pmpro_codes'      => 'pmpro_',
     ];
 
     /**
@@ -103,6 +118,7 @@ final class Plugin_Table_Rows_Snapshot
     private const KEY_COLUMNS = [
         'mepr_rule_access' => 'rule_id',
         'wordfence_blocks' => 'IP',
+        'pmpro_members'    => 'user_id',
         'wpforo_forum'          => 'forumid',
         'wpforo_topic'          => 'topicid',
         'wpforo_topic_posts'    => 'topicid',
@@ -130,6 +146,19 @@ final class Plugin_Table_Rows_Snapshot
         'asgaros_topic'         => [ 'topics' ],
         'asgaros_post'          => [ 'posts' ],
         'asgaros_topic_posts'   => [ 'posts' ],
+        'pmpro_levels'     => [ 'membership_levels' ],
+        'pmpro_members'    => [ 'memberships_users' ],
+        'pmpro_codes'      => [ 'discount_codes' ],
+    ];
+
+    /**
+     * kind => [companion table suffix (after the kind's own prefix) => the
+     * column holding the parent id]. Companion rows are captured and
+     * restored with their parent rows, when the table exists.
+     */
+    private const COMPANIONS = [
+        'pmpro_levels' => [ 'membership_levels_groups' => 'level' ],
+        'pmpro_codes'  => [ 'discount_codes_levels' => 'code_id' ],
     ];
 
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
@@ -292,8 +321,104 @@ final class Plugin_Table_Rows_Snapshot
                 'ids'          => $parsed['ids'],
                 'table_exists' => $exists,
                 'rows'         => $exists ? self::kind_rows($parsed['kind'], (string) $table, $parsed['ids']) : [],
-            ],
+            ] + (isset(self::COMPANIONS[ $parsed['kind'] ]) ? [ 'companions' => self::capture_companions($parsed['kind'], $parsed['ids']) ] : []),
         ];
+    }
+
+    /**
+     * The companion rows of a kind under its ids: suffix => [exists, rows].
+     *
+     * @param array<int, int|string> $ids
+     * @return array<string, array{exists: bool, rows: array}>
+     */
+    private static function capture_companions(string $kind, array $ids): array
+    {
+        $out = [];
+        foreach (self::COMPANIONS[ $kind ] ?? [] as $suffix => $column) {
+            $table          = self::companion_table($kind, (string) $suffix);
+            $exists         = self::table_exists($table);
+            $out[ $suffix ] = [ 'exists' => $exists, 'rows' => $exists ? self::companion_rows($table, (string) $column, $ids) : [] ];
+        }
+        return $out;
+    }
+
+    /** A kind's companion table: the site prefix, the kind's prefix and the fixed companion suffix. */
+    private static function companion_table(string $kind, string $suffix): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::KINDS[ $kind ] . $suffix;
+    }
+
+    /**
+     * Rows of a companion table under the parent ids, ordered by the parent
+     * column (a companion table need not have an id column).
+     *
+     * @param array<int, int|string> $ids
+     * @return array<int, array<string, string|null>>
+     */
+    private static function companion_rows(string $table, string $column, array $ids): array
+    {
+        global $wpdb;
+
+        $ids = array_values(array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0));
+        if ([] === $ids) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($ids), '%d'));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of a third-party table; $in holds only %d placeholders.
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY %i ASC", $table, $column, ...array_merge($ids, [ $column ])), ARRAY_A);
+
+        return array_values((array) $rows);
+    }
+
+    /**
+     * Put a kind's companion rows back: delete every row under the captured
+     * ids, then insert each captured row. A companion table that did not
+     * exist at capture, or is gone now, is left alone.
+     *
+     * @param array<int, int|string> $ids
+     */
+    private static function restore_companions(string $kind, array $ids, array $captured): void
+    {
+        global $wpdb;
+
+        $in = implode(',', array_fill(0, count($ids), '%d'));
+        foreach (self::COMPANIONS[ $kind ] ?? [] as $suffix => $column) {
+            $data  = (array) ($captured[ $suffix ] ?? []);
+            $table = self::companion_table($kind, (string) $suffix);
+            if (empty($data['exists']) || ! self::table_exists($table)) {
+                continue;
+            }
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- third-party table with no WP API; $in holds only %d placeholders.
+            if (false === $wpdb->query($wpdb->prepare("DELETE FROM %i WHERE %i IN ($in)", $table, (string) $column, ...$ids))) {
+                throw new Mutation_Failed('Could not clear the rows being restored in ' . esc_html($table) . '.');
+            }
+            foreach ((array) ($data['rows'] ?? []) as $row) {
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- third-party table with no WP API.
+                if (false === $wpdb->insert($table, (array) $row)) {
+                    throw new Mutation_Failed('Could not restore a row of ' . esc_html($table) . ': ' . esc_html($wpdb->last_error));
+                }
+            }
+        }
+    }
+
+    /**
+     * Drop Paid Memberships Pro's cached levels of each user whose
+     * membership rows were restored (its own cache keys, group pmpro).
+     *
+     * @param array<int, int|string> $ids
+     */
+    private static function clear_pmpro_user_cache(array $ids): void
+    {
+        global $all_membership_levels;
+        foreach (array_map('intval', $ids) as $user_id) {
+            if (is_array($all_membership_levels)) {
+                unset($all_membership_levels[ $user_id ]);
+            }
+            foreach ([ '', '_all', '_active' ] as $suffix) {
+                wp_cache_delete('user_' . $user_id . '_levels' . $suffix, 'pmpro');
+            }
+        }
     }
 
     /**
@@ -343,6 +468,12 @@ final class Plugin_Table_Rows_Snapshot
         }
         if ('rank_math' === $kind) {
             self::purge_rank_math_cache($ids);
+        }
+        if (isset(self::COMPANIONS[ $kind ])) {
+            self::restore_companions($kind, $ids, (array) ($data['companions'] ?? []));
+        }
+        if ('pmpro_members' === $kind) {
+            self::clear_pmpro_user_cache($ids);
         }
         if (str_starts_with($kind, 'wpforo_') && function_exists('wpforo_clean_cache')) {
             wpforo_clean_cache();
@@ -495,6 +626,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('trp_dictionary' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring TranslatePress translations requires the manage_options capability.');
+            }
+            return;
+        }
+        if (str_starts_with($kind, 'pmpro_')) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring Paid Memberships Pro levels, memberships or discount codes requires the manage_options capability.');
             }
             return;
         }

@@ -51,7 +51,7 @@ class Update_Widget
         if ('widget' !== ($element['elType'] ?? '')) {
             return new \WP_Error(
                 'not_a_widget',
-                "Element '{$element_id}' is a {$element['elType']}, not a widget; use update-container or update-element."
+                "Element '{$element_id}' is not a widget (its elType is '{$element['elType']}'); use update-container or update-element."
             );
         }
 
