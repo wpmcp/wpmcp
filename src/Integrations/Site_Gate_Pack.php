@@ -23,16 +23,23 @@ if (! defined('ABSPATH')) {
  *
  * Writes, off until the site opts in through the wpmcp_enable_site_gate_write
  * filter: enable-site-gate and disable-site-gate for SeedProd (its
- * seedprod_settings JSON flag) and Under Construction (its ucp_options
- * status). The other three plugins are read only here: WP Maintenance Mode
- * also publishes a page and rewrites the front page options, and the
- * Maintenance and CMP free plugins have no proven role bypass for a REST
- * client, so their toggles wait for a slice that can prove them.
+ * seedprod_settings JSON flag), Under Construction (its ucp_options status),
+ * WP Maintenance Mode, also sold as LightStart (the integer
+ * wpmm_settings.general.status, the same write its own lightstart/set-mode
+ * ability makes; from 2.6.23 the plugin itself publishes its page and swaps
+ * the front page while on, and puts both back when off), Maintenance
+ * (mtnc-options.options.status) and CMP (niteoCS_status, plus
+ * niteoCS_activation when a mode is asked for). None of the five gates the
+ * REST API: they hook template_redirect or template_include, which a REST
+ * request never reaches (CMP can close anonymous REST, never a logged-in
+ * client), and all five leave wp-login.php alone; the probe below checks it.
  *
  * The risk of a toggle is the agent closing the site on itself, so enabling:
  *  - refuses unless the acting user is bypassed by the plugin's own setting
  *    (SeedProd access by role on the page, Under Construction whitelisted
- *    roles and users), naming what to change;
+ *    roles and users, WP Maintenance Mode super admins and listed roles,
+ *    Maintenance's logged-in bypass, CMP roles plus administrator), naming
+ *    what to change;
  *  - refuses while another gate is already active;
  *  - needs confirm:true, with a preview of what visitors will get;
  *  - probes the site after the write (the front page, wp-login.php and the
@@ -47,22 +54,34 @@ final class Site_Gate_Pack
 {
     public const ENABLE_FILTER = 'wpmcp_enable_site_gate_write';
 
-    /** Plugin slug => the option its gate lives in; the plugins this pack can toggle. */
+    /** Plugin slug => the options its gate lives in; the plugins this pack can toggle. */
     private const WRITABLE = [
-        'coming-soon'             => 'seedprod_settings',
-        'under-construction-page' => 'ucp_options',
+        'coming-soon'                 => [ 'seedprod_settings' ],
+        'under-construction-page'     => [ 'ucp_options' ],
+        'wp-maintenance-mode'         => [ 'wpmm_settings' ],
+        'maintenance'                 => [ 'mtnc-options' ],
+        'cmp-coming-soon-maintenance' => [ 'niteoCS_status', 'niteoCS_activation' ],
     ];
 
     private const LABELS = [
-        'coming-soon'             => 'SeedProd',
-        'under-construction-page' => 'Under Construction',
+        'coming-soon'                 => 'SeedProd',
+        'under-construction-page'     => 'Under Construction',
+        'wp-maintenance-mode'         => 'WP Maintenance Mode (LightStart)',
+        'maintenance'                 => 'Maintenance',
+        'cmp-coming-soon-maintenance' => 'CMP',
     ];
+
+    /** WP Maintenance Mode restores its page and front page itself from this version on. */
+    private const WPMM_MIN_VERSION = '2.6.23';
+
+    /** CMP's activation option: mode => stored value. */
+    private const CMP_MODES = [ 'maintenance' => '1', 'coming_soon' => '2' ];
 
     /** @return array<string, array<string, mixed>> op name => definition for the theme pair. */
     public static function operations(): array
     {
         $enabled = (bool) apply_filters('wpmcp_enable_site_gate_write', false);
-        $plugin  = [ 'type' => 'string', 'enum' => [ 'auto', 'coming-soon', 'under-construction-page' ] ];
+        $plugin  = [ 'type' => 'string', 'enum' => array_merge([ 'auto' ], array_keys(self::WRITABLE)) ];
 
         return [
             'get-site-gate-status'  => [
@@ -75,7 +94,7 @@ final class Site_Gate_Pack
             'enable-site-gate'      => [
                 'mode'               => 'destructive',
                 'capability'         => 'manage_options',
-                'description'        => 'Close the public site with SeedProd (coming_soon or maintenance mode) or Under Construction. Refuses when another gate is already active, when the plugin would also lock out you (your role is not bypassed) and for SeedProd without its page set up. Needs confirm:true; the preview says what visitors will get and who bypasses it. After the write it probes wp-login.php and the REST root and restores the settings itself if either answers 503. Snapshotted; undo: rollback-operation. Disabled by default (wpmcp_enable_site_gate_write filter)',
+                'description'        => 'Close the public site with SeedProd or CMP (mode coming_soon or maintenance), Under Construction, WP Maintenance Mode (LightStart) or Maintenance. Refuses when another gate is already active, when the plugin would also lock out you (your role is not bypassed) for SeedProd without its page set up, and for a countdown that already ended. Needs confirm:true; the preview says what visitors will get and who bypasses it. After the write it probes wp-login.php and the REST root and restores the settings itself if either answers 503. Snapshotted; undo: rollback-operation. Disabled by default (wpmcp_enable_site_gate_write filter)',
                 'enabled_by_default' => $enabled,
                 'opt_in_filter'      => self::ENABLE_FILTER,
                 'input_schema'       => [
@@ -93,7 +112,7 @@ final class Site_Gate_Pack
             'disable-site-gate'     => [
                 'mode'               => 'write',
                 'capability'         => 'manage_options',
-                'description'        => 'Open the public site again by turning off the SeedProd or Under Construction gate (auto picks the one that is active). Refuses when none is active. Snapshotted; undo: rollback-operation. Disabled by default (wpmcp_enable_site_gate_write filter)',
+                'description'        => 'Open the public site again by turning off the SeedProd, Under Construction, WP Maintenance Mode, Maintenance or CMP gate (auto picks the one that is active). Refuses when none is active. Snapshotted; undo: rollback-operation. Disabled by default (wpmcp_enable_site_gate_write filter)',
                 'enabled_by_default' => $enabled,
                 'opt_in_filter'      => self::ENABLE_FILTER,
                 'input_schema'       => [ 'type' => 'object', 'properties' => [ 'plugin' => $plugin ] ],
@@ -127,7 +146,7 @@ final class Site_Gate_Pack
             $active = [] !== $on ? $on : $active;
         }
         if ([] === $active) {
-            return [ null, Plugin_Refusal::any_of('site_gate_plugin_inactive', 'Neither SeedProd nor Under Construction is active on this site. Other gates can be read with get-site-gate-status but not toggled here.') ];
+            return [ null, Plugin_Refusal::any_of('site_gate_plugin_inactive', 'None of ' . implode(', ', self::LABELS) . ' is active on this site. Other gates (WP MCP, WordPress core) can be read with get-site-gate-status but not toggled here.') ];
         }
         if (count($active) > 1) {
             return [ null, self::refusal('plugin_required', 'More than one gate plugin is active; name one with plugin.', [ 'plugins' => $active ]) ];
@@ -150,7 +169,77 @@ final class Site_Gate_Pack
             return self::refusal('gate_already_active', 'Another gate is already closing the site: ' . implode(', ', $others) . '. Turn it off first (disable-maintenance for wpmcp, the plugin\'s own settings for the others).', [ 'active_gates' => $others ]);
         }
 
-        return 'coming-soon' === $slug ? self::seedprod_enable_refusal(self::mode($args)) : self::ucp_enable_refusal();
+        switch ($slug) {
+            case 'coming-soon':
+                return self::seedprod_enable_refusal(self::mode($args));
+            case 'wp-maintenance-mode':
+                return self::wpmm_enable_refusal();
+            case 'maintenance':
+                return self::maintenance_enable_refusal();
+            case 'cmp-coming-soon-maintenance':
+                return self::cmp_enable_refusal();
+        }
+        return self::ucp_enable_refusal();
+    }
+
+    /** @return array<string,mixed> */
+    private static function wpmm_settings(): array
+    {
+        $settings = get_option('wpmm_settings');
+        return is_array($settings) ? $settings : [];
+    }
+
+    private static function wpmm_enable_refusal(): ?array
+    {
+        $version = (string) get_option('wpmm_version', '0');
+        if (version_compare($version, self::WPMM_MIN_VERSION, '<')) {
+            return self::refusal('plugin_version_unsupported', sprintf('WP Maintenance Mode %1$s cannot be toggled here: before %2$s it left its page published and the front page changed after maintenance mode was turned off. Update the plugin first.', $version, self::WPMM_MIN_VERSION), [ 'version' => $version, 'minimum' => self::WPMM_MIN_VERSION ]);
+        }
+        // The plugin lets super admins through, then the listed roles: the
+        // front end checks frontend_role, wp-admin checks backend_role.
+        if (is_super_admin()) {
+            return null;
+        }
+        $general = (array) (self::wpmm_settings()['general'] ?? []);
+        $roles   = (array) wp_get_current_user()->roles;
+        $extra   = is_multisite() ? [ 'administrator' ] : [];
+        $front   = array_merge(array_map('strval', (array) ($general['frontend_role'] ?? [])), $extra);
+        $back    = array_merge(array_map('strval', (array) ($general['backend_role'] ?? [])), $extra);
+        if ([] !== array_intersect($roles, $front) && [] !== array_intersect($roles, $back)) {
+            return null;
+        }
+        return self::refusal('admin_not_bypassed', 'WP Maintenance Mode would lock you out: your role is not in both its frontend and backend roles. Add it to both in its settings first.', [ 'roles' => array_values($roles) ]);
+    }
+
+    /** @return array<string,mixed> the plugin's settings under its "options" key. */
+    private static function maintenance_options(): array
+    {
+        $stored = get_option('mtnc-options');
+        return is_array($stored) && isset($stored['options']) && is_array($stored['options']) ? $stored['options'] : [];
+    }
+
+    private static function maintenance_enable_refusal(): ?array
+    {
+        if ('1' === (string) (self::maintenance_options()['show_logged_in'] ?? '')) {
+            return null;
+        }
+        return self::refusal('admin_not_bypassed', 'Maintenance would show its page to logged-in users too, you included. Turn on its "Logged in users see the normal website" setting first.');
+    }
+
+    private static function cmp_enable_refusal(): ?array
+    {
+        if ('1' === (string) get_option('niteoCS_counter', '1') && 'disable-cmp' === (string) get_option('niteoCS_countdown_action', 'no-action')) {
+            $date = absint(get_option('niteoCS_counter_date'));
+            if ($date > 0 && $date <= time()) {
+                return self::refusal('end_date_passed', 'CMP\'s countdown has already ended and is set to turn CMP off, so enabling it would close nothing. Change the countdown in its settings first.', [ 'counter_date' => gmdate('Y-m-d\TH:i:s\Z', $date) ]);
+            }
+        }
+        $roles = json_decode((string) get_option('niteoCS_roles', '[]'), true);
+        $roles = array_merge(is_array($roles) ? array_map('strval', $roles) : [], [ 'administrator' ]);
+        if ([] !== array_intersect((array) wp_get_current_user()->roles, $roles)) {
+            return null;
+        }
+        return self::refusal('admin_not_bypassed', 'CMP would lock you out: your role is not in its bypass roles (' . implode(', ', array_unique($roles)) . '). Add it in CMP\'s settings first.', [ 'roles' => array_values(array_unique($roles)) ]);
     }
 
     private static function seedprod_enable_refusal(string $mode): ?array
@@ -208,18 +297,40 @@ final class Site_Gate_Pack
         return 'maintenance' === ($args['mode'] ?? '') ? 'maintenance' : 'coming_soon';
     }
 
+    /** The mode the gate will be in once enabled: asked for where the plugin has two, else its own. */
+    private static function target_mode(string $slug, array $args): string
+    {
+        if ('coming-soon' === $slug) {
+            return self::mode($args);
+        }
+        if ('cmp-coming-soon-maintenance' === $slug && isset($args['mode'])) {
+            return self::mode($args);
+        }
+        return (string) (Site_Gate::plugin_gate($slug)['mode'] ?? 'coming_soon');
+    }
+
     private static function preview(array $args): array
     {
         [ $slug ] = self::resolve($args, false);
-        $mode     = 'coming-soon' === $slug ? self::mode($args) : 'coming_soon';
-        $bypass   = 'coming-soon' === $slug ? 'every logged-in user, or the roles on the page' : 'the whitelisted roles and users';
+        $mode     = self::target_mode($slug, $args);
+        $bypass   = [
+            'coming-soon'                 => 'every logged-in user, or the roles on the page',
+            'under-construction-page'     => 'the whitelisted roles and users',
+            'wp-maintenance-mode'         => 'super administrators and the roles listed in its settings',
+            'maintenance'                 => 'every logged-in user',
+            'cmp-coming-soon-maintenance' => 'administrators and the roles listed in its settings',
+        ][ $slug ];
+        $status   = 'maintenance' === $mode ? '503' : '200';
+        if ('maintenance' === $slug && empty(self::maintenance_options()['blockse'])) {
+            $status = '200';
+        }
 
         return [
             'message' => sprintf(
                 'The public site will answer with the %1$s %2$s page (%3$s); %4$s keep seeing the normal site, and wp-login.php and the REST API stay reachable, checked right after the write.',
                 self::LABELS[ $slug ],
                 str_replace('_', ' ', $mode),
-                'maintenance' === $mode ? '503' : '200',
+                $status,
                 $bypass
             ),
             'data'    => [ 'plugin' => $slug, 'mode' => $mode, 'bypass' => $bypass ],
@@ -232,7 +343,7 @@ final class Site_Gate_Pack
         if (null === $slug) {
             return null;
         }
-        return [ 'object_type' => 'option_set', 'object_id' => Snapshot::option_set_id([ self::WRITABLE[ $slug ] ]) ];
+        return [ 'object_type' => 'option_set', 'object_id' => Snapshot::option_set_id(self::WRITABLE[ $slug ]) ];
     }
 
     // ---------------------------------------------------------------
@@ -242,16 +353,20 @@ final class Site_Gate_Pack
     private static function enable(array $args, array $context): array
     {
         [ $slug ] = self::resolve($args, false);
-        $mode     = 'coming-soon' === $slug ? self::mode($args) : 'coming_soon';
-        $option   = self::WRITABLE[ $slug ];
+        $mode     = self::target_mode($slug, $args);
         $none     = new \stdClass();
-        $prior    = get_option($option, $none);
+        $prior    = [];
+        foreach (self::WRITABLE[ $slug ] as $option) {
+            $prior[ $option ] = get_option($option, $none);
+        }
 
-        $restore = static function () use ($option, $prior, $none): void {
-            if ($prior === $none) {
-                delete_option($option);
-            } else {
-                update_option($option, $prior);
+        $restore = static function () use ($prior, $none): void {
+            foreach ($prior as $option => $value) {
+                if ($value === $none) {
+                    delete_option($option);
+                } else {
+                    update_option($option, $value);
+                }
             }
         };
         // Anything that stops this request before the checks finish (an error,
@@ -267,7 +382,7 @@ final class Site_Gate_Pack
         $blocked = null;
         $probes  = [];
         try {
-            self::write($slug, true, $mode);
+            self::write($slug, true, $mode, isset($args['mode']));
 
             // Short timeouts: the three requests together stay under ten seconds.
             $probes = [
@@ -302,6 +417,12 @@ final class Site_Gate_Pack
             'cache_hint' => 'Purge page caches so visitors see the change (the cache settings ops on this pair).',
             'undo'       => 'rollback-operation restores the plugin settings exactly; disable-site-gate opens the site again.',
         ];
+        if ('wp-maintenance-mode' === $slug) {
+            $out['note'] = 'WP Maintenance Mode publishes its selected page and points the front page at it on its next page load, and puts both back when it is turned off.';
+        }
+        if ('cmp-coming-soon-maintenance' === $slug && '1' !== (string) get_option('niteoCS_rest_api_status', '1')) {
+            $out['note'] = 'CMP closes the REST API to anonymous requests while it is on (its REST API setting); signed-in clients, this one included, are not affected.';
+        }
         if ('coming-soon' === $slug) {
             $out['note'] = 'SeedProd gates on its settings flag alone (it reads the landing page row whatever its status) and re-syncs the page to published or draft on its own next settings save; the page status is not changed here.';
         }
@@ -315,7 +436,7 @@ final class Site_Gate_Pack
     private static function disable(array $args): array
     {
         [ $slug ] = self::resolve($args, true);
-        self::write($slug, false, 'coming_soon');
+        self::write($slug, false, 'coming_soon', false);
 
         return [
             'plugin'     => $slug,
@@ -327,14 +448,39 @@ final class Site_Gate_Pack
     }
 
     /** Store the flag in the plugin's own format, keeping every other setting. */
-    private static function write(string $slug, bool $on, string $mode): void
+    private static function write(string $slug, bool $on, string $mode, bool $mode_asked): void
     {
-        if ('coming-soon' === $slug) {
-            $settings = Site_Gate::seedprod_settings();
-            $settings['enable_coming_soon_mode'] = $on && 'coming_soon' === $mode;
-            $settings['enable_maintenance_mode'] = $on && 'maintenance' === $mode;
-            update_option('seedprod_settings', wp_json_encode($settings));
-            return;
+        switch ($slug) {
+            case 'coming-soon':
+                $settings = Site_Gate::seedprod_settings();
+                $settings['enable_coming_soon_mode'] = $on && 'coming_soon' === $mode;
+                $settings['enable_maintenance_mode'] = $on && 'maintenance' === $mode;
+                update_option('seedprod_settings', wp_json_encode($settings));
+                return;
+            case 'wp-maintenance-mode':
+                // The plugin tests the status with === 1, so it stays an integer.
+                $settings            = self::wpmm_settings();
+                $general             = (array) ($settings['general'] ?? []);
+                $general['status']   = $on ? 1 : 0;
+                if ($on) {
+                    $general['status_date'] = gmdate('Y-m-d H:i:s');
+                }
+                $settings['general'] = $general;
+                update_option('wpmm_settings', $settings);
+                return;
+            case 'maintenance':
+                $stored = get_option('mtnc-options');
+                $stored = is_array($stored) ? $stored : [];
+                $stored['options'] = self::maintenance_options();
+                $stored['options']['status'] = $on ? '1' : '0';
+                update_option('mtnc-options', $stored);
+                return;
+            case 'cmp-coming-soon-maintenance':
+                update_option('niteoCS_status', $on ? '1' : '0');
+                if ($on && $mode_asked) {
+                    update_option('niteoCS_activation', self::CMP_MODES[ $mode ]);
+                }
+                return;
         }
         $options = get_option('ucp_options');
         $options = is_array($options) ? $options : [];

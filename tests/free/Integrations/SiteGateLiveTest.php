@@ -95,8 +95,21 @@ class SiteGateLiveTest extends \WP_UnitTestCase
         $this->assertSame([ 'editor' ], $gate['bypass']['roles']);
         $this->assertTrue(Site_Gate::status(false)['public_site_gated']);
 
-        $unsupported = $this->toggle('enable-site-gate', [ 'plugin' => 'auto' ], true);
-        $this->assertSame('site_gate_plugin_inactive', $unsupported['error']['code'] ?? '', 'WP Maintenance Mode is read only here');
+        // The toggle, from the plugin's own defaults: it writes the integer
+        // status the plugin compares with === 1, and the plugin lets the
+        // administrator who turned it on through.
+        $defaults['general']['status']        = 0;
+        $defaults['general']['frontend_role'] = [];
+        update_option('wpmm_settings', $defaults);
+        update_option('wpmm_version', \WP_Maintenance_Mode::VERSION);
+        $out = $this->toggle('enable-site-gate', [ 'plugin' => 'wp-maintenance-mode' ], true);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertSame(1, get_option('wpmm_settings')['general']['status']);
+        $this->assertTrue($this->gate()['active']);
+        $this->assertTrue(\WP_Maintenance_Mode::get_instance()->check_user_role(), 'the administrator walks past it');
+
+        (new Rollback_Operation())->handle([ 'operation_id' => $out['operation_id'] ]);
+        $this->assertFalse($this->gate()['active'], 'undo opens the site');
     }
 
     private function check_under_construction_page(): void
@@ -148,6 +161,19 @@ class SiteGateLiveTest extends \WP_UnitTestCase
         $this->assertSame($options['blockse'] ? 503 : 200, $gate['http_status']);
         $this->assertSame('every logged-in user' === $gate['bypass']['logged_in_users'], '1' === (string) $options['show_logged_in']);
         $this->assertSame('1', (string) \MTNC::getInstance()->get_options()['status'], 'the plugin reads back what the reader saw');
+
+        // The toggle: the nested status the plugin's own loader reads back.
+        $options['status']         = '0';
+        $options['show_logged_in'] = '1';
+        \MTNC::getInstance()->update_options('options', $options);
+        $out = $this->toggle('enable-site-gate', [ 'plugin' => 'maintenance' ], true);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $load = new \ReflectionMethod(\MTNC::class, 'load_options');
+        $load->setAccessible(true);
+        $this->assertSame('1', (string) $load->invoke(\MTNC::getInstance())['options']['status'], 'the plugin loads the status the toggle wrote');
+
+        $this->assertArrayNotHasKey('error', $this->toggle('disable-site-gate', [ 'plugin' => 'maintenance' ]));
+        $this->assertSame('0', (string) $load->invoke(\MTNC::getInstance())['options']['status']);
     }
 
     private function check_cmp_coming_soon_maintenance(): void
@@ -168,6 +194,20 @@ class SiteGateLiveTest extends \WP_UnitTestCase
         $this->assertSame(503, $gate['http_status']);
         $this->assertContains('administrator', $gate['bypass']['roles'], 'the plugin lets administrators through');
         $this->assertSame('open', $gate['rest_api'], 'the plugin leaves REST open by default');
+
+        // The toggle: status and mode in the plugin's own options, and the
+        // plugin's role filter lets the administrator through.
+        update_option('niteoCS_status', '0');
+        update_option('niteoCS_activation', '2');
+        $out = $this->toggle('enable-site-gate', [ 'plugin' => 'cmp-coming-soon-maintenance', 'mode' => 'maintenance' ], true);
+        $this->assertArrayNotHasKey('error', $out, (string) wp_json_encode($out));
+        $this->assertSame('1', $cmp->cmp_active());
+        $this->assertSame('1', (string) $cmp->cmp_mode());
+        $this->assertTrue($cmp->cmp_roles_filter(), 'the administrator walks past it');
+
+        (new Rollback_Operation())->handle([ 'operation_id' => $out['operation_id'] ]);
+        $this->assertSame('0', $cmp->cmp_active(), 'undo opens the site');
+        $this->assertSame('2', (string) $cmp->cmp_mode());
     }
 
     private function check_coming_soon(): void
