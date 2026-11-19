@@ -119,10 +119,13 @@ abstract class Forms_Adapter_Conformance extends \WP_UnitTestCase
         $this->assertFalse($out['result']['available'], 'available means the HOST PLUGIN is loaded');
         $this->assertNotEmpty($out['result']['operations'], 'The surface stays discoverable without the plugin');
 
-        foreach ([ 'handle_read', 'handle_write' ] as $half) {
+        // A known op is refused for the missing plugin; a read op sent to
+        // the write half is unknown there, with or without the plugin
+        // (issue #1036).
+        foreach ([ 'handle_read' => 'integration_unavailable', 'handle_write' => 'unknown_operation' ] as $half => $code) {
             $refused = $integration->{$half}([ 'operation' => 'list-forms' ]);
             $this->assertArrayNotHasKey('result', $refused, "{$half} must not answer without the host plugin");
-            $this->assertSame('integration_unavailable', $refused['error']['code']);
+            $this->assertSame($code, $refused['error']['code']);
         }
     }
 

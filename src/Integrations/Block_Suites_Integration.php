@@ -12,9 +12,9 @@ if (! defined('ABSPATH')) {
  * Block suite packs (issue #287) as one pro dispatcher pair,
  * wpmcp/block-suites-read and wpmcp/block-suites-write, registered only
  * while at least one supported suite is loaded: Kadence Blocks,
- * GenerateBlocks, Spectra, Otter Blocks and the Blocksy companion blocks
- * (see Block_Suite), plus browsing and importing registered block patterns
- * (see Block_Suite_Patterns).
+ * GenerateBlocks, Spectra, Otter Blocks, the Blocksy companion blocks,
+ * Stackable and Ultimate Blocks (see Block_Suite), plus browsing and importing registered
+ * block patterns (see Block_Suite_Patterns).
  *
  * Every write goes through the surgical block engine (Block_Tree): the
  * expected_hash freshness proof, the round-trip guard, and one post
@@ -126,7 +126,7 @@ final class Block_Suites_Integration extends Integration_Dispatcher
             'get-block-schemas' => [
                 'mode'         => 'read',
                 'tier'         => 'pro',
-                'description'  => 'The active suite\'s blocks (block.json; Spectra: its attribute defaults, typed from the values, unknown attributes allowed). Without name: every block with title, parent/ancestor and attribute names. With name: that block with its full attribute definitions (type, default, enum)',
+                'description'  => 'The active suite\'s blocks (block.json; Spectra: its attribute defaults, typed from the values; Spectra, Stackable, Ultimate Blocks: unknown attributes allowed). Without name: every block with title, parent/ancestor and attribute names. With name: that block with its full attribute definitions (type, default, enum)',
                 'input_schema' => [
                     'type'       => 'object',
                     'properties' => [ 'suite' => $suite_prop, 'name' => [ 'type' => 'string' ] ],
