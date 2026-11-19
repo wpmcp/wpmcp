@@ -37,6 +37,9 @@ if (! defined('ABSPATH')) {
  * before block markers, since Oxygen leaves post_content as it was),
  * a BeTheme BeBuilder layout (a non-empty `mfn-page-items` row, issue #643;
  * also before block markers, since BeTheme renders it beside post_content),
+ * a Visual Composer page (a `vcv-pageContent` document with elements on a
+ * page not switched to another editor, issue #642; before block markers,
+ * since the markup it saves can hold blocks),
  * Divi 5's `<!-- wp:divi/ -->` blocks (a Divi 5 layout whose flags were
  * never written, as on imported content), Gutenberg's `<!-- wp: -->` block
  * comment markers in post_content, then a WPBakery `[vc_row]` or
@@ -110,6 +113,10 @@ class Builder_Detector
             return 'betheme';
         }
 
+        if (self::has_visual_composer_document($post_id)) {
+            return 'visual-composer';
+        }
+
         $post = get_post($post_id);
         $content = $post ? (string) $post->post_content : '';
 
@@ -176,6 +183,23 @@ class Builder_Detector
         }
 
         return is_array($data) && [] !== $data;
+    }
+
+    /**
+     * Visual Composer's own test for a page it renders (isVcvPost(): a
+     * `vcv-pageContent` row, rawurlencode()d JSON, with elements), unless
+     * its `vcv-be-editor` row says the page went back to the block or
+     * classic editor.
+     */
+    private static function has_visual_composer_document(int $post_id): bool
+    {
+        $raw = get_post_meta($post_id, 'vcv-pageContent', true);
+        if (! is_string($raw) || '' === $raw || in_array((string) get_post_meta($post_id, 'vcv-be-editor', true), ['gutenberg', 'classic'], true)) {
+            return false;
+        }
+        $doc = json_decode(rawurldecode($raw), true);
+
+        return is_array($doc) && is_array($doc['elements'] ?? null) && [] !== $doc['elements'];
     }
 
     /**

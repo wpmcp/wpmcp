@@ -27,7 +27,8 @@ if (! defined('ABSPATH')) {
  * and JS, and whether the plugin is loaded; BeTheme returns its
  * BeBuilder sections, an outline of them by uid (what operations address),
  * the storage format, the hash writes are pinned to and whether the theme
- * is active.
+ * is active; Visual Composer returns its element tree (ids operations
+ * address), the stored elements, the hash and its editor link.
  * With `scope` set (design_system, templates or catalog) it reads a
  * builder's site-wide design data instead of one post; see Builder_Design.
  * Elementor/Gutenberg/classic posts are out of scope for this tool (use
@@ -103,13 +104,17 @@ class Get_Builder_Content
             return BeTheme_Content::read($post_id);
         }
 
+        if ('visual-composer' === $builder) {
+            return Visual_Composer_Content::read($post_id);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return Breakdance_Content::read($post_id, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone' and 'betheme'; this post was detected as '{$builder}'."
+            "get-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone', 'betheme' and 'visual-composer'; this post was detected as '{$builder}'."
         );
     }
 }
