@@ -238,7 +238,14 @@ class Restore_Files
             }
         }
 
-        return $keep;
+        // A WPMCP_BACKUP_DIR folder placed inside wp-content (issue #846)
+        // holds the archive being restored and the safety archive.
+        $backups = realpath(Site_Backup_Dir::path());
+        if (false !== $backups && false !== $content && str_starts_with($backups, $content . '/')) {
+            $keep[] = substr($backups, strlen($content) + 1);
+        }
+
+        return array_values(array_unique($keep));
     }
 
     /** wp-content/wpmcp-restore, created and blocked from web access. */

@@ -78,20 +78,37 @@ class Default_Seeder
             return;
         }
 
+        // A fresh install (nothing applied yet) is not an update: the
+        // "switch on new tools after updates" setting (issue #853) only
+        // applies when an earlier defaults version was already in place.
+        $auto    = $applied > 0 && New_Tools_Policy::is_on();
         $decided = Governance::ability_toggles();
+        $added   = [];
         foreach ($versions as $version => $names) {
             if ($version <= $applied) {
                 continue;
             }
             foreach ($names as $name) {
                 if (array_key_exists($name, $decided)) {
-                    continue; // An explicit decision always wins over a default.
+                    // An explicit decision always wins over a default.
+                    $added[ $name ] = $added[ $name ] ?? 'kept';
+                    continue;
+                }
+                if ($auto && New_Tools_Policy::may_auto_enable($name)) {
+                    // Left with no stored decision: on, and the owner's next
+                    // toggle is the only one on record.
+                    $added[ $name ] = 'on';
+                    continue;
                 }
                 Governance::set_ability_toggle($name, false);
                 $decided[ $name ] = false;
+                $added[ $name ]   = $auto ? 'never_auto' : 'off';
             }
         }
 
         update_option(self::VERSION_OPTION, $latest);
+        if ($applied > 0) {
+            New_Tools_Policy::remember_added($latest, $added);
+        }
     }
 }
