@@ -96,6 +96,12 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // GTranslate's settings, whose language lists the
             // gtranslate-set-languages op changes (issue #690).
             'GTranslate',
+            // FiboSearch's settings, changed by update-fibosearch-settings
+            // on the theme pair (issue #700).
+            'dgwt_wcas_settings',
+            // Relevanssi's own settings, one option per name, changed by
+            // update-relevanssi-settings on the theme pair (issue #700).
+            'relevanssi_*',
         ],
         'transient'      => [
             'scrape_key_*',

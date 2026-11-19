@@ -350,7 +350,7 @@ final class BeTheme_Tree
         $wants         = 'nested_wrap' === $at['kind'] ? 'item' : $at['kind'];
         if ($kind !== $wants) {
             $where = '' === $to ? 'the top level' : "'{$to}'";
-            throw new \InvalidArgumentException(esc_html("A {$at['kind']} cannot be moved into {$where}, which holds {$kind}s."));
+            throw new \InvalidArgumentException(esc_html("The {$at['kind']} '{$uid}' cannot be moved into {$where}, which holds {$kind}s."));
         }
 
         return self::insert($rest, $path, $index, $node);

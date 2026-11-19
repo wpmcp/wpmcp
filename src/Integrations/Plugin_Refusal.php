@@ -44,6 +44,8 @@ final class Plugin_Refusal
         'Wordfence'        => [ 'file' => 'wordfence/wordfence.php', 'slug' => 'wordfence' ],
         'MonsterInsights'  => [ 'file' => 'google-analytics-for-wordpress/googleanalytics.php', 'slug' => 'google-analytics-for-wordpress' ],
         'W3 Total Cache'   => [ 'file' => 'w3-total-cache/w3-total-cache.php', 'slug' => 'w3-total-cache' ],
+        'Relevanssi'       => [ 'file' => 'relevanssi/relevanssi.php', 'slug' => 'relevanssi' ],
+        'FiboSearch'       => [ 'file' => 'ajax-search-for-woocommerce/ajax-search-for-woocommerce.php', 'slug' => 'ajax-search-for-woocommerce' ],
         'Solid Security'   => [ 'file' => 'better-wp-security/better-wp-security.php', 'slug' => 'better-wp-security' ],
         'Sucuri Security'  => [ 'file' => 'sucuri-scanner/sucuri.php', 'slug' => 'sucuri-scanner' ],
         'All In One WP Security' => [ 'file' => 'all-in-one-wp-security-and-firewall/wp-security.php', 'slug' => 'all-in-one-wp-security-and-firewall' ],
@@ -52,6 +54,7 @@ final class Plugin_Refusal
         'Code Snippets'    => [ 'file' => 'code-snippets/code-snippets.php', 'slug' => 'code-snippets' ],
         'bbPress'          => [ 'file' => 'bbpress/bbpress.php', 'slug' => 'bbpress' ],
         'BuddyPress'       => [ 'file' => 'buddypress/bp-loader.php', 'slug' => 'buddypress' ],
+        'BuddyBoss Platform' => [ 'file' => 'buddyboss-platform/bp-loader.php', 'url' => 'https://www.buddyboss.com/platform/' ],
         'JetEngine'        => [ 'file' => 'jet-engine/jet-engine.php', 'url' => 'https://crocoblock.com/plugins/jetengine/' ],
         'Pods'             => [ 'file' => 'pods/init.php', 'slug' => 'pods' ],
         'TranslatePress'   => [ 'file' => 'translatepress-multilingual/index.php', 'slug' => 'translatepress-multilingual' ],
@@ -60,9 +63,14 @@ final class Plugin_Refusal
         'Flamingo'         => [ 'file' => 'flamingo/flamingo.php', 'slug' => 'flamingo' ],
         'ACF Pro'          => [ 'file' => 'advanced-custom-fields-pro/acf.php', 'url' => 'https://www.advancedcustomfields.com/pro/' ],
         'SeedProd'         => [ 'file' => 'coming-soon/coming-soon.php', 'slug' => 'coming-soon' ],
+        'WPGraphQL'        => [ 'file' => 'wp-graphql/wp-graphql.php', 'slug' => 'wp-graphql' ],
         'Under Construction' => [ 'file' => 'under-construction-page/under-construction.php', 'slug' => 'under-construction-page' ],
         'Weglot'           => [ 'file' => 'weglot/weglot.php', 'slug' => 'weglot' ],
         'GTranslate'       => [ 'file' => 'gtranslate/gtranslate.php', 'slug' => 'gtranslate' ],
+        'Smush'            => [ 'file' => 'wp-smushit/wp-smush.php', 'slug' => 'wp-smushit' ],
+        'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
+        'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
+        'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
