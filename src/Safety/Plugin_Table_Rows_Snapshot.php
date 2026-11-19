@@ -114,9 +114,9 @@ final class Plugin_Table_Rows_Snapshot
 
     /** kind => the column its ids name, for a kind not keyed by `id`. */
     private const KEY_COLUMNS = [
-        'mepr_rule_access' => 'rule_id',
-        'wordfence_blocks' => 'IP',
-        'pmpro_members'    => 'user_id',
+        'mepr_rule_access'  => 'rule_id',
+        'wordfence_blocks'  => 'IP',
+        'pmpro_members'     => 'user_id',
         'wpdatatables_rows' => 'table_id',
     ];
 
