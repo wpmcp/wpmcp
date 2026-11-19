@@ -75,6 +75,14 @@ class FormidableLiveTest extends \WP_UnitTestCase
         $this->confirm_id = (int) \FrmFormActionsController::get_form_actions('on_submit')->save_settings($record('on_submit', 'Confirmation', [ 'success_action' => 'message', 'success_msg' => 'Thanks', 'event' => [ 'create' ] ], $this->form_id));
         $this->assertGreaterThan(0, $this->email_id);
         $this->assertGreaterThan(0, $this->confirm_id);
+        // Issue #984: on a real site the action was created long before it is
+        // edited. Dating the fixtures back makes that deterministic: the test
+        // passed only when the edit ran within the fixture's own second.
+        global $wpdb;
+        foreach ([ $this->email_id, $this->confirm_id ] as $action_id) {
+            $wpdb->update($wpdb->posts, [ 'post_date' => '2020-01-02 03:04:05', 'post_date_gmt' => '2020-01-02 03:04:05' ], [ 'ID' => $action_id ]);
+            clean_post_cache($action_id);
+        }
 
         $this->entry_id = (int) \FrmEntry::create([ 'form_id' => $this->form_id, 'item_meta' => [ $this->field_id => 'Ada' ] ]);
         $this->assertGreaterThan(0, $this->entry_id, 'Formidable stored the entry');
@@ -121,6 +129,10 @@ class FormidableLiveTest extends \WP_UnitTestCase
             $this->assertTrue($undone['restored'], wp_json_encode($undone));
         }
         $this->assertSame('Live subject', $this->settings($this->email_id)['email_subject']);
+        $this->assertSame('2020-01-02 03:04:05', get_post($this->email_id)->post_date_gmt, 'an edit keeps the action\'s creation date');
+        global $wpdb;
+        $actions = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s AND menu_order = %d", 'frm_form_actions', $this->form_id));
+        $this->assertSame(2, $actions, 'undo leaves no duplicate action post');
         $this->assertSame('[admin_email]', $this->settings($this->email_id)['email_to']);
         $this->assertSame('message', $this->settings($this->confirm_id)['success_action']);
     }

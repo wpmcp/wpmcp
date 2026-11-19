@@ -133,8 +133,9 @@ if (! defined('ABSPATH')) {
  * ['error' => ['code', 'message', 'data']] payload, and the op handler is
  * only ever reached after ALL of them pass - a rejected call has no side
  * effects and writes no snapshot):
- *   availability -> op exists in this channel -> enabled flag/filter ->
- *   op-level governance -> per-op capability -> per-op 'requires' dependency ->
+ *   availability (an unknown op still answers unknown_operation, issue
+ *   #1036) -> op exists in this channel -> per-op capability -> per-op
+ *   'requires' dependency -> enabled flag/filter -> op-level governance ->
  *   destructive confirm:true -> schema validation -> per-op validate() ->
  *   unknown args (writes only, issue #956) -> handler (an op with a
  *   confirm_preview asks for confirm:true after the unknown args check).
@@ -510,6 +511,12 @@ abstract class Integration_Dispatcher
         }
 
         if (! $this->is_available()) {
+            // Issue #1036: an op this half does not define is unknown
+            // whether or not the pair's plugin is active.
+            $unknown = '' === $op ? null : $this->unknown_operation_refusal($channel, $op);
+            if (null !== $unknown) {
+                return $unknown;
+            }
             // Issue #980: an op that knows which plugin it needs names it
             // (plugin_missing or plugin_inactive with the plugins link), the
             // answer it gives while another of the pair's plugins is active.
@@ -538,26 +545,13 @@ abstract class Integration_Dispatcher
 
         $ops = $this->channel_operations($channel);
         if (! isset($ops[ $op ])) {
-            return $this->error('unknown_operation', sprintf(
-                'Unknown %s operation "%s" for the %s integration.',
-                $channel,
-                $op,
-                $this->integration()
-            ), [ 'operations' => array_keys($ops) ]);
+            return $this->unknown_operation_error($channel, $op);
         }
         $def = $ops[ $op ];
 
-        if (! $this->is_op_enabled($op, $def)) {
-            return $this->disabled_refusal($op, $def);
-        }
-
-        if (! $this->passes_op_governance($op, $def)) {
-            return $this->error('operation_denied', sprintf(
-                'Operation "%s" has been disabled by governance policy.',
-                $op
-            ), [ 'reason' => 'governance' ]);
-        }
-
+        // Issue #1041: capability, then the op's own plugin, then the
+        // opt-in. An op whose plugin is not active names that plugin, since
+        // switching on its opt-in would not let it run either.
         $denied = $this->capability_refusal($op, $def);
         if (null !== $denied) {
             return $denied;
@@ -570,6 +564,17 @@ abstract class Integration_Dispatcher
                 (string) ($requirement['message'] ?? sprintf('Operation "%s" is missing a dependency.', $op)),
                 (array) ($requirement['data'] ?? []) + [ 'operation' => $op ]
             );
+        }
+
+        if (! $this->is_op_enabled($op, $def)) {
+            return $this->disabled_refusal($op, $def);
+        }
+
+        if (! $this->passes_op_governance($op, $def)) {
+            return $this->error('operation_denied', sprintf(
+                'Operation "%s" has been disabled by governance policy.',
+                $op
+            ), [ 'reason' => 'governance' ]);
         }
 
         $unconfirmed  = 'destructive' === $def['mode'] && true !== ($args['confirm'] ?? false);
@@ -797,6 +802,40 @@ abstract class Integration_Dispatcher
     }
 
     /**
+     * The unknown_operation refusal, listing the ops this half offers, for
+     * an op this half does not define at any tier, otherwise null (issue
+     * #1036). Used while the pair is unavailable, here and, for a pair held
+     * back until its plugin is active, by Registrar::plugin_inactive(), so
+     * a mistyped op is told it does not exist rather than to install a
+     * plugin. Null for list-operations on the read half and for a pair
+     * that defines no ops on this half, which cannot tell.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function unknown_operation_refusal(string $channel, string $op): ?array
+    {
+        if ('read' === $channel && self::LIST_OPERATIONS === $op) {
+            return null;
+        }
+        $defined = $this->channel_operations($channel, false);
+        if ([] === $defined || isset($defined[ $op ])) {
+            return null;
+        }
+        return $this->unknown_operation_error($channel, $op);
+    }
+
+    /** The unknown_operation refusal, listing the ops this half offers. */
+    private function unknown_operation_error(string $channel, string $op): array
+    {
+        return $this->error('unknown_operation', sprintf(
+            'Unknown %s operation "%s" for the %s integration.',
+            $channel,
+            $op,
+            $this->integration()
+        ), [ 'operations' => array_keys($this->channel_operations($channel)) ]);
+    }
+
+    /**
      * The operation_denied refusal when the caller lacks the pair's floor or
      * the op's own capability, otherwise null.
      */
@@ -870,11 +909,14 @@ abstract class Integration_Dispatcher
         );
     }
 
-    /** Ops visible to one dispatcher half; write sees write + destructive. */
-    private function channel_operations(string $channel): array
+    /**
+     * Ops visible to one dispatcher half; write sees write + destructive.
+     * With $permitted false, also the ops this install's tier may not run.
+     */
+    private function channel_operations(string $channel, bool $permitted = true): array
     {
         $out = [];
-        foreach ($this->permitted_operations() as $name => $def) {
+        foreach ($permitted ? $this->permitted_operations() : $this->operations() as $name => $def) {
             $mode = $def['mode'] ?? '';
             if (! in_array($mode, self::MODES, true) || ! isset($def['handler'])) {
                 continue; // Malformed definitions are simply not exposed.
