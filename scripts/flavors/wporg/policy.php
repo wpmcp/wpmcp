@@ -288,6 +288,13 @@ return [
         // only. strip.php takes out the lines in Plugin_Data_Integration that
         // merge the ops and count the pack towards availability.
         'src/Integrations/Offload_Media_Pack.php',
+        // Newsletter, Groundhogg, MC4WP and Brevo mailing lists (issue #683),
+        // paid-tier. strip.php takes out the lines in Plugin_Data_Integration
+        // that merge the ops and count the pack towards availability.
+        'src/Integrations/Mailing_List_Pack.php',
+        'src/Integrations/Mailing_List_Newsletter.php',
+        'src/Integrations/Mailing_List_Groundhogg.php',
+        'src/Integrations/Mailing_List_Remote.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

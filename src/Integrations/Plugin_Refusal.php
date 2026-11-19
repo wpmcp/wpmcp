@@ -81,6 +81,10 @@ final class Plugin_Refusal
         'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
+        'Newsletter'       => [ 'file' => 'newsletter/plugin.php', 'slug' => 'newsletter' ],
+        'Groundhogg'       => [ 'file' => 'groundhogg/groundhogg.php', 'slug' => 'groundhogg' ],
+        'MC4WP'            => [ 'file' => 'mailchimp-for-wp/mailchimp-for-wp.php', 'slug' => 'mailchimp-for-wp' ],
+        'Brevo'            => [ 'file' => 'mailin/sendinblue.php', 'slug' => 'mailin' ],
         'Checkout Field Editor for WooCommerce' => [ 'file' => 'woo-checkout-field-editor-pro/checkout-form-designer.php', 'slug' => 'woo-checkout-field-editor-pro' ],
     ];
 
