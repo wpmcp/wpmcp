@@ -37,6 +37,10 @@ if (! defined('ABSPATH')) {
  *    counts and masked visitor IPs, and created, changed and trashed (off
  *    until wpmcp_enable_pretty_links_write or
  *    wpmcp_enable_thirstyaffiliates_write), each write undoable.
+ *  - Issue #688 adds the Advanced Ads ops (Advanced_Ads_Pack): ads and
+ *    placements listed and read, ads created as drafts, changed, enabled
+ *    and disabled, and placements pointed at an ad or group (off until
+ *    wpmcp_enable_advanced_ads_write), each write under a post snapshot.
  *  - Issue #687 adds the Site Reviews ops (Site_Reviews_Pack): reviews
  *    listed (reviewer emails and IPs masked), read one at a time and
  *    summarised, and approved, unapproved, trashed or replied to (off until
@@ -45,6 +49,9 @@ if (! defined('ABSPATH')) {
  *    LifterLMS and LearnDash course, section, lesson and quiz trees with
  *    snapshotted writes, and read-only enrollments (LearnDash also enrolls,
  *    unenrolls and resets progress, each snapshotted).
+ *  - Issue #701 adds the paid-tier WP Offload Media ops
+ *    (Offload_Media_Pack): offload status, bucket and counts, and per
+ *    attachment whether it is in the bucket and the URL the site serves.
  *  - Issue #481 adds the paid-tier TablePress ops (TablePress_Pack): tables
  *    read, edited cell by cell, imported, exported and placed through
  *    TablePress's own table model, with snapshotted writes.
@@ -99,6 +106,10 @@ if (! defined('ABSPATH')) {
  *    status, test or live mode, display type, prices) and Paid Member
  *    Subscriptions plans and members (Paid_Member_Subscriptions_Pack,
  *    member names and emails masked).
+ *  - Issue #704 adds the read-only WPGraphQL ops (WPGraphQL_Pack): a
+ *    GraphQL query run as the current user with mutations and
+ *    subscriptions refused and personal values masked, and a schema
+ *    summary without the mutation root.
  *
  * The pair registers only while at least one of them is loaded (the LMS
  * and TablePress ops only on an install that may run the paid tier), and
@@ -125,8 +136,9 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Site_Reviews_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
+            || Offload_Media_Pack::active()
             || TablePress_Pack::active()
             || CRM_Pack::active()
             || Amelia_Pack::active()
@@ -146,8 +158,9 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WP Simple Pay forms, Paid Member Subscriptions plans'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
+            . ', WP Offload Media status'
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
             . ', BetterDocs docs, Fluent Support and Awesome Support tickets'
@@ -166,25 +179,28 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
     public function operation_hosts(): array
     {
         $groups = [
-            [ 'bbPress', false, BbPress_Pack::operations() ],
+            [ 'bbPress, BuddyBoss Platform', true, BbPress_Pack::operations() ],
             [ 'JetEngine', false, JetEngine_Pack::operations() ],
             [ 'Pods', false, Pods_Pack::operations() ],
             [ 'TranslatePress', false, TranslatePress_Pack::operations() ],
             [ 'Code Snippets', false, Code_Snippets_Pack::operations() ],
-            [ 'BuddyPress', false, BuddyPress_Pack::operations() ],
+            [ 'BuddyPress, BuddyBoss Platform', true, BuddyPress_Pack::operations() ],
             [ 'WS Form', false, WS_Form_Pack::operations() ],
             [ 'WP Activity Log, Simple History', true, Activity_Log_Pack::operations() ],
             [ 'Action Scheduler', false, Action_Scheduler_Pack::operations() ],
             [ 'WP Mail Logging, Check and Log Email, Email Log', true, Email_Log_Pack::operations() ],
             [ 'Pretty Links', false, Pretty_Links_Pack::operations() ],
             [ 'ThirstyAffiliates', false, Thirsty_Affiliates_Pack::operations() ],
+            [ 'Advanced Ads', false, Advanced_Ads_Pack::operations() ],
             [ 'Site Reviews', false, Site_Reviews_Pack::operations() ],
             [ 'WP Simple Pay', false, Simple_Pay_Pack::operations() ],
             [ 'Paid Member Subscriptions', false, Paid_Member_Subscriptions_Pack::operations() ],
+            [ 'WPGraphQL', false, WPGraphQL_Pack::operations() ],
         ];
         foreach (LMS_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
         }
+        $groups[] = [ 'WP Offload Media', false, Offload_Media_Pack::operations() ];
         $groups[] = [ 'TablePress', false, TablePress_Pack::operations() ];
         foreach (CRM_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
@@ -226,11 +242,14 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Email_Log_Pack::operations(),
             Pretty_Links_Pack::operations(),
             Thirsty_Affiliates_Pack::operations(),
+            Advanced_Ads_Pack::operations(),
             Site_Reviews_Pack::operations(),
             Simple_Pay_Pack::operations(),
             Paid_Member_Subscriptions_Pack::operations(),
+            WPGraphQL_Pack::operations(),
             BuddyPress_Pack::operations(),
             LMS_Pack::operations(),
+            Offload_Media_Pack::operations(),
             TablePress_Pack::operations(),
             CRM_Pack::operations(),
             Amelia_Pack::operations(),
