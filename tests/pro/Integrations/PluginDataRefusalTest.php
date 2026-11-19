@@ -40,6 +40,7 @@ class PluginDataRefusalTest extends \WP_UnitTestCase
         'wpmcp_wp_go_maps_active',
         'wpmcp_store_locator_active',
         'wpmcp_wp_maps_active',
+        'wpmcp_checkout_field_editor_active',
     ];
 
     private Registrar $original;

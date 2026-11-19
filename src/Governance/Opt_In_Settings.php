@@ -85,10 +85,13 @@ final class Opt_In_Settings
             'wpmcp_enable_site_reviews_write'      => [ 'owner' => $i . 'Site_Reviews_Pack.php', 'destructive' => false ],
             'wpmcp_enable_block_suite_settings_write' => [ 'owner' => $i . 'Block_Suite_Settings.php', 'destructive' => false ],
             'wpmcp_enable_translation_settings_write' => [ 'owner' => $i . 'Translation_Settings_Pack.php', 'destructive' => false ],
+            'wpmcp_enable_cartflows_write'         => [ 'owner' => $i . 'CartFlows_Pack.php', 'destructive' => false ],
             'wpmcp_enable_advanced_ads_write'      => [ 'owner' => $i . 'Advanced_Ads_Pack.php', 'destructive' => false ],
             'wpmcp_enable_maps_write'              => [ 'owner' => $i . 'Maps_Pack.php', 'destructive' => false ],
             'wpmcp_enable_image_optimizer_write'   => [ 'owner' => $i . 'Image_Optimizer_Pack.php', 'destructive' => true ],
             'wpmcp_enable_search_write'            => [ 'owner' => $i . 'Search_Plugin_Support.php', 'destructive' => false ],
+            'wpmcp_enable_checkout_field_editor_write' => [ 'owner' => $i . 'Checkout_Field_Editor_Pack.php', 'destructive' => false ],
+            'wpmcp_enable_pmpro_write'             => [ 'owner' => $i . 'Paid_Memberships_Pro_Pack.php', 'destructive' => true ],
         ];
     }
 
@@ -129,10 +132,13 @@ final class Opt_In_Settings
             'wpmcp_enable_core_privacy_write'      => __('Privacy requests: export and erase personal data', 'wpmcp'),
             'wpmcp_enable_block_suite_settings_write' => __('Kadence Blocks and Spectra: plugin settings writes', 'wpmcp'),
             'wpmcp_enable_translation_settings_write' => __('GTranslate: language settings writes', 'wpmcp'),
+            'wpmcp_enable_cartflows_write'         => __('CartFlows: flow, step and checkout product writes', 'wpmcp'),
             'wpmcp_enable_advanced_ads_write'      => __('Advanced Ads: writes', 'wpmcp'),
             'wpmcp_enable_maps_write'              => __('WP Go Maps and WP Store Locator: marker and store writes', 'wpmcp'),
             'wpmcp_enable_image_optimizer_write'   => __('Image optimization plugins: optimize an image', 'wpmcp'),
             'wpmcp_enable_search_write'            => __('Search plugins (Relevanssi, FiboSearch): settings writes', 'wpmcp'),
+            'wpmcp_enable_checkout_field_editor_write' => __('Checkout Field Editor: checkout field writes', 'wpmcp'),
+            'wpmcp_enable_pmpro_write'             => __('Paid Memberships Pro: level, member and discount code writes', 'wpmcp'),
         ];
     }
 

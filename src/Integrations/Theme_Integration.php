@@ -281,6 +281,9 @@ class Theme_Integration extends Integration_Dispatcher
      * single, archive and search templates on the site parts store.
      * Issue #356 adds the paid-tier FunnelKit funnel reads (FunnelKit_Pack),
      * which answer funnelkit_inactive while FunnelKit is not loaded.
+     * Issue #662 adds the paid-tier CartFlows flow, step and checkout
+     * product ops (CartFlows_Pack), which answer cartflows_inactive while
+     * CartFlows is not loaded.
      * Issue #714 adds the paid-tier WordPress core personal data request
      * ops (Core_Privacy_Pack): requests listed and read, export and erasure
      * requests filed and marked complete, every write undoable.
@@ -323,6 +326,7 @@ class Theme_Integration extends Integration_Dispatcher
             Rank_Math_Redirects_Pack::operations(),
             Elementor_Addon_Packs::operations(),
             FunnelKit_Pack::operations(),
+            CartFlows_Pack::operations(),
             Core_Privacy_Pack::operations(),
             \WPMCP\Tools\ThemeBuilder\Dynamic\Dynamic_Template_Ops::operations()
         );

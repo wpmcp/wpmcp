@@ -1383,6 +1383,19 @@ $edits['src/Integrations/ACF_Integration.php'] = [
     ["            'batch-update-fields' => ACF_Batch_Update::definition(),\n", '', 1],
 ];
 
+// The Paid Memberships Pro member, order and discount code reads and the
+// writes (issue #667) are the paid add-on's. Their file is removed by
+// policy.php, so the line that merges them into the pmpro pair leaves, and
+// the pair's summary goes back to what the free level reads cover.
+$edits['src/Integrations/Paid_Memberships_Pro_Integration.php'] = [
+    ["        return \$this->level_reads()\n            + Paid_Memberships_Pro_Pack::operations();\n", "        return \$this->level_reads();\n", 1],
+    [
+        "        return 'Paid Memberships Pro (membership levels, pricing, member counts, members, orders and discount codes)';\n",
+        "        return 'Paid Memberships Pro (membership levels, pricing, and member counts)';\n",
+        1,
+    ],
+];
+
 // All in One SEO support (issue #294) is the paid add-on's. Its store file
 // is removed by policy.php, so only its entry in the adapter's table-store
 // map leaves SEO_Adapter; detection then never reports it.
@@ -1440,15 +1453,16 @@ $edits['src/Integrations/Theme_Framework_Pack.php'] = [
 // file is removed by policy.php, so the line that merges their ops into the
 // theme pair, the docblock sentence describing them, and the rollback hook
 // that refreshes one suite's cache all leave with it. The dynamic template
-// ops (issue #290), the FunnelKit funnel reads (issue #356) and the core
-// personal data request ops (issue #714) leave through the same two edits:
-// their files are removed by policy.php too.
+// ops (issue #290), the FunnelKit funnel reads (issue #356), the CartFlows
+// ops (issue #662) and the core personal data request ops (issue #714) leave
+// through the same two edits: their files are removed by policy.php too.
 $edits['src/Integrations/Theme_Integration.php'] = [
     [
         "            Redirection_Pack::operations(),\n"
             . "            Rank_Math_Redirects_Pack::operations(),\n"
             . "            Elementor_Addon_Packs::operations(),\n"
             . "            FunnelKit_Pack::operations(),\n"
+            . "            CartFlows_Pack::operations(),\n"
             . "            Core_Privacy_Pack::operations(),\n"
             . "            \\WPMCP\\Tools\\ThemeBuilder\\Dynamic\\Dynamic_Template_Ops::operations()\n",
         "            Redirection_Pack::operations(),\n            Rank_Math_Redirects_Pack::operations()\n",
@@ -1464,6 +1478,9 @@ $edits['src/Integrations/Theme_Integration.php'] = [
             . "     * single, archive and search templates on the site parts store.\n"
             . "     * Issue #356 adds the paid-tier FunnelKit funnel reads (FunnelKit_Pack),\n"
             . "     * which answer funnelkit_inactive while FunnelKit is not loaded.\n"
+            . "     * Issue #662 adds the paid-tier CartFlows flow, step and checkout\n"
+            . "     * product ops (CartFlows_Pack), which answer cartflows_inactive while\n"
+            . "     * CartFlows is not loaded.\n"
             . "     * Issue #714 adds the paid-tier WordPress core personal data request\n"
             . "     * ops (Core_Privacy_Pack): requests listed and read, export and erasure\n"
             . "     * requests filed and marked complete, every write undoable.\n",
@@ -1485,6 +1502,41 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Checkout Field Editor ops (issue #660) are the paid add-on's,
+    // removed by policy.php; their lines go first, so every edit below
+    // still matches the text it was written against.
+    [
+        " *  - Issue #660 adds the paid-tier Checkout Field Editor for WooCommerce\n"
+            . " *    ops (Checkout_Field_Editor_Pack): billing, shipping and additional\n"
+            . " *    checkout fields listed, and existing fields changed (off until\n"
+            . " *    wpmcp_enable_checkout_field_editor_write), the write snapshotted on the\n"
+            . " *    section's option.\n",
+        '',
+        1,
+    ],
+    [
+        "            || Translation_Settings_Pack::active()\n"
+            . "            || Checkout_Field_Editor_Pack::active();\n",
+        "            || Translation_Settings_Pack::active();\n",
+        1,
+    ],
+    [
+        "            . ', Weglot and GTranslate language settings'\n"
+            . "            . ', Checkout Field Editor fields';\n",
+        "            . ', Weglot and GTranslate language settings';\n",
+        1,
+    ],
+    [
+        "        \$groups[] = [ 'Checkout Field Editor', false, Checkout_Field_Editor_Pack::operations() ];\n",
+        '',
+        1,
+    ],
+    [
+        "            Translation_Settings_Pack::operations(),\n"
+            . "            Checkout_Field_Editor_Pack::operations()\n",
+        "            Translation_Settings_Pack::operations()\n",
+        1,
+    ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.

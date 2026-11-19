@@ -29,10 +29,12 @@ final class Plugin_Refusal
         'WP Mail SMTP'     => [ 'file' => 'wp-mail-smtp/wp_mail_smtp.php', 'slug' => 'wp-mail-smtp' ],
         'Amelia'           => [ 'file' => 'ameliabooking/ameliabooking.php', 'slug' => 'ameliabooking' ],
         'FunnelKit'        => [ 'file' => 'funnel-builder/funnel-builder.php', 'slug' => 'funnel-builder' ],
+        'CartFlows'        => [ 'file' => 'cartflows/cartflows.php', 'slug' => 'cartflows' ],
         'FunnelKit Funnel Builder Pro' => [ 'file' => 'funnel-builder-pro/funnel-builder-pro.php', 'url' => 'https://funnelkit.com/' ],
         'Duplicator'       => [ 'file' => 'duplicator/duplicator.php', 'slug' => 'duplicator' ],
         'TablePress'       => [ 'file' => 'tablepress/tablepress.php', 'slug' => 'tablepress' ],
         'MemberPress'      => [ 'file' => 'memberpress/memberpress.php', 'url' => 'https://memberpress.com/' ],
+        'Paid Memberships Pro' => [ 'file' => 'paid-memberships-pro/paid-memberships-pro.php', 'slug' => 'paid-memberships-pro' ],
         'LearnDash'        => [ 'file' => 'sfwd-lms/sfwd_lms.php', 'url' => 'https://www.learndash.com/' ],
         'LifterLMS'        => [ 'file' => 'lifterlms/lifterlms.php', 'slug' => 'lifterlms' ],
         'Tutor LMS'        => [ 'file' => 'tutor/tutor.php', 'slug' => 'tutor' ],
@@ -74,6 +76,7 @@ final class Plugin_Refusal
         'WP Go Maps'       => [ 'file' => 'wp-google-maps/wpGoogleMaps.php', 'slug' => 'wp-google-maps' ],
         'WP Store Locator' => [ 'file' => 'wp-store-locator/wp-store-locator.php', 'slug' => 'wp-store-locator' ],
         'WP Maps'          => [ 'file' => 'wp-google-map-plugin/wp-google-map-plugin.php', 'slug' => 'wp-google-map-plugin' ],
+        'Checkout Field Editor for WooCommerce' => [ 'file' => 'woo-checkout-field-editor-pro/checkout-form-designer.php', 'slug' => 'woo-checkout-field-editor-pro' ],
     ];
 
     /** Where to get a known plugin: its wordpress.org page or vendor page, else null. */
