@@ -69,6 +69,8 @@ final class WP_All_Import_Pack
 
     public const MAX_TEMPLATE = 2000;
 
+    private const LOG_CHUNK = 1048576;
+
     private const PLUGINS = [
         'import' => [ 'label' => 'WP All Import', 'file' => 'wp-all-import/plugin.php', 'tables' => [ 'pmxi_imports', 'pmxi_history' ] ],
         'export' => [ 'label' => 'WP All Export', 'file' => 'wp-all-export/wp-all-export.php', 'tables' => [ 'pmxe_exports' ] ],
@@ -496,30 +498,53 @@ final class WP_All_Import_Pack
         if (null === $file) {
             return $out;
         }
-        $handle = fopen($file, 'rb'); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- streams a log that can be large.
-        if (false === $handle) {
-            $out['found'] = false;
+        // Read in 1 MB chunks with file_get_contents() and an offset (the
+        // Plugin Check ruleset allows it, unlike fopen and fgets), so a large
+        // log is never loaded whole.
+        $size   = (int) filesize($file);
+        $offset = 0;
+        $carry  = '';
+        while ($offset < $size) {
+            $chunk   = $offset < $size ? file_get_contents($file, false, null, $offset, self::LOG_CHUNK) : '';
+            $chunk   = false === $chunk ? '' : $chunk;
+            $offset += self::LOG_CHUNK;
+            $lines   = explode("\n", $carry . $chunk);
+            $carry   = $offset < $size ? (string) array_pop($lines) : '';
+            foreach ($lines as $line) {
+                $out = self::log_line($out, $line);
+            }
+            if ('' === $chunk) {
+                break;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The log summary with one more line counted, and kept when it is a
+     * warning or an error and the cap is not reached.
+     *
+     * @param array<string, mixed> $out
+     * @return array<string, mixed>
+     */
+    private static function log_line(array $out, string $line): array
+    {
+        if (1 !== preg_match('~<b>\s*(ERROR|WARNING)\s*</b>~i', $line, $m)) {
             return $out;
         }
-        while (false !== ($line = fgets($handle))) {
-            if (1 !== preg_match('~<b>\s*(ERROR|WARNING)\s*</b>~i', $line, $m)) {
-                continue;
-            }
-            $level = 'ERROR' === strtoupper($m[1]) ? 'error' : 'warning';
-            $out[ 'error' === $level ? 'errors' : 'warnings' ]++;
-            if (count($out['issues']) >= self::MAX_LOG_ISSUES) {
-                $out['truncated'] = true;
-                continue;
-            }
-            $text = self::clean_line($line);
-            $time = '';
-            if (1 === preg_match('/^\[(\d{1,2}:\d{2}:\d{2})\]\s*/', $text, $t)) {
-                $time = $t[1];
-                $text = substr($text, strlen($t[0]));
-            }
-            $out['issues'][] = [ 'level' => $level, 'time' => $time, 'message' => self::cut($text, 500) ];
+        $level = 'ERROR' === strtoupper($m[1]) ? 'error' : 'warning';
+        $out[ 'error' === $level ? 'errors' : 'warnings' ]++;
+        if (count($out['issues']) >= self::MAX_LOG_ISSUES) {
+            $out['truncated'] = true;
+            return $out;
         }
-        fclose($handle); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+        $text = self::clean_line($line);
+        $time = '';
+        if (1 === preg_match('/^\[(\d{1,2}:\d{2}:\d{2})\]\s*/', $text, $t)) {
+            $time = $t[1];
+            $text = substr($text, strlen($t[0]));
+        }
+        $out['issues'][] = [ 'level' => $level, 'time' => $time, 'message' => self::cut($text, 500) ];
         return $out;
     }
 
