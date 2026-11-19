@@ -102,6 +102,10 @@ if (! defined('ABSPATH')) {
  *    and pending actions canceled (undoable, as an 'action_scheduler'
  *    snapshot) or run now (not undoable, confirm:true), both off until
  *    wpmcp_enable_action_scheduler_write.
+ *  - Issue #706 adds the paid-tier wpDataTables and Ninja Tables ops
+ *    (Data_Tables_Pack): tables listed and read, and cells set and rows
+ *    inserted and deleted, snapshotted and off until
+ *    wpmcp_enable_data_tables_write.
  *  - Issue #666 adds read-only WP Simple Pay payment forms (Simple_Pay_Pack:
  *    status, test or live mode, display type, prices) and Paid Member
  *    Subscriptions plans and members (Paid_Member_Subscriptions_Pack,
@@ -140,6 +144,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             || LMS_Pack::active()
             || Offload_Media_Pack::active()
             || TablePress_Pack::active()
+            || Data_Tables_Pack::active()
             || CRM_Pack::active()
             || Amelia_Pack::active()
             || I18n_Pack::active()
@@ -160,6 +165,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
     {
         return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
+            . ', wpDataTables and Ninja Tables tables'
             . ', WP Offload Media status'
             . ', FluentCRM and MailPoet'
             . ', Amelia bookings, Polylang and WPML translations, MemberPress memberships, Elementor Pro forms'
@@ -202,6 +208,8 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
         }
         $groups[] = [ 'WP Offload Media', false, Offload_Media_Pack::operations() ];
         $groups[] = [ 'TablePress', false, TablePress_Pack::operations() ];
+        $groups[] = [ 'wpDataTables', false, Data_Tables_Pack::wpdatatables_operations() ];
+        $groups[] = [ 'Ninja Tables', false, Data_Tables_Pack::ninja_tables_operations() ];
         foreach (CRM_Pack::adapters() as $adapter) {
             $groups[] = [ $adapter->label(), false, $adapter->operations() ];
         }
@@ -251,6 +259,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             LMS_Pack::operations(),
             Offload_Media_Pack::operations(),
             TablePress_Pack::operations(),
+            Data_Tables_Pack::operations(),
             CRM_Pack::operations(),
             Amelia_Pack::operations(),
             I18n_Pack::operations(),

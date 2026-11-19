@@ -33,6 +33,8 @@ final class Plugin_Refusal
         'FunnelKit Funnel Builder Pro' => [ 'file' => 'funnel-builder-pro/funnel-builder-pro.php', 'url' => 'https://funnelkit.com/' ],
         'Duplicator'       => [ 'file' => 'duplicator/duplicator.php', 'slug' => 'duplicator' ],
         'TablePress'       => [ 'file' => 'tablepress/tablepress.php', 'slug' => 'tablepress' ],
+        'wpDataTables'     => [ 'file' => 'wpdatatables/wpdatatables.php', 'slug' => 'wpdatatables' ],
+        'Ninja Tables'     => [ 'file' => 'ninja-tables/ninja-tables.php', 'slug' => 'ninja-tables' ],
         'MemberPress'      => [ 'file' => 'memberpress/memberpress.php', 'url' => 'https://memberpress.com/' ],
         'Paid Memberships Pro' => [ 'file' => 'paid-memberships-pro/paid-memberships-pro.php', 'slug' => 'paid-memberships-pro' ],
         'LearnDash'        => [ 'file' => 'sfwd-lms/sfwd_lms.php', 'url' => 'https://www.learndash.com/' ],

@@ -68,6 +68,17 @@ if (! defined('ABSPATH')) {
  * membership restore PMPro's cached levels of each captured user are
  * dropped, so its next read sees the restored rows.
  *
+ * wpDataTables simple tables (issue #706) keep their cells as one JSON row
+ * per table row in `wpdatatables_rows` and their size in the table's own
+ * row in `wpdatatables`. Kind wpdatatables_rows (the one suffix "rows") is
+ * keyed by `table_id`, so one snapshot covers every row of a table, rows a
+ * write adds included; kind wpdatatables (the table name split as "wpdata"
+ * and the one suffix "tables") is the table's own row, keyed by id.
+ * Ninja Tables rows (kind ninja_table, the one suffix "items") are keyed by
+ * their own id; an insert names the ids it made once it has them. After a
+ * Ninja Tables restore its render cache of the tables involved is cleared
+ * through its own function, as its own row edits do.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
  * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
@@ -87,6 +98,9 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_levels'     => 'pmpro_',
         'pmpro_members'    => 'pmpro_',
         'pmpro_codes'      => 'pmpro_',
+        'wpdatatables'      => 'wpdata',
+        'wpdatatables_rows' => 'wpdatatables_',
+        'ninja_table'       => 'ninja_table_',
     ];
 
     /**
@@ -100,9 +114,10 @@ final class Plugin_Table_Rows_Snapshot
 
     /** kind => the column its ids name, for a kind not keyed by `id`. */
     private const KEY_COLUMNS = [
-        'mepr_rule_access' => 'rule_id',
-        'wordfence_blocks' => 'IP',
-        'pmpro_members'    => 'user_id',
+        'mepr_rule_access'  => 'rule_id',
+        'wordfence_blocks'  => 'IP',
+        'pmpro_members'     => 'user_id',
+        'wpdatatables_rows' => 'table_id',
     ];
 
     /** kind => the only suffixes it allows, for a kind with a fixed table. */
@@ -113,6 +128,9 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_levels'     => [ 'membership_levels' ],
         'pmpro_members'    => [ 'memberships_users' ],
         'pmpro_codes'      => [ 'discount_codes' ],
+        'wpdatatables'      => [ 'tables' ],
+        'wpdatatables_rows' => [ 'rows' ],
+        'ninja_table'       => [ 'items' ],
     ];
 
     /**
@@ -439,7 +457,26 @@ final class Plugin_Table_Rows_Snapshot
         if ('pmpro_members' === $kind) {
             self::clear_pmpro_user_cache($ids);
         }
+        if ('ninja_table' === $kind) {
+            self::clear_ninja_tables_cache(array_merge(array_column((array) ($data['rows'] ?? []), 'table_id'), (array) ($data['table_ids'] ?? [])));
+        }
         self::after_wordfence_restore($kind);
+    }
+
+    /**
+     * Drop Ninja Tables' cached rows and HTML of the given tables through
+     * its own function. A no-op while Ninja Tables is not loaded.
+     *
+     * @param array<int, int|string> $table_ids
+     */
+    public static function clear_ninja_tables_cache(array $table_ids): void
+    {
+        if (! function_exists('ninjaTablesClearTableDataCache')) {
+            return;
+        }
+        foreach (array_unique(array_filter(array_map('intval', $table_ids))) as $table_id) {
+            \ninjaTablesClearTableDataCache($table_id);
+        }
     }
 
     /**
@@ -599,6 +636,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('prli' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring Pretty Links links requires the manage_options capability.');
+            }
+            return;
+        }
+        if (in_array($kind, [ 'wpdatatables', 'wpdatatables_rows', 'ninja_table' ], true)) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring ' . ('ninja_table' === $kind ? 'Ninja Tables' : 'wpDataTables') . ' rows requires the manage_options capability.');
             }
             return;
         }

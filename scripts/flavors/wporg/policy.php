@@ -288,6 +288,10 @@ return [
         // only. strip.php takes out the lines in Plugin_Data_Integration that
         // merge the ops and count the pack towards availability.
         'src/Integrations/Offload_Media_Pack.php',
+        // wpDataTables and Ninja Tables tables (issue #706), paid-tier.
+        // strip.php takes out the lines in Plugin_Data_Integration that merge
+        // the ops, name their plugins and count the pack towards availability.
+        'src/Integrations/Data_Tables_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

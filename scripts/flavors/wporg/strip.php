@@ -1537,6 +1537,26 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         "            Translation_Settings_Pack::operations()\n",
         1,
     ],
+    // The wpDataTables and Ninja Tables ops (issue #706) are paid-tier,
+    // removed by policy.php. Their lines go first, so every edit below
+    // matches the file as it was before them.
+    [
+        " *  - Issue #706 adds the paid-tier wpDataTables and Ninja Tables ops\n"
+            . " *    (Data_Tables_Pack): tables listed and read, and cells set and rows\n"
+            . " *    inserted and deleted, snapshotted and off until\n"
+            . " *    wpmcp_enable_data_tables_write.\n",
+        '',
+        1,
+    ],
+    [ "            || Data_Tables_Pack::active()\n", '', 1 ],
+    [ "            . ', wpDataTables and Ninja Tables tables'\n", '', 1 ],
+    [
+        "        \$groups[] = [ 'wpDataTables', false, Data_Tables_Pack::wpdatatables_operations() ];\n"
+            . "        \$groups[] = [ 'Ninja Tables', false, Data_Tables_Pack::ninja_tables_operations() ];\n",
+        '',
+        1,
+    ],
+    [ "            Data_Tables_Pack::operations(),\n", '', 1 ],
     // The WP Offload Media ops (issue #701) are the paid add-on's, removed
     // by policy.php. Their lines go first, so every edit below matches the
     // file as it was before them.
