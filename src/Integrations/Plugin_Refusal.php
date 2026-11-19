@@ -81,6 +81,9 @@ final class Plugin_Refusal
         'ShortPixel'       => [ 'file' => 'shortpixel-image-optimiser/wp-shortpixel.php', 'slug' => 'shortpixel-image-optimiser' ],
         'EWWW Image Optimizer' => [ 'file' => 'ewww-image-optimizer/ewww-image-optimizer.php', 'slug' => 'ewww-image-optimizer' ],
         'Imagify'          => [ 'file' => 'imagify/imagify.php', 'slug' => 'imagify' ],
+        'WP Job Manager'   => [ 'file' => 'wp-job-manager/wp-job-manager.php', 'slug' => 'wp-job-manager' ],
+        'GeoDirectory'     => [ 'file' => 'geodirectory/geodirectory.php', 'slug' => 'geodirectory' ],
+        'Directorist'      => [ 'file' => 'directorist/directorist-base.php', 'slug' => 'directorist' ],
         'Checkout Field Editor for WooCommerce' => [ 'file' => 'woo-checkout-field-editor-pro/checkout-form-designer.php', 'slug' => 'woo-checkout-field-editor-pro' ],
     ];
 

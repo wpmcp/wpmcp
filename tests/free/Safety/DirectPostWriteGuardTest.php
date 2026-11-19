@@ -121,6 +121,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new BetterDocs doc post.',
         ],
+        'Integrations/Listings_Pack.php'              => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new WP Job Manager, GeoDirectory or Directorist listing post (issue #707).',
+        ],
         'Integrations/Thirsty_Affiliates_Pack.php'    => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new ThirstyAffiliates link post.',
