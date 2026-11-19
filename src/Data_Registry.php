@@ -70,8 +70,8 @@ final class Data_Registry
      * Directories directly under each site's uploads directory: file
      * backups taken before a write (File_Backup), site backup archives and
      * staged migration uploads (Site_Backup_Dir), WXR exports (Export_Dir),
-     * the content mirror (Content_Mirror) and filesystem tool backups
-     * (Filesystem_Guard).
+     * the content mirror (Content_Mirror), filesystem tool backups
+     * (Filesystem_Guard) and quarantined files (File_Quarantine).
      */
     public const UPLOADS_DIRS = [
         '.wpmcp-backups',
@@ -79,6 +79,7 @@ final class Data_Registry
         'wpmcp-exports',
         'wpmcp-mirror',
         'wpmcp-fs-backups',
+        'wpmcp-quarantine',
     ];
 
     /**

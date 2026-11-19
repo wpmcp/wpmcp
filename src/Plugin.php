@@ -2839,7 +2839,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/incident-response',
             'free',
-            'list-app-passwords (no secrets); revoke-app-password (uuid or all); list-sessions (one user, masked, no tokens); end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files (files scan-security flags, from the checksum-verified official package, never wp-content; undo: rollback-operation). Writes need confirm:true. Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords). Your session and app password stay unless include_current. Other users take edit_users',
+            'list-app-passwords (no secrets); revoke-app-password (uuid or all); list-sessions (one user, masked, no tokens); end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files (files scan-security flags, from the checksum-verified official package, never wp-content; undo: rollback-operation); quarantine-file (path, reason: moves it to a private folder; not core, wp-config or WP MCP files; undo: rollback-operation); list-quarantine; restore-quarantined-file (id, overwrite); purge-quarantined-file (id). Quarantine needs the wpmcp_enable_fs_writes opt-in. Writes need confirm:true. Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords). Your session and app password stay unless include_current. Other users take edit_users',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2852,6 +2852,11 @@ final class Plugin
                     'all'             => [ 'type' => 'boolean' ],
                     'include_current' => [ 'type' => 'boolean' ],
                     'paths'           => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
+                    'path'            => [ 'type' => 'string' ],
+                    'reason'          => [ 'type' => 'string' ],
+                    'id'              => [ 'type' => 'string' ],
+                    'overwrite'       => [ 'type' => 'boolean' ],
+                    'unchecked'       => [ 'type' => 'boolean' ],
                     'confirm'         => [ 'type' => 'boolean' ],
                 ],
                 'required'   => [ 'action' ],
