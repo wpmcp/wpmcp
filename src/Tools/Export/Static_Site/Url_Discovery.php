@@ -18,7 +18,7 @@ if (! defined('ABSPATH')) {
  * each page it renders (pagination, author and date archives), up to the
  * page limit.
  *
- * Two narrowing inputs: post_type (one or more, comma separated) keeps the
+ * Two narrowing inputs: post_types (one or more, comma separated) keeps the
  * home page and that type's entries only, and urls exports exactly those
  * internal URLs. Either one also stops the build from following links, so
  * a narrowed export holds what was asked for and nothing else.
@@ -47,11 +47,11 @@ class Url_Discovery
     public static function options(array $args)
     {
         $post_types = [];
-        if (isset($args['post_type']) && '' !== (string) $args['post_type']) {
-            foreach (array_filter(array_map('trim', explode(',', (string) $args['post_type']))) as $type) {
+        if (isset($args['post_types']) && '' !== (string) $args['post_types']) {
+            foreach (array_filter(array_map('trim', explode(',', (string) $args['post_types']))) as $type) {
                 $type = sanitize_key($type);
                 if (! post_type_exists($type) || ! is_post_type_viewable($type) || 'attachment' === $type) {
-                    return new \WP_Error('wpmcp_static_export_invalid', sprintf('post_type "%s" is not a public post type.', $type));
+                    return new \WP_Error('wpmcp_static_export_invalid', sprintf('post_types: "%s" is not a public post type.', $type));
                 }
                 $post_types[] = $type;
             }

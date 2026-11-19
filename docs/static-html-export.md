@@ -17,7 +17,7 @@ The site needs pretty permalinks (any structure other than plain `?p=` links).
 There is no separate tool. The export is a kind of backup job:
 
 - `trigger-backup` with `type: "static", plan: true` lists the URLs that would be exported (home page, published public posts and pages, non-empty public term archives, internal nav menu links), with counts per source, a rough size estimate and the URLs it refuses with a reason. Nothing is queued or fetched.
-- `trigger-backup` with `type: "static"` queues the export and returns a `job_id`. Narrow it with `post_type` (comma separated) or `urls` (a list of URLs on this site). Without either, the export also follows the internal links of each page it renders, up to 500 pages (filter `wpmcp_static_export_max_pages`).
+- `trigger-backup` with `type: "static"` queues the export and returns a `job_id`. Narrow it with `post_types` (comma separated) or `urls` (a list of URLs on this site). Without either, the export also follows the internal links of each page it renders, up to 500 pages (filter `wpmcp_static_export_max_pages`).
 - `get-backup-status` with the `job_id` reports progress while it runs. A completed export carries `result` (ZIP path, size, pages, assets, skipped URLs with reasons, pages with forms, search or comments) and `download_url`: a private link that works only for the administrator who asked, while signed in, for 15 minutes (filter `wpmcp_static_export_download_ttl`).
 - `cancel-backup-job` stops it and removes its work files. `delete-backup-archive` with the `job_id` removes the ZIP.
 

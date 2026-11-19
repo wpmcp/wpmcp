@@ -5381,7 +5381,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/trigger-backup',
             'free',
-            'Queue a WP-Cron backup job; returns its job id. type=full: portable site archive (zip: full SQL dump, wp-content, origin manifest) to restore or migrate; database/files/uploads narrow it; content: WXR export; static: public pages as plain HTML with assets and relative links, as a zip (opt-in; plan:true lists URLs only; post_type or urls narrow it). every=daily [HH:MM], weekly [mon-sun] [HH:MM] (site time) or off schedules that type instead; each run prunes its archives past keep (default 7), never manual ones or after a failed run',
+            'Queue a WP-Cron backup job; returns its job id. type=full: portable site archive (zip: full SQL dump, wp-content, origin manifest) to restore or migrate; database/files/uploads narrow it; content: WXR export; static: public pages as plain HTML with assets and relative links, as a zip (opt-in; plan:true lists URLs only; post_types or urls narrow it). every=daily [HH:MM], weekly [mon-sun] [HH:MM] (site time) or off schedules that type instead; each run prunes its archives past keep (default 7), never manual ones or after a failed run',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5393,7 +5393,7 @@ final class Plugin
                     'every' => [ 'type' => 'string' ],
                     'keep'  => [ 'type' => 'integer' ],
                     'plan'      => [ 'type' => 'boolean' ],
-                    'post_type' => [ 'type' => 'string' ],
+                    'post_types' => [ 'type' => 'string' ],
                     'urls'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
                 ],
             ],

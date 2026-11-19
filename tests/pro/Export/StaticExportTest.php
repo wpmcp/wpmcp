@@ -253,12 +253,12 @@ class StaticExportTest extends \WP_UnitTestCase
         $this->site();
         $post = self::factory()->post->create(['post_name' => 'news', 'post_status' => 'publish']);
 
-        $plan = $this->trigger(['plan' => true, 'post_type' => 'post']);
+        $plan = $this->trigger(['plan' => true, 'post_types' => 'post']);
 
         $this->assertContains(get_permalink($post), $plan['urls']);
         $this->assertNotContains('http://example.org/about/', $plan['urls']);
 
-        $bad = (new Trigger_Backup())->handle(['type' => 'static', 'plan' => true, 'post_type' => 'nope']);
+        $bad = (new Trigger_Backup())->handle(['type' => 'static', 'plan' => true, 'post_types' => 'nope']);
         $this->assertWPError($bad);
     }
 

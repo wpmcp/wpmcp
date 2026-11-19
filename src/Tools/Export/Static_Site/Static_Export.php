@@ -2,6 +2,7 @@
 
 namespace WPMCP\Tools\Export\Static_Site;
 
+use WPMCP\Admin\Management_Access;
 use WPMCP\MCP\Opt_In_Required;
 use WPMCP\MCP\Pro_Refusal;
 use WPMCP\Pro\Gate;
@@ -61,7 +62,9 @@ class Static_Export
         add_filter('wpmcp_trigger_backup_kind', [self::class, 'trigger'], 10, 3);
         add_filter('wpmcp_backup_job_view', [self::class, 'view']);
         add_action(Run_Static_Export::HOOK, [new Run_Static_Export(), 'handle']);
-        add_action('admin_post_' . self::DOWNLOAD_ACTION, [self::class, 'serve_download']);
+        // Behind the management check like every WP MCP admin handler; the
+        // signed link is checked on top of it.
+        Management_Access::add_handler('admin_post_' . self::DOWNLOAD_ACTION, [self::class, 'serve_download']);
     }
 
     public static function enabled(): bool
@@ -111,7 +114,7 @@ class Static_Export
         $created = Backup_Job_Store::create_exclusive(Run_Static_Export::JOB_TYPE, 'all', [
             'user_id' => get_current_user_id(),
             'options' => array_filter([
-                'post_type' => implode(',', $options['post_types']),
+                'post_types' => implode(',', $options['post_types']),
                 'urls'      => $options['urls'],
             ]),
         ]);

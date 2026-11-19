@@ -1248,7 +1248,7 @@ $plugin_edits[] = [
     1,
 ];
 $plugin_edits[] = [
-    "; static: public pages as plain HTML with assets and relative links, as a zip (opt-in; plan:true lists URLs only; post_type or urls narrow it). every",
+    "; static: public pages as plain HTML with assets and relative links, as a zip (opt-in; plan:true lists URLs only; post_types or urls narrow it). every",
     '. every',
     1,
 ];
@@ -1259,7 +1259,7 @@ $plugin_edits[] = [
 ];
 $plugin_edits[] = [
     "                    'plan'      => [ 'type' => 'boolean' ],\n"
-        . "                    'post_type' => [ 'type' => 'string' ],\n"
+        . "                    'post_types' => [ 'type' => 'string' ],\n"
         . "                    'urls'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],\n",
     '',
     1,
