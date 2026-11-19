@@ -14,8 +14,8 @@ use WPMCP\Safety\Snapshot_Store;
  *
  * It runs only in the local gate's live blocks leg (bin/test-local.sh, or
  * bin/test-local.sh --live-blocks alone), which sets WPMCP_LIVE_BLOCKS=1,
- * installs Kadence Blocks, GenerateBlocks, Spectra and Otter Blocks from
- * wordpress.org on a separate WordPress install and loads them in
+ * installs Kadence Blocks, GenerateBlocks, Spectra, Otter Blocks, Stackable
+ * and Ultimate Blocks (issue #649) from wordpress.org on a separate WordPress install and loads them in
  * tests/bootstrap.php. Each test inserts a block through the block-suites
  * tools, renders the post as a front-end request (the wp action, wp_head,
  * the_content and wp_footer, which is where the suites build and print their
@@ -38,7 +38,7 @@ class BlockSuitesLiveTest extends \WP_UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach ([ 'KADENCE_BLOCKS_VERSION', 'GENERATEBLOCKS_VERSION', 'UAGB_VER', 'OTTER_BLOCKS_VERSION' ] as $constant) {
+        foreach ([ 'KADENCE_BLOCKS_VERSION', 'GENERATEBLOCKS_VERSION', 'UAGB_VER', 'OTTER_BLOCKS_VERSION', 'STACKABLE_VERSION', 'ULTIMATE_BLOCKS_VERSION' ] as $constant) {
             if (! defined($constant)) {
                 $this->markTestSkipped('Needs the real block suites (bin/test-local.sh --live-blocks, WPMCP_LIVE_BLOCKS=1).');
             }
@@ -360,6 +360,73 @@ class BlockSuitesLiveTest extends \WP_UnitTestCase
         $this->assertRule($this->css($html), '#' . $unique, '#3c4d5e', 'Otter generated CSS for the block id');
 
         $this->assert_edit_and_rollback('otter-blocks', $id, $unique, '#', [ 'headingColor' => '#6f7081' ], '#6f7081', '#3c4d5e', $original);
+    }
+
+    /**
+     * Stackable saves each block's CSS in a style tag in its markup. After a
+     * write the optimized CSS meta is gone, so the inline style renders; once
+     * Stackable rebuilds the meta on a save it serves the rule from the head;
+     * a rollback drops the meta again, so nothing stale is served for the
+     * restored content.
+     */
+    public function test_stackable_text_renders_its_inline_css_and_rolls_back_clean(): void
+    {
+        [ $id, $hash ]  = $this->page();
+        [ $unique, $w ] = $this->insert('stackable', $id, $hash,
+            '<!-- wp:stackable/text {"textColor1":"#7a8b9c"} -->'
+            . '<div class="wp-block-stackable-text stk-block-text stk-block stk-__UNIQUE_ID__" data-block-id="__UNIQUE_ID__">'
+            . '<style>.stk-__UNIQUE_ID__ .stk-block-text__text{color:#7a8b9c !important}</style>'
+            . '<p class="stk-block-text__text has-text-color">Stackable live</p></div>'
+            . '<!-- /wp:stackable/text -->');
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{7}$/', $unique);
+        $this->assertSame('', get_post_meta($id, 'stackable_optimized_css', true), 'the write leaves no optimized CSS to strip the new style');
+
+        $html = $this->render($id);
+        $this->assertStringContainsString('Stackable live', $html);
+        $this->assertStringContainsString('stk-' . $unique, $html, 'the markup carries the id');
+        $this->assertRule($this->css($html), '.stk-' . $unique, '#7a8b9c', 'the block style renders');
+
+        // A later save in the editor: Stackable builds its optimized CSS.
+        wp_update_post([ 'ID' => $id, 'post_title' => 'Saved again' ]);
+        $this->assertStringContainsString('stk-' . $unique, (string) get_post_meta($id, 'stackable_optimized_css', true));
+        $this->assertRule($this->css($this->render($id)), '.stk-' . $unique, '#7a8b9c', 'the optimized CSS carries the block style');
+
+        $this->assertTrue(Rollback_Service::restore_operation($w['operation_ids'][0]));
+        $this->assertSame('', get_post_meta($id, 'stackable_optimized_css', true), 'the rollback drops the CSS built for the undone content');
+        $html = $this->render($id);
+        $this->assertStringNotContainsString('stk-' . $unique, $html);
+        $this->assertStringContainsString('Intro', $html);
+    }
+
+    public function test_ultimate_blocks_heading_renders_with_its_block_id_and_follows_edits(): void
+    {
+        [ $id, $hash ]  = $this->page();
+        // Ultimate Blocks' asset loader reads fontFamily from the saved
+        // attributes, so it goes in as its editor saves it: the default stack.
+        $attrs          = [
+            'content'    => 'UB live',
+            'level'      => 'h2',
+            'textColor'  => '#4d5e6f',
+            'fontFamily' => '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif',
+        ];
+        [ $unique, $w ] = $this->insert('ultimate-blocks', $id, $hash, '<!-- wp:ub/advanced-heading ' . serialize_block_attributes($attrs) . ' /-->');
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $unique);
+        $original = $this->content_of($id, $w);
+
+        $html = $this->render($id);
+        $this->assertStringContainsString('UB live', $html);
+        $this->assertStringContainsString('id="ub-advanced-heading-' . $unique . '"', $html, 'the markup carries the id');
+        $this->assertStringContainsString('color: #4d5e6f', $html);
+
+        $out  = $this->update('ultimate-blocks', $id, [ 'textColor' => '#8091a2' ]);
+        $html = $this->render($id);
+        $this->assertStringContainsString('color: #8091a2', $html);
+        $this->assertStringNotContainsString('#4d5e6f', $html);
+
+        $this->assertTrue(Rollback_Service::restore_operation($out['operation_ids'][0]));
+        clean_post_cache($id);
+        $this->assertSame($original, (string) get_post($id)->post_content, 'the rollback restores the exact bytes');
+        $this->assertStringContainsString('color: #4d5e6f', $this->render($id));
     }
 
     /** The post content right before the write in $out, for the rollback check. */

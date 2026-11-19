@@ -27,8 +27,9 @@ if (! defined('ABSPATH')) {
  * Covered here, all on the free Funnel Builder: create, rename and delete a
  * funnel; add, reorder, enable or disable and delete a step; publish all
  * steps; set and remove checkout products with quantity and discount.
- * Order bumps, upsell offers and A/B experiments live in Funnel Builder Pro
- * and its add-ons, which are not part of this slice.
+ * Order bumps live in Funnel Builder Pro and are in FunnelKit_Bumps (issue
+ * #663), which reuses the REST, undo and price helpers here; upsell offer
+ * writes and A/B experiments are not covered yet.
  *
  * Each write is snapshotted first as a whole-funnel image
  * (FunnelKit_Funnel_Snapshot: the bwf_funnels row, its bwf_funnelmeta rows
@@ -284,7 +285,7 @@ final class FunnelKit_Writes
      *
      * @return array{code:string,message:string,data:array<string,mixed>}|null
      */
-    private static function checkout_refusal(int $step_id, bool $write): ?array
+    public static function checkout_refusal(int $step_id, bool $write): ?array
     {
         $post = get_post($step_id);
         if (! $post instanceof \WP_Post || 'wfacp_checkout' !== $post->post_type) {
@@ -300,7 +301,7 @@ final class FunnelKit_Writes
      * @param array<int,array<string,mixed>> $products
      * @return array{code:string,message:string,data:array<string,mixed>}|null
      */
-    private static function products_refusal(array $products): ?array
+    public static function products_refusal(array $products): ?array
     {
         $seen = [];
         foreach ($products as $line) {
@@ -549,7 +550,7 @@ final class FunnelKit_Writes
      * @param array<int,array<string,mixed>>    $lines
      * @return array<string,array<string,mixed>>
      */
-    private static function apply_lines(array $stored, array $lines): array
+    public static function apply_lines(array $stored, array $lines): array
     {
         foreach ($lines as $line) {
             foreach ($stored as $key => $entry) {
@@ -591,7 +592,7 @@ final class FunnelKit_Writes
      * @param array<string,array<string,mixed>> $entries
      * @return array<int,array<string,mixed>>
      */
-    private static function lines(array $entries): array
+    public static function lines(array $entries): array
     {
         $out = [];
         foreach ($entries as $key => $entry) {
@@ -682,7 +683,7 @@ final class FunnelKit_Writes
      * @param array<string,mixed>|null $body JSON body, for the checkout routes that read it.
      * @return array<string,mixed>
      */
-    private static function rest(string $method, string $route, array $params = [], ?array $body = null): array
+    public static function rest(string $method, string $route, array $params = [], ?array $body = null): array
     {
         $request = new \WP_REST_Request($method, $route);
         foreach ($params as $key => $value) {
@@ -721,7 +722,7 @@ final class FunnelKit_Writes
      * @param array<string,mixed> $context
      * @return array<string,mixed>
      */
-    private static function voiding(array $context, callable $write): array
+    public static function voiding(array $context, callable $write): array
     {
         $funnel_id    = (int) ($context['target']['object_id'] ?? 0);
         $before       = $funnel_id > 0 ? FunnelKit_Funnel_Snapshot::capture($funnel_id) : null;
@@ -742,14 +743,14 @@ final class FunnelKit_Writes
     }
 
     /** Refuse on the dispatcher's top-level error channel. */
-    private static function refuse(string $code, string $message, array $data = []): void
+    public static function refuse(string $code, string $message, array $data = []): void
     {
         // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- caught by the dispatcher and returned as a JSON error, never rendered.
         throw new Operation_Error($code, $message, $data);
     }
 
     /** FunnelKit's own message from a response, or the fallback. */
-    private static function message(array $data, string $fallback): string
+    public static function message(array $data, string $fallback): string
     {
         foreach ([ 'message', 'msg' ] as $key) {
             if (is_string($data[ $key ] ?? null) && '' !== $data[ $key ]) {
@@ -810,7 +811,7 @@ final class FunnelKit_Writes
     }
 
     /** The funnel a checkout step belongs to (its _bwf_in_funnel), or 0. */
-    private static function checkout_funnel(int $step_id): int
+    public static function checkout_funnel(int $step_id): int
     {
         $funnel_id = (int) get_post_meta($step_id, '_bwf_in_funnel', true);
         return $funnel_id > 0 && null !== self::step_type($funnel_id, $step_id) ? $funnel_id : 0;

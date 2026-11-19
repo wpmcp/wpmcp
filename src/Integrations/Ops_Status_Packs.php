@@ -17,6 +17,7 @@ if (! defined('ABSPATH')) {
  *  - get-duplicator-status (Duplicator_Status)
  *  - list-updraftplus-backups and run-updraftplus-backup (UpdraftPlus_Status, #694)
  *  - list-aio-wp-migration-backups (AIOWM_Status, #694)
+ *  - list-backwpup-backups and run-backwpup-backup (BackWPup_Status, #694)
  *  - get-solid-security-status (Solid_Security_Status)
  *  - get-sucuri-status, get-aios-status and get-limit-login-attempts-status
  *    (Sucuri_Status, AIOS_Status, Limit_Login_Attempts_Status, #695)
@@ -27,14 +28,16 @@ if (! defined('ABSPATH')) {
  *  - WP Mail SMTP config, log, test send and set-from (WP_Mail_SMTP_Status)
  *  - FluentSMTP and Post SMTP config, log, test send and from (Fluent_SMTP_Status, Post_SMTP_Status)
  *  - get-image-optimizer-status and optimize-attachment for Smush, ShortPixel,
- *    EWWW Image Optimizer and Imagify (Image_Optimizer_Pack, #693)
+ *    EWWW Image Optimizer and Imagify (Image_Optimizer_Pack, #693),
+ *  - Relevanssi and FiboSearch settings, index status, top searches and
+ *    settings writes (Relevanssi_Status, FiboSearch_Status, #700)
  *
  * Every op runs at manage_options, the capability each plugin gates its own
  * settings behind, and declares a 'requires' check, so an inactive plugin is
  * skipped cleanly: its ops stay documented in list-operations
  * (dependency_met:false) and answer <plugin>_inactive without touching
  * anything. Presence is filterable per plugin (wpmcp_updraftplus_active,
- * wpmcp_duplicator_active, wpmcp_solid_security_active,
+ * wpmcp_duplicator_active, wpmcp_backwpup_active, wpmcp_solid_security_active,
  * wpmcp_monsterinsights_active, wpmcp_w3tc_active, wpmcp_sucuri_active,
  * wpmcp_aios_active, wpmcp_limit_login_attempts_active,
  * wpmcp_query_monitor_active).
@@ -63,6 +66,7 @@ final class Ops_Status_Packs
             UpdraftPlus_Status::operations(),
             Duplicator_Status::operations(),
             AIOWM_Status::operations(),
+            BackWPup_Status::operations(),
             Solid_Security_Status::operations(),
             Sucuri_Status::operations(),
             AIOS_Status::operations(),
@@ -74,7 +78,9 @@ final class Ops_Status_Packs
             WP_Mail_SMTP_Status::operations(),
             Fluent_SMTP_Status::operations(),
             Post_SMTP_Status::operations(),
-            Image_Optimizer_Pack::operations()
+            Image_Optimizer_Pack::operations(),
+            Relevanssi_Status::operations(),
+            FiboSearch_Status::operations()
         );
     }
 
