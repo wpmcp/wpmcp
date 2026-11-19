@@ -195,7 +195,7 @@ final class Theme_Layouts_Pack
             $one = [ 'type' => 'object', 'properties' => [ 'layout_id' => $id ], 'required' => [ 'layout_id' ] ];
             $ops[ "delete-{$f}-layout" ] = $write + [
                 'objects'      => $objects,
-                'description'  => "Move a {$product} layout to the WordPress trash, so it stops showing. Not a permanent delete. Snapshotted: rollback-operation brings it back",
+                'description'  => "Move the {$product} layout to the WordPress trash, so it stops showing. Not a permanent delete. Snapshotted: rollback-operation brings it back",
                 'input_schema' => $one,
                 'validate'     => static fn (array $args): ?array => self::refusal(static fn () => self::known_args("delete-{$f}-layout", $one, $args) ?? self::must_layout($a, (int) $args['layout_id'])),
                 'snapshot'     => $snapshot,
