@@ -37,6 +37,9 @@ if (! defined('ABSPATH')) {
  * edit it (issues #450, #483). create-translation also needs edit_post on
  * the source, since it changes the source's translation group.
  *
+ * The string translation ops (list-string-domains, get-strings,
+ * update-strings) live in I18n_Strings and are merged here.
+ *
  * Presence is filterable (wpmcp_multilingual_active); without Polylang or
  * WPML every op stays documented in list-operations (dependency_met:false)
  * and answers multilingual_inactive.
@@ -69,7 +72,8 @@ final class I18n_Pack
         $post_id  = [ 'type' => 'integer', 'minimum' => 1 ];
         $language = [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 20 ];
 
-        return [
+        // Theme and plugin string translation (issue #689) rides the same pack.
+        return I18n_Strings::operations() + [
             'find-missing-translations' => [
                 'mode'         => 'read',
                 'tier'         => 'pro',
