@@ -8,7 +8,8 @@ if (! defined('ABSPATH')) {
 
 /**
  * Read-only: return the raw builder structure for a post. Bricks returns
- * the decoded `_bricks_page_content_2` postmeta JSON as an array; Divi
+ * its stored element list, an outline of it by element id (what operations
+ * address), the hash writes are pinned to, the version and revisions; Divi
  * returns the post_content shortcode string plus the use-builder flag;
  * WPBakery returns the shortcode string, its parsed element tree (the dotted
  * paths update-builder-content operations address), its two meta rows and
@@ -55,11 +56,7 @@ class Get_Builder_Content
         $builder = Builder_Detector::detect($post_id);
 
         if ('bricks' === $builder) {
-            return [
-                'post_id' => $post_id,
-                'builder' => 'bricks',
-                'content' => Bricks_Content::get($post_id) ?? [],
-            ];
+            return Bricks_Page::read($post_id);
         }
 
         if ('divi' === $builder) {

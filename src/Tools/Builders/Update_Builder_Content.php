@@ -73,6 +73,15 @@ if (! defined('ABSPATH')) {
  * id} (one Component instance), and save_template, which saves a node or
  * the whole page as a new Component recorded for undo (see Oxygen_Page).
  *
+ * Bricks pages (issue #633) also take one operation addressed by element
+ * id (update attrs and element {label}, add with element {name, settings,
+ * label, children} or {template: id}, remove, move), publish, restore (path:
+ * a revision id) and save_template (an element or the page as a new section
+ * template). Operations need Bricks loaded (plugin_missing otherwise) and,
+ * on a page that has a layout, expected_hash, the read's hash; a whole
+ * content write checks expected_hash when one is given (see Bricks_Page and
+ * Bricks_Tree).
+ *
  * BeTheme pages (issue #643) need BeTheme active (plugin_missing
  * otherwise) and expected_hash, the read's hash of the stored layout row, on
  * any write to a page that has a layout. Content is the whole layout as a
@@ -129,7 +138,7 @@ class Update_Builder_Content
         }
 
         if ('bricks' === $builder) {
-            return $this->update_bricks($post_id, $content, $args);
+            return '' === (string) ($args['operation'] ?? '') ? $this->update_bricks($post_id, $content, $args) : $this->update_bricks_elements($post_id, $args);
         }
 
         if ('divi' === $builder) {
@@ -1225,13 +1234,9 @@ class Update_Builder_Content
             return new \WP_Error('invalid_bricks_json', 'Bricks content must be well-formed JSON decoding to an array.');
         }
 
-        if (! Bricks_Cache::is_editable($post_id)) {
-            $type = (string) get_post_type($post_id);
-
-            return new \WP_Error(
-                'not_a_bricks_page',
-                sprintf('Post %d (type "%s") is not a Bricks page: Bricks edits only a Bricks template, a post type enabled under Bricks > Settings > General > Post types, or a post that already holds Bricks content. Enable the post type in Bricks first.', $post_id, $type)
-            );
+        $refusal = $this->bricks_refusal($post_id, $args, false);
+        if (null !== $refusal) {
+            return $refusal;
         }
 
         $out = Safe_Mutation::run(
@@ -1248,7 +1253,148 @@ class Update_Builder_Content
             }
         );
 
-        return ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'bricks'];
+        return ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'bricks', 'hash' => Bricks_Page::hash($post_id)];
+    }
+
+    /**
+     * Why a Bricks write must not run, or null: the post must be one Bricks
+     * edits, and a page holding a layout is changed only against the hash
+     * it was read with (required for operations, checked when given for a
+     * whole content write, which callers made before hashes existed).
+     */
+    private function bricks_refusal(int $post_id, array $args, bool $require_hash): ?\WP_Error
+    {
+        if (! Bricks_Cache::is_editable($post_id)) {
+            $type = (string) get_post_type($post_id);
+
+            return new \WP_Error(
+                'not_a_bricks_page',
+                sprintf('Post %d (type "%s") is not a Bricks page: Bricks edits only a Bricks template, a post type enabled under Bricks > Settings > General > Post types, or a post that already holds Bricks content. Enable the post type in Bricks first.', $post_id, $type)
+            );
+        }
+
+        $expected = (string) ($args['expected_hash'] ?? '');
+        if ('' === $expected && (! $require_hash || ! Bricks_Page::has_layout($post_id))) {
+            return null;
+        }
+        if ('' === $expected) {
+            return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a Bricks page: pass the hash get-builder-content returned for it.');
+        }
+        if (! hash_equals(Bricks_Page::hash($post_id), $expected)) {
+            return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+        }
+
+        return null;
+    }
+
+    /**
+     * Bricks element operations (issue #633): one change by element id,
+     * publish, restore or save_template, while Bricks is loaded.
+     */
+    private function update_bricks_elements(int $post_id, array $args)
+    {
+        $operation   = (string) ($args['operation'] ?? '');
+        $unavailable = Bricks_Page::unavailable();
+        if (null !== $unavailable) {
+            return $unavailable;
+        }
+        $refusal = $this->bricks_refusal($post_id, $args, 'save_template' !== $operation);
+        if (null !== $refusal) {
+            return $refusal;
+        }
+        if ('save_template' === $operation) {
+            return Bricks_Page::save_template($post_id, $args);
+        }
+
+        $status   = null;
+        $path     = null;
+        $elements = null;
+        try {
+            if ('publish' === $operation) {
+                $refusal = $this->publish_refusal($post_id, 'invalid_bricks_request');
+                if (null !== $refusal) {
+                    return $refusal;
+                }
+                $status = 'publish';
+            } elseif ('restore' === $operation) {
+                $elements = Bricks_Page::revision_elements($post_id, (string) ($args['path'] ?? ''));
+            } else {
+                [$elements, $path] = $this->apply_bricks_operation(Bricks_Page::elements($post_id), $operation, $args);
+            }
+        } catch (\InvalidArgumentException $e) {
+            return new \WP_Error('invalid_bricks_request', $e->getMessage());
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $elements, $status) {
+                if (null !== $status) {
+                    Save_Filters::set_post_status($post_id, $status);
+                } else {
+                    Bricks_Content::save($post_id, (array) $elements);
+                }
+                return true;
+            }
+        );
+
+        $result = ['operation_id' => $out['operation_id'], 'post_id' => $post_id, 'builder' => 'bricks', 'hash' => Bricks_Page::hash($post_id)];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Apply one Bricks element operation; `path` and `to` are element ids.
+     *
+     * @param array<int|string,mixed> $elements
+     * @return array{0:array<int,array<string,mixed>>,1:?string}
+     * @throws \InvalidArgumentException
+     */
+    private function apply_bricks_operation(array $elements, string $operation, array $args): array
+    {
+        $path  = (string) ($args['path'] ?? '');
+        $to    = (string) ($args['to'] ?? '');
+        $index = isset($args['index']) ? (int) $args['index'] : null;
+
+        switch ($operation) {
+            case 'update':
+                $attrs  = $args['attrs'] ?? [];
+                $fields = $args['element'] ?? [];
+                if (! is_array($attrs) || ! is_array($fields) || ([] === $attrs && [] === $fields)) {
+                    throw new \InvalidArgumentException(esc_html('update needs attrs (settings to merge; null removes one) or element {label}.'));
+                }
+                return [Bricks_Tree::update($elements, $path, $attrs, $fields), $path];
+
+            case 'add':
+                $element = $args['element'] ?? null;
+                if (! is_array($element)) {
+                    throw new \InvalidArgumentException(esc_html('add needs an element: {name, settings?, label?, children?} or {template: id}.'));
+                }
+                if (array_key_exists('template', $element)) {
+                    $id = $element['template'];
+                    if (1 !== count($element) || ! (is_int($id) || (is_string($id) && ctype_digit($id)))) {
+                        throw new \InvalidArgumentException(esc_html('element {template} takes only a template post id.'));
+                    }
+                    return Bricks_Tree::insert_copy($elements, $to, $index, Bricks_Page::template_elements((int) $id));
+                }
+                return Bricks_Tree::add($elements, $to, $index, $element);
+
+            case 'remove':
+                return [Bricks_Tree::remove($elements, $path), null];
+
+            case 'move':
+                return [Bricks_Tree::move($elements, $path, $to, $index), $path];
+        }
+
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move, publish, restore or save_template."));
     }
 
     /**
