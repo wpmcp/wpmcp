@@ -80,6 +80,14 @@ if (! defined('ABSPATH')) {
  * add, remove, move; add also takes element {template: id}) and publish
  * sets the page live (see BeTheme_Content and BeTheme_Tree).
  *
+ * Kirki page builder pages (issue #641) need Kirki active (plugin_missing
+ * otherwise), expected_hash on a page that has a layout, and no unpublished
+ * Kirki version (its publish would overwrite the change). Content is the
+ * whole element map as a JSON object; operations address elements by id
+ * (update with attrs, text and element fields; add, also {symbol: id};
+ * remove; move) and publish sets the page live (see Kirki_Content and
+ * Kirki_Tree).
+ *
  * With `scope` 'design_system' the call edits one entry of the builder's
  * global design data instead of a post (issue #391): Bricks classes,
  * variables and palettes, Breakdance classes and palette colors, Avada
@@ -164,13 +172,17 @@ class Update_Builder_Content
             return $this->update_betheme($post_id, $args);
         }
 
+        if ('kirki' === $builder) {
+            return $this->update_kirki($post_id, $args);
+        }
+
         if ('breakdance' === $builder || 'oxygen' === $builder) {
             return $this->update_breakdance($post_id, $args, $builder);
         }
 
         return new \WP_Error(
             'unsupported_builder',
-            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone' and 'betheme'; got '{$builder}'."
+            "update-builder-content only supports 'bricks', 'divi', 'wpbakery', 'avada', 'beaver-builder', 'breakdance', 'oxygen', 'oxygen-classic', 'thrive', 'cornerstone', 'betheme' and 'kirki'; got '{$builder}'."
         );
     }
 
@@ -1046,6 +1058,136 @@ class Update_Builder_Content
 
             case 'move':
                 return [BeTheme_Tree::move($sections, $uid, $to, $index), $uid];
+        }
+
+        throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move or publish."));
+    }
+
+    /**
+     * Kirki page builder pages (issue #641): only on a page Kirki renders
+     * or a blank one, while Kirki is active, against the read's hash once
+     * the page has a layout, and never over an unpublished Kirki version.
+     */
+    private function update_kirki(int $post_id, array $args)
+    {
+        $operation = (string) ($args['operation'] ?? '');
+        $detected  = Builder_Detector::detect($post_id);
+        $blank     = 'classic' === $detected && '' === trim((string) get_post($post_id)->post_content);
+        if ('kirki' !== $detected && ! $blank) {
+            return new \WP_Error('unsupported_builder', "This post was detected as '{$detected}', not a Kirki page.");
+        }
+        if (! Kirki_Content::plugin_active()) {
+            return Kirki_Content::unavailable();
+        }
+        if (Kirki_Content::has_layout($post_id)) {
+            $expected = (string) ($args['expected_hash'] ?? '');
+            if ('' === $expected) {
+                return new \WP_Error('missing_expected_hash', 'expected_hash is required to change a Kirki page: pass the hash get-builder-content returned for it.');
+            }
+            if (! hash_equals(Kirki_Content::hash($post_id), $expected)) {
+                return new \WP_Error('stale_expected_hash', 'Stale expected_hash: the page changed since it was read. Nothing was written; read it again and retry.');
+            }
+        }
+
+        $status = null;
+        $path   = null;
+        $blocks = null;
+        try {
+            if ('publish' === $operation) {
+                $refusal = $this->publish_refusal($post_id, 'invalid_kirki_request');
+                if (null !== $refusal) {
+                    return $refusal;
+                }
+                $status = 'publish';
+            } else {
+                $version = Kirki_Content::unpublished_version($post_id);
+                if (null !== $version) {
+                    return new \WP_Error(
+                        'kirki_unpublished_version',
+                        "This page has an unpublished Kirki version ({$version}). Publishing it in Kirki would overwrite a change made here, so nothing was written: publish or discard that version in the Kirki editor, then try again.",
+                        ['version' => $version]
+                    );
+                }
+                [$blocks, $path] = $this->apply_kirki_operation($post_id, $operation, $args);
+            }
+        } catch (\InvalidArgumentException $e) {
+            return new \WP_Error('invalid_kirki_request', $e->getMessage());
+        }
+
+        $out = Safe_Mutation::run(
+            [
+                'object_type' => 'post',
+                'object_id'   => $post_id,
+                'session_id'  => (string) ($args['session_id'] ?? 'default'),
+                'tool_name'   => 'update-builder-content',
+                'args'        => $args,
+            ],
+            function () use ($post_id, $blocks, $status) {
+                if (null !== $status) {
+                    Save_Filters::set_post_status($post_id, $status);
+                } else {
+                    Kirki_Content::save($post_id, (array) $blocks);
+                }
+                return true;
+            }
+        );
+
+        $result = [
+            'operation_id' => $out['operation_id'],
+            'post_id'      => $post_id,
+            'builder'      => 'kirki',
+            'hash'         => Kirki_Content::hash($post_id),
+        ];
+        if (null !== $path) {
+            $result['path'] = $path;
+        }
+
+        return $result;
+    }
+
+    /**
+     * The new element map for one Kirki operation, and the element id it
+     * names when it has one.
+     *
+     * @return array{0:array<string,array<string,mixed>>,1:?string}
+     * @throws \InvalidArgumentException
+     */
+    private function apply_kirki_operation(int $post_id, string $operation, array $args): array
+    {
+        if ('' === $operation) {
+            $content = $args['content'] ?? null;
+            $decoded = is_string($content) ? json_decode($content, true) : null;
+
+            return [Kirki_Tree::validate($decoded), null];
+        }
+
+        $blocks = Kirki_Content::blocks($post_id);
+        $id     = (string) ($args['path'] ?? '');
+        $to     = (string) ($args['to'] ?? '');
+        $index  = isset($args['index']) ? (int) $args['index'] : null;
+
+        switch ($operation) {
+            case 'update':
+                $attrs  = $args['attrs'] ?? [];
+                $fields = $args['element'] ?? [];
+                $text   = isset($args['text']) ? (string) $args['text'] : null;
+                if (! is_array($attrs) || ! is_array($fields) || ([] === $attrs && [] === $fields && null === $text)) {
+                    throw new \InvalidArgumentException(esc_html('update needs attrs (properties to merge; null removes one), text, or element (title, visibility, collapse, className, styleIds).'));
+                }
+                return [Kirki_Tree::update($blocks, $id, $attrs, $text, $fields), $id];
+
+            case 'add':
+                $element = $args['element'] ?? null;
+                if (! is_array($element)) {
+                    throw new \InvalidArgumentException(esc_html('add needs an element: {name, title, text, properties, styleIds, className, children} or {symbol: id}.'));
+                }
+                return Kirki_Tree::add($blocks, $to, $index, $element, [Kirki_Content::class, 'symbol_element']);
+
+            case 'remove':
+                return [Kirki_Tree::remove($blocks, $id), null];
+
+            case 'move':
+                return [Kirki_Tree::move($blocks, $id, $to, $index), $id];
         }
 
         throw new \InvalidArgumentException(esc_html("Unknown operation {$operation}; use update, add, remove, move or publish."));
