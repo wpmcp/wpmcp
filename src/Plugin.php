@@ -2429,14 +2429,23 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/manage-updates',
             'free',
-            'Update WordPress core or set plugin/theme auto-updates. type=core applies the offered core update (or pending DB upgrade); needs confirm:true and a full backup (trigger-backup type=full) under 1h old; refuses if expected_version differs from the offer. A core update cannot be snapshot-rolled-back; restore that backup to revert. type=plugin|theme + item + enabled sets auto-update (undoable)',
+            'Update WordPress core or set plugin/theme auto-updates. type=core applies the offered core update (or pending DB upgrade); needs confirm:true and a full backup (trigger-backup type=full) under 1h old; refuses if expected_version differs from the offer. A core update cannot be snapshot-rolled-back; restore that backup to revert. type=plugin|theme + item + enabled sets auto-update (undoable). type=plugins|themes: action=plan lists pending updates; run (opt-in wpmcp_enable_safe_updates, confirm:true) snapshots each, updates, checks the site and auto-restores a broken one; status (run_id); restore (run_id, items)',
             [
                 'type'       => 'object',
                 'properties' => [
                     'type'             => [
                         'type' => 'string',
-                        'enum' => ['core', 'plugin', 'theme'],
+                        'enum' => ['core', 'plugin', 'theme', 'plugins', 'themes'],
                     ],
+                    'action'           => [
+                        'type' => 'string',
+                        'enum' => ['plan', 'run', 'status', 'restore'],
+                    ],
+                    'items'            => [
+                        'type'  => 'array',
+                        'items' => [ 'type' => 'string' ],
+                    ],
+                    'run_id'           => [ 'type' => 'string' ],
                     'item'             => [ 'type' => 'string' ],
                     'enabled'          => [ 'type' => 'boolean' ],
                     'expected_version' => [ 'type' => 'string' ],

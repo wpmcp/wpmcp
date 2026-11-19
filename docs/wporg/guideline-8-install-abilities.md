@@ -86,7 +86,7 @@ registrar refuses dispatch without it.
 | 7 | `src/Plugin.php:1763` | `wpmcp/install-theme` | `install_themes` | slug regex, wp.org lookup only; `activate: true` additionally requires `switch_themes` and is snapshotted |
 | 8 | `src/Plugin.php:1780` | `wpmcp/update-theme` | `update_themes` | disabled by default (`wpmcp_enable_update_theme`), requires `confirm: true` |
 | 9 | `src/Plugin.php:1800` | `wpmcp/delete-theme` | `delete_themes` | disabled by default (`wpmcp_enable_delete_theme`), requires `confirm: true`, refuses the active theme or its parent |
-| 9a | `src/Plugin.php` | `wpmcp/manage-updates` | `update_core` | core update: requires `confirm: true` and a fresh full-site backup, optional `expected_version` guard, package is the one core's own update check offered; auto-update toggles also require `update_plugins`/`update_themes` and are snapshotted |
+| 9a | `src/Plugin.php` | `wpmcp/manage-updates` | `update_core` | core update: requires `confirm: true` and a fresh full-site backup, optional `expected_version` guard, package is the one core's own update check offered; auto-update toggles also require `update_plugins`/`update_themes` and are snapshotted; safe plugin/theme updates (`type: plugins|themes`, `action: run|restore`) also require `update_plugins`/`update_themes`, the code-only `wpmcp_enable_safe_updates` filter and `confirm: true`, update only what core's own update check offered, and snapshot and roll back each package |
 
 ### Execution call sites, `src/Tools/Packages/`
 
