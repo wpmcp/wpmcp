@@ -263,13 +263,13 @@ class CornerstoneElementEditingTest extends \WP_UnitTestCase
     public function misplaced(): array
     {
         return [
-            'column under a section'  => ['0', ['type' => 'layout-column'], 'goes only in a layout-row'],
-            'text straight in a row'  => ['0.0', ['type' => 'text'], 'cannot go in a layout-row element, which takes layout-column'],
-            'child of a headline'     => ['0.0.0.0', ['type' => 'text'], 'A headline element holds no child elements'],
+            'column under a section'  => ['0', ['type' => 'layout-column'], 'goes only in the layout-row'],
+            'text straight in a row'  => ['0.0', ['type' => 'text'], 'cannot go in the layout-row element, which takes layout-column'],
+            'child of a headline'     => ['0.0.0.0', ['type' => 'text'], 'The headline element holds no child elements'],
             'section inside a column' => ['0.0.0', ['type' => 'section'], 'goes only in the top level'],
             'unknown type'            => ['0.0.0', ['type' => 'no-such-element'], 'no element type no-such-element'],
             'nested child misplaced'  => ['', ['type' => 'section', 'children' => [['type' => 'layout-column']]]
-                , 'goes only in a layout-row'],
+                , 'goes only in the layout-row'],
         ];
     }
 

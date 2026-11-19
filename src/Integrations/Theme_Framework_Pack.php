@@ -22,6 +22,8 @@ if (! defined('ABSPATH')) {
  * by Theme_Settings_Pack; a further family adds another case to
  * spec(). Astra Pro, Kadence Pro and GP Premium custom layouts (issue
  * #656) are Theme_Layouts_Pack ops for the same active family.
+ * Blocksy Companion's extension toggles (issue #650) are
+ * Theme_Blocksy_Extensions ops for the Blocksy family.
  */
 final class Theme_Framework_Pack
 {
@@ -48,7 +50,7 @@ final class Theme_Framework_Pack
      */
     public static function operations(?string $framework): array
     {
-        return array_merge(self::settings_operations($framework), Theme_Layouts_Pack::operations($framework));
+        return array_merge(self::settings_operations($framework), Theme_Layouts_Pack::operations($framework), Theme_Blocksy_Extensions::operations($framework));
     }
 
     /**
@@ -82,6 +84,27 @@ final class Theme_Framework_Pack
         if ('blocksy' === $framework) {
             return Theme_Pack_Blocksy::spec();
         }
+        return self::free_spec($framework);
+    }
+
+    /**
+     * The free wordpress.org theme packs (issue #655), kept apart from the
+     * paid cases above so the release flavors keep them untouched.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function free_spec(?string $framework): ?array
+    {
+        switch ($framework) {
+            case 'oceanwp':
+                return Theme_Pack_OceanWP::spec();
+            case 'neve':
+                return Theme_Pack_Neve::spec();
+            case 'hestia':
+                return Theme_Pack_Hestia::spec();
+            case 'hello-elementor':
+                return Theme_Pack_Hello::spec();
+        }
         return null;
     }
 
@@ -96,6 +119,9 @@ final class Theme_Framework_Pack
     public static function refresh_after_restore(array $names): void
     {
         $family = (string) get_template();
+        if ('blocksy' === $family && in_array(Theme_Blocksy_Extensions::OPTION, $names, true)) {
+            Theme_Blocksy_Extensions::refresh();
+        }
         if ('astra' === $family) {
             if (in_array('astra-settings', $names, true)) {
                 self::refresh_framework_cache('astra');

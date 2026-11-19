@@ -3,6 +3,7 @@
 namespace WPMCP\Tools\Governance;
 
 use WPMCP\Governance\Governance;
+use WPMCP\Governance\New_Tools_Policy;
 use WPMCP\Governance\Site_Wide_Governance;
 use WPMCP\MCP\Ability;
 use WPMCP\MCP\Registrar;
@@ -44,6 +45,10 @@ if (! defined('ABSPATH')) {
  * A top-level site_wide key (issue #412) sets Site_Wide_Governance's mode
  * (off, audit or enforce); any other value is skipped and reported, and the
  * stored mode is kept.
+ *
+ * A top-level auto_enable_new_tools boolean (issue #853) sets "switch on
+ * new tools after updates" (New_Tools_Policy), in the same undo point, and
+ * lands in the governance audit log; a non-boolean is skipped and reported.
  */
 class Update_Governance_Settings
 {
@@ -76,6 +81,7 @@ class Update_Governance_Settings
         $registrar = Plugin::instance()->registrar();
         $planned   = ['ability' => [], 'domain' => [], 'operation' => []];
         $site_wide = null;
+        $auto_new  = null;
         $skipped   = [];
         $unknown   = [];
         $lockout   = [];
@@ -87,6 +93,14 @@ class Update_Governance_Settings
                     continue;
                 }
                 $site_wide = $entries;
+                continue;
+            }
+            if ('auto_enable_new_tools' === $dimension) {
+                if (! is_bool($entries)) {
+                    $skipped[] = ['key' => 'auto_enable_new_tools', 'reason' => 'not a boolean'];
+                    continue;
+                }
+                $auto_new = $entries;
                 continue;
             }
             if (! in_array($dimension, self::DIMENSIONS, true)) {
@@ -139,11 +153,18 @@ class Update_Governance_Settings
             );
         }
 
-        $operation_id = $this->write($planned, $site_wide, $args);
+        $auto_changed = null !== $auto_new && New_Tools_Policy::is_on() !== $auto_new;
+        $operation_id = $this->write($planned, $site_wide, $auto_changed ? $auto_new : null, $args);
+        if ($auto_changed) {
+            New_Tools_Policy::audit((bool) $auto_new);
+        }
 
         $updated = $planned;
         if (null !== $site_wide) {
             $updated['site_wide'] = $site_wide;
+        }
+        if (null !== $auto_new) {
+            $updated['auto_enable_new_tools'] = $auto_new;
         }
 
         return ['updated' => $updated, 'skipped' => $skipped, 'operation_id' => $operation_id];
@@ -156,9 +177,9 @@ class Update_Governance_Settings
      *
      * @param array{ability: array<string,bool>, domain: array<string,bool>, operation: array<string,bool>} $planned
      */
-    private function write(array $planned, ?string $site_wide, array $args): ?string
+    private function write(array $planned, ?string $site_wide, ?bool $auto_new, array $args): ?string
     {
-        $changed = null !== $site_wide && Site_Wide_Governance::mode() !== $site_wide;
+        $changed = (null !== $site_wide && Site_Wide_Governance::mode() !== $site_wide) || null !== $auto_new;
         foreach (self::DIMENSIONS as $dimension) {
             $stored = self::stored($dimension);
             foreach ($planned[ $dimension ] as $name => $enabled) {
@@ -174,13 +195,13 @@ class Update_Governance_Settings
         $out = Safe_Mutation::run(
             [
                 'object_type' => 'option_set',
-                'object_id'   => Snapshot::option_set_id([ Governance::OPTION, Site_Wide_Governance::OPTION ]),
+                'object_id'   => Snapshot::option_set_id([ Governance::OPTION, Site_Wide_Governance::OPTION, New_Tools_Policy::OPTION ]),
                 'object_ref'  => 'governance settings',
                 'session_id'  => 'default',
                 'tool_name'   => 'update-governance-settings',
                 'args'        => $args,
             ],
-            static function () use ($planned, $site_wide): void {
+            static function () use ($planned, $site_wide, $auto_new): void {
                 foreach ($planned['ability'] as $name => $enabled) {
                     Governance::set_ability_toggle($name, $enabled);
                 }
@@ -192,6 +213,9 @@ class Update_Governance_Settings
                 }
                 if (null !== $site_wide) {
                     Site_Wide_Governance::set_mode($site_wide);
+                }
+                if (null !== $auto_new) {
+                    New_Tools_Policy::store($auto_new);
                 }
             }
         );
