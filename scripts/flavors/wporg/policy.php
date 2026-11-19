@@ -36,9 +36,13 @@ return [
         // has nothing left to bite on.
         'src/Pro',
         'src/Freemius',
-        // The in-admin Pro banner links a free install to the paid tier. This
-        // build has no paid tier to link to, and guideline 11 keeps upgrade
-        // notices off a directory plugin anyway.
+        // The in-admin Pro banner links a free install to the paid tier.
+        // Guideline 11 does allow an upgrade prompt in a directory plugin, as
+        // long as it is dismissible and limited to the plugin's own screens,
+        // and guideline 5 allows upselling. The banner leaves anyway because
+        // the first submissions ship none (issue #1140, decision D5); a
+        // dismissible banner on WP MCP's own screens is planned for the first
+        // update after approval.
         'src/Admin/Pro_Banner.php',
         // Paid ability groups, whole. These are the add-on.
         // Note: src/Cloud stays. Cloud_Client and Cloud_Config are a plain

@@ -1,14 +1,87 @@
 # WordPress.org submission runbook
 
-Everything here is prepared up to the upload. **The plugin has not been
-submitted.** Submission needs a WordPress.org account, and no account exists
-yet; that is the first blocking item below. Nothing in this document should be
-read as "filed" or "in review".
+Everything here is prepared up to the upload. **Nothing has been
+submitted.** The submission itself needs the owner's go. Nothing in this
+document should be read as "filed" or "in review".
 
-Status of the artifact: `dist/wpmcp-0.8.1.zip`, built by
-`scripts/build-wporg-release.sh`, passes the compliance engine's `wporg-free`
-profile against the extracted zip with zero blockers and zero likely-reject
-findings.
+**Lead listing (owner decision, 20 Nov 2026): WP MCP for WooCommerce**, slug
+`wp-mcp-for-woocommerce`, from `scripts/build-woo-release.sh`. Section 0 is
+its runbook. The general `wpmcp` listing (sections 1 to 7) waits until the
+WooCommerce listing is approved: the Plugin Developer FAQ allows generally one
+plugin in review at a time.
+
+Current version: 1.1.0 (`WPMCP_VERSION` in `wpmcp.php`). The version numbers
+in the examples below are placeholders for whatever that constant says when
+you build.
+
+---
+
+## 0. Lead listing: WP MCP for WooCommerce (issue #1140)
+
+Plan and owner decisions:
+`docs/superpowers/specs/2026-11-20-wporg-submission-plan.md`.
+
+**What the zip is.** `composer build:woo` writes
+`dist/wp-mcp-for-woocommerce-<version>.zip`: the shared directory strip
+(section 1 applies to it unchanged), the WooCommerce flavor whitelist, and a
+narrowing to store tools plus the safety core. The Plugin Developer FAQ
+(updated 10 Nov 2026) does not accept new plugins that allow arbitrary code
+insertion or execution, naming "PHP or JavaScript editors, file managers, and
+AI tools that generate code" intended to run on the site. The compliance
+engine does not encode that rule, so the flavor does. Left out of this zip,
+kept in the direct download and Pro:
+
+* file writes: `write-file`, `edit-file`, `delete-file`
+* raw SQL and database writes: `query`, `insert-row`, `update-rows`,
+  `delete-rows` (the read-only `list-tables` and `describe-table` stay)
+* the PHP snippet store tools and `validate-php-snippet`
+* code snippet creation (`create-code-snippet`, Elementor custom code)
+* site migration: `push-site-archive`, `receive-site-archive`
+* the `rotate-salts` action of `incident-response` (it rewrites
+  `wp-config.php`)
+* the cloud announcements feed and the cloud client (`src/Cloud`)
+* the upgrade banner (none in the first submission; a dismissible banner on
+  WP MCP's own screens is planned for the first update after approval)
+
+`scripts/flavors/woocommerce/narrowed.php` lists all of it and
+`scripts/flavors/woocommerce/assert-narrowed.php` fails the build, over the
+stage and again over the extracted zip, if any of it comes back. An agent that
+calls one of those tools by name gets a `not_in_this_build` refusal
+(`src/MCP/Not_In_Build.php`, added to this zip only) rather than "Tool not
+found".
+
+**Account:** `fahdi` on wordpress.org (owner decision D1: submit from it as
+it is). The flavor readme's `Contributors:` line is `fahdi`.
+
+**Slug to request:** `wp-mcp-for-woocommerce`. Free on the plugins API on
+20 Nov 2026; `mcp-for-woocommerce` belongs to another author, so expect the
+similar-name warning at submission. The zip's directory and the text domain
+are both `wp-mcp-for-woocommerce`. The main file keeps the name
+`wpmcp-for-woocommerce.php`, because `src/flavor-guard.php` reads only main
+files named `wpmcp*.php` when it decides which WP MCP build boots; nothing
+requires the main file to match the slug.
+
+**Listing name** (the `Plugin Name` header and the readme title):
+
+```
+WP MCP for WooCommerce
+```
+
+**Listing tags:** `ecommerce, mcp, ai, ai agent, automation`
+(`scripts/flavors/woocommerce/readme.txt`).
+
+**Steps:** the same as section 4, with `composer build:woo` and its zip in
+place of `composer build:wporg`, and the slug above on the confirmation
+screen. Run Plugin Check on a live install with WooCommerce active first.
+
+**Reviewer question to expect:** "Can this edit files, run SQL or execute
+code?" No. The zip has no tool that writes arbitrary files, no SQL console,
+no database row writes, no snippet store, no migration import and no
+`eval`/`proc_open` (token gate, section 5.4). File changes that remain are
+WordPress's own: media uploads, plugin and theme installs and updates from
+WordPress.org slugs (section 5.5), and `incident-response`'s quarantine and
+checksum-verified core-file reinstall, the quarantine behind the
+`wpmcp_enable_fs_writes` opt-in.
 
 ---
 
@@ -95,19 +168,14 @@ one. Change the constant if you disagree, it is a one-line product call:
 
 ---
 
-## 2. Blocking prerequisite
+## 2. Account
 
-No WordPress.org account exists. Everything in section 4 is unreachable until
-one does.
-
-1. Register at <https://login.wordpress.org/register> and verify the email.
-   Use a company address, not a Gmail one: the Plugin Developer FAQ notes that
-   "submitting your official plugin with a user that has a gmail address is
-   likely to be flagged for trademark infringement".
-2. The username becomes the `Contributors:` value. The readme currently says
-   `fahdi`. If the new account uses a different username, change
-   `scripts/flavors/wporg/readme.txt` before building the submission zip, or
-   Plugin Check errors on an unknown contributor.
+The account is `fahdi` on wordpress.org, and the owner decided (20 Nov 2026)
+to submit from it as it is, with no email change at this stage. Both flavor
+readmes say `Contributors: fahdi`. The Plugin Developer FAQ notes that
+"submitting your official plugin with a user that has a gmail address is
+likely to be flagged for trademark infringement", so if a reviewer raises it,
+moving the account's email to a company address is the answer.
 
 ---
 
@@ -173,7 +241,7 @@ WooCommerce flavor for the five-tag maximum and for vendor marks. That cover
 matters because the compliance engine only reads the readme at the root of the
 tree it scans, so `composer compliance` never sees a flavor readme.
 
-**Version headers:** `Stable tag: 0.8.1`, `Requires at least: 6.9`,
+**Version headers:** `Stable tag: <version>`, `Requires at least: 6.9`,
 `Tested up to: 7.1`, `Requires PHP: 8.1`, `License: GPLv2 or later`. The stable
 tag is substituted from `WPMCP_VERSION` at build time, so it cannot drift from
 the main file. `Tested up to` is not substituted: it is written out in the three
@@ -200,7 +268,7 @@ to 3 below assume its version and header boxes are already ticked.
    `Tested up to` names (CI's `plugin-check` job runs it against the same zip
    on every push, but not on a live site).
 3. Sign in at <https://wordpress.org/plugins/developers/add/>.
-4. Upload `dist/wpmcp-0.8.1.zip`. The whole plugin is examined before approval,
+4. Upload `dist/wpmcp-<version>.zip`. The whole plugin is examined before approval,
    which is why the zip is required and why a placeholder submission would be
    rejected under guideline 16.
 5. **On the confirmation screen, check the derived slug** and change it to
@@ -413,7 +481,7 @@ cd /tmp/wpmcp-svn
 
 # trunk is the working copy of the current release
 rm -rf trunk/*
-unzip -q /path/to/dist/wpmcp-0.8.1.zip -d /tmp/unpacked
+unzip -q /path/to/dist/wpmcp-<version>.zip -d /tmp/unpacked
 cp -R /tmp/unpacked/wpmcp/. trunk/
 
 svn add --force trunk
@@ -425,15 +493,15 @@ svn status | grep '^!' | awk '{print $2}' | xargs -r svn rm
 #   assets/icon-256x256.png, assets/icon-128x128.png
 #   assets/screenshot-1.png ... matching the readme's == Screenshots == order
 
-svn ci -m "Release 0.8.1"
+svn ci -m "Release <version>"
 ```
 
 Then tag it. The tag is what the directory actually serves, and `Stable tag:`
 in `trunk/readme.txt` must name it:
 
 ```bash
-svn cp trunk tags/0.8.1
-svn ci -m "Tag 0.8.1"
+svn cp trunk tags/<version>
+svn ci -m "Tag <version>"
 ```
 
 Every later release:

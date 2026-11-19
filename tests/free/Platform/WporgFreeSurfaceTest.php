@@ -160,8 +160,14 @@ class WporgFreeSurfaceTest extends \WP_UnitTestCase
 
         // Free only: every pro-tier registration leaves the vertical with the
         // shared strip, so a pro ability's dependencies never ship.
+        // The manifest deletes these registrations by name along with their
+        // files (issue #1140), so their dependencies never ship either.
+        $removed   = (require dirname(__DIR__, 3) . '/scripts/flavors/woocommerce/manifest.php')['removed_abilities'];
         $offenders = [];
         foreach ($this->ability_dependencies('woocommerce', 'free') as $ability => $files) {
+            if (in_array($ability, $removed, true)) {
+                continue;
+            }
             foreach ($files as $file) {
                 foreach ($pruned as $prefix) {
                     if ($file !== $prefix && 0 !== strpos($file, rtrim($prefix, '/') . '/')) {

@@ -191,7 +191,7 @@ class FlavorBuildBlockersTest extends Compliance_Test_Case
             exec(
                 escapeshellarg(PHP_BINARY) . ' '
                     . escapeshellarg(self::repo_root() . '/scripts/flavors/woocommerce/text-domain.php') . ' '
-                    . escapeshellarg($stage) . ' wpmcp-for-woocommerce 2>&1',
+                    . escapeshellarg($stage) . ' wp-mcp-for-woocommerce 2>&1',
                 $output,
                 $code
             );
@@ -211,7 +211,10 @@ class FlavorBuildBlockersTest extends Compliance_Test_Case
     private static function staged_tree(string $flavor): string
     {
         $root  = self::repo_root();
-        $slug  = 'woocommerce' === $flavor ? 'wpmcp-for-woocommerce' : 'wpmcp';
+        // The vertical's directory is its wp.org slug; its main file keeps
+        // the wpmcp-prefixed name src/flavor-guard.php looks for (#1140).
+        $slug  = 'woocommerce' === $flavor ? 'wp-mcp-for-woocommerce' : 'wpmcp';
+        $main  = 'woocommerce' === $flavor ? 'wpmcp-for-woocommerce.php' : 'wpmcp.php';
         $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-flavor-' . $flavor . '-' . uniqid('', true) . '/' . $slug;
         if (! mkdir($stage, 0777, true)) {
             self::fail('could not create the staging directory');
@@ -230,7 +233,7 @@ class FlavorBuildBlockersTest extends Compliance_Test_Case
             }
         }
 
-        foreach ([$slug . '.php', 'readme.txt'] as $rendered) {
+        foreach ([$main, 'readme.txt'] as $rendered) {
             $body = str_replace(
                 '{{VERSION}}',
                 '0.0.0',

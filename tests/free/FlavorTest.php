@@ -282,7 +282,13 @@ class FlavorTest extends \WP_UnitTestCase
 
         try {
             $needed = [];
+            // Registrations the manifest deletes by name (issue #1140) never
+            // reach the zip, so their pruned handlers are not a divergence.
+            $removed = (require $root . '/scripts/flavors/woocommerce/manifest.php')['removed_abilities'];
             foreach ($this->registered_names('woocommerce') as $name) {
+                if (in_array($name, $removed, true)) {
+                    continue;
+                }
                 $ability = $this->ability_by_name('woocommerce', $name);
                 // The strip removes every pro-tier registration along with
                 // its files, so only free-tier tools ship in this zip.
@@ -339,7 +345,7 @@ class FlavorTest extends \WP_UnitTestCase
     private function stripped_woo_src(): string
     {
         $root  = dirname(__DIR__, 2);
-        $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-woo-prune-' . uniqid('', true) . '/wpmcp-for-woocommerce';
+        $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-woo-prune-' . uniqid('', true) . '/wp-mcp-for-woocommerce';
         $this->assertTrue(mkdir($stage, 0777, true), 'could not create the staging directory');
         $this->copy_tree($root . '/src', $stage . '/src');
         foreach (['wpmcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
