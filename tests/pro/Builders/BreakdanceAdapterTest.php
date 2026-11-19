@@ -77,8 +77,23 @@ namespace WPMCP\Tests\Pro\Builders {
             return $post_id;
         }
 
+        /**
+         * Writes run with Breakdance marked loaded (unless a test set its
+         * presence itself) and against the read's hash (issue #634), as an
+         * agent sends them.
+         */
         private function update(int $post_id, array $args)
         {
+            if (! has_filter('wpmcp_breakdance_active')) {
+                add_filter('wpmcp_breakdance_active', '__return_true');
+            }
+            if (! array_key_exists('expected_hash', $args)) {
+                $read = (new Get_Builder_Content())->handle(['post_id' => $post_id]);
+                if (is_array($read) && isset($read['hash'])) {
+                    $args['expected_hash'] = $read['hash'];
+                }
+            }
+
             return (new Update_Builder_Content())->handle(['post_id' => $post_id, 'builder' => 'breakdance'] + $args);
         }
 
@@ -269,11 +284,17 @@ namespace WPMCP\Tests\Pro\Builders {
         public function test_cache_is_regenerated_through_breakdance_only_when_active(): void
         {
             $post_id = $this->breakdance_page();
+            $before  = $this->state($post_id);
 
+            // Breakdance off: the write is refused (issue #634), so nothing is
+            // written and no cache is touched.
+            add_filter('wpmcp_breakdance_active', '__return_false');
             $out = $this->update($post_id, ['operation' => 'update', 'path' => '101', 'attrs' => ['content' => ['content' => ['text' => 'A']]]]);
-            Rollback_Service::restore_operation($out['operation_id']);
+            $this->assertSame('plugin_missing', $out->get_error_code());
             $this->assertSame([], $GLOBALS['wpmcp_breakdance_cache_calls']);
+            $this->assertSame($before, $this->state($post_id));
 
+            remove_all_filters('wpmcp_breakdance_active');
             add_filter('wpmcp_breakdance_active', '__return_true');
             $before = $this->state($post_id);
             $out    = $this->update($post_id, ['operation' => 'update', 'path' => '101', 'attrs' => ['content' => ['content' => ['text' => 'B']]]]);

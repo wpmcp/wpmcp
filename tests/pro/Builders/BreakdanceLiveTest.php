@@ -97,6 +97,8 @@ class BreakdanceLiveTest extends \WP_UnitTestCase
             'path'       => '101',
             'attrs'      => ['content' => ['content' => ['text' => 'Edited through wpmcp']]],
             'session_id' => $session,
+            // Writes are pinned to the read's hash of the row (issue #634).
+            'expected_hash' => $read['hash'],
         ]);
         $this->assertIsArray($out, is_wp_error($out) ? $out->get_error_message() : '');
 
