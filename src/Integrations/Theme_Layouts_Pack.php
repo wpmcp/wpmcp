@@ -159,14 +159,14 @@ final class Theme_Layouts_Pack
             ],
             "create-{$f}-layout"              => $write + [
                 'self_snapshotting' => true,
-                'description'       => "Create a {$product} layout of a writable type. Hook types need hook (from list-{$f}-hooks, or any action name with custom_hook:true). status defaults to draft. Recorded as a creation: rollback-operation trashes it",
+                'description'       => "Create one {$product} layout of a writable type. Hook types need hook (from list-{$f}-hooks, or any action name with custom_hook:true). status defaults to draft. Recorded as a creation: rollback-operation trashes it",
                 'input_schema'      => $create,
                 'validate'          => static fn (array $args): ?array => self::refusal(static fn () => self::known_args("create-{$f}-layout", $create, $args) ?? self::plan_create($a, $args)),
                 'handler'           => static fn (array $args, array $context): array => self::create($a, $args, $context),
             ],
             "update-{$f}-layout"              => $write + [
                 'objects'      => $objects,
-                'description'  => "Change a {$product} layout's title, content, status, hook or priority; omitted fields are kept and the type is fixed. Snapshotted and reversible",
+                'description'  => "Change one {$product} layout's title, content, status, hook or priority; omitted fields are kept and the type is fixed. Snapshotted and reversible",
                 'input_schema' => $update,
                 'validate'     => static fn (array $args): ?array => self::refusal(static fn () => self::known_args("update-{$f}-layout", $update, $args) ?? self::plan_update($a, $args)),
                 'snapshot'     => $snapshot,
@@ -174,7 +174,7 @@ final class Theme_Layouts_Pack
             ],
             "set-{$f}-layout-display-rules"   => $write + [
                 'objects'      => $objects,
-                'description'  => "Set where a {$product} layout shows. Each rules key passed replaces that key, keys left out are kept. Snapshotted and reversible",
+                'description'  => "Set where one {$product} layout shows. Each rules key passed replaces that key, keys left out are kept. Snapshotted and reversible",
                 'input_schema' => $set_rules,
                 'validate'     => static fn (array $args): ?array => self::refusal(static fn () => self::known_args("set-{$f}-layout-display-rules", $set_rules, $args) ?? self::plan_rules($a, $args)),
                 'snapshot'     => $snapshot,
