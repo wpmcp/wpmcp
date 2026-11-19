@@ -68,9 +68,15 @@ if (! defined('ABSPATH')) {
  * membership restore PMPro's cached levels of each captured user are
  * dropped, so its next read sees the restored rows.
  *
+ * Booking plugin rows (issue #679) are one booking each: Bookly's
+ * `bookly_customer_appointments`, Simply Schedule Appointments'
+ * `ssa_appointments`, BookingPress's `bookingpress_appointment_bookings`
+ * (keyed by bookingpress_appointment_booking_id) and LatePoint's
+ * `latepoint_bookings`, each kind allowing only that one suffix.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
- * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
+ * for a dictionary row, a Pretty Links link or a booking, and Wordfence's own admin capability (manage_options,
  * manage_network on a multisite network) for a Wordfence row.
  */
 final class Plugin_Table_Rows_Snapshot
@@ -84,6 +90,10 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'mepr_rule_access_',
         'rank_math'        => 'rank_math_',
         'prli'             => 'prli_',
+        'bookly'           => 'bookly_',
+        'ssa'              => 'ssa_',
+        'bookingpress'     => 'bookingpress_',
+        'latepoint'        => 'latepoint_',
         'pmpro_levels'     => 'pmpro_',
         'pmpro_members'    => 'pmpro_',
         'pmpro_codes'      => 'pmpro_',
@@ -102,6 +112,7 @@ final class Plugin_Table_Rows_Snapshot
     private const KEY_COLUMNS = [
         'mepr_rule_access' => 'rule_id',
         'wordfence_blocks' => 'IP',
+        'bookingpress'     => 'bookingpress_appointment_booking_id',
         'pmpro_members'    => 'user_id',
     ];
 
@@ -110,6 +121,10 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => [ 'conditions' ],
         'rank_math'        => [ 'redirections' ],
         'prli'             => [ 'links' ],
+        'bookly'           => [ 'customer_appointments' ],
+        'ssa'              => [ 'appointments' ],
+        'bookingpress'     => [ 'appointment_bookings' ],
+        'latepoint'        => [ 'bookings' ],
         'pmpro_levels'     => [ 'membership_levels' ],
         'pmpro_members'    => [ 'memberships_users' ],
         'pmpro_codes'      => [ 'discount_codes' ],
@@ -124,6 +139,9 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_levels' => [ 'membership_levels_groups' => 'level' ],
         'pmpro_codes'  => [ 'discount_codes_levels' => 'code_id' ],
     ];
+
+    /** Booking plugin kinds (issue #679), restored under manage_options. */
+    private const BOOKING_KINDS = [ 'bookly', 'ssa', 'bookingpress', 'latepoint' ];
 
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
     private const BINARY_COLUMNS = [
@@ -245,7 +263,7 @@ final class Plugin_Table_Rows_Snapshot
      * @param int[] $ids
      * @return array<int, array<string, string|null>>
      */
-    public static function rows(string $table, array $ids, string $column = 'id'): array
+    public static function rows(string $table, array $ids, string $column = 'id', string $order = 'id'): array
     {
         global $wpdb;
 
@@ -256,7 +274,7 @@ final class Plugin_Table_Rows_Snapshot
         $in = implode(',', array_fill(0, count($ids), '%d'));
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of a third-party table; $in holds only %d placeholders.
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY id ASC", $table, $column, ...$ids), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY %i ASC", $table, $column, ...array_merge($ids, [ $order ])), ARRAY_A);
 
         return array_values((array) $rows);
     }
@@ -466,7 +484,7 @@ final class Plugin_Table_Rows_Snapshot
     private static function kind_rows(string $kind, string $table, array $ids): array
     {
         if (! isset(self::BINARY_COLUMNS[ $kind ])) {
-            return self::rows($table, $ids, self::key_column($kind));
+            return self::rows($table, $ids, self::key_column($kind), 'bookingpress' === $kind ? self::key_column($kind) : 'id');
         }
         if ([] === $ids) {
             return [];
@@ -593,6 +611,12 @@ final class Plugin_Table_Rows_Snapshot
         if (str_starts_with($kind, 'pmpro_')) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring Paid Memberships Pro levels, memberships or discount codes requires the manage_options capability.');
+            }
+            return;
+        }
+        if (in_array($kind, self::BOOKING_KINDS, true)) {
+            if (! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring a booking requires the manage_options capability.');
             }
             return;
         }

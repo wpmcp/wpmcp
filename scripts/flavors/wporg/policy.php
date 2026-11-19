@@ -288,6 +288,15 @@ return [
         // only. strip.php takes out the lines in Plugin_Data_Integration that
         // merge the ops and count the pack towards availability.
         'src/Integrations/Offload_Media_Pack.php',
+        // Appointment booking plugins (issue #679), paid-tier. strip.php
+        // takes out the lines in Plugin_Data_Integration that merge the ops
+        // and count the pack towards availability.
+        'src/Integrations/Booking_Pack.php',
+        'src/Integrations/Booking_Adapter.php',
+        'src/Integrations/Booking_Bookly.php',
+        'src/Integrations/Booking_Simply_Schedule.php',
+        'src/Integrations/Booking_BookingPress.php',
+        'src/Integrations/Booking_LatePoint.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration
