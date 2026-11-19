@@ -19,10 +19,10 @@ if (! defined('ABSPATH')) {
  * surfaces them through a curated, Give-aware read: list donation forms and
  * read one form's pricing, goal, and totals.
  *
- * Read-only, and forms-only: individual donation records live in Give's own
- * tables/objects (not a Safe_Mutation snapshot target), so donation-record
- * access is deferred rather than shipped un-reversible. give_forms is an
- * ordinary CPT, so form create/edit is available via the content tools.
+ * Issue #680 adds donations, donors, campaigns and a summary (reads, every
+ * one behind manage_options, lists masked), plus update-form and
+ * update-donation-status (Give_Donations). Writes are off until the site
+ * opts in with the wpmcp_enable_give_write filter.
  */
 class Give_Integration extends Integration_Dispatcher
 {
@@ -39,6 +39,11 @@ class Give_Integration extends Integration_Dispatcher
         'sales'           => '_give_form_sales',
     ];
 
+    public const OPT_IN_FILTER = 'wpmcp_enable_give_write';
+
+    /** The capability every donation, donor and campaign op takes. */
+    private const DATA_CAPABILITY = 'manage_options';
+
     public function integration(): string
     {
         return 'give';
@@ -51,7 +56,25 @@ class Give_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'GiveWP (donation forms, pricing, goals, and totals)';
+        return 'GiveWP (donation forms, donations, donors, campaigns)';
+    }
+
+    public function host_plugin(): array
+    {
+        return [ 'name' => 'GiveWP', 'several' => false ];
+    }
+
+    private function form_read(int $id): array
+    {
+        $post = get_post($id);
+        return [
+            'form' => [
+                'id'     => (int) $post->ID,
+                'title'  => (string) $post->post_title,
+                'status' => (string) $post->post_status,
+                'config' => self::config((int) $post->ID),
+            ],
+        ];
     }
 
     private static function config(int $post_id): array
@@ -114,15 +137,113 @@ class Give_Integration extends Integration_Dispatcher
                     if (! $post || self::POST_TYPE !== $post->post_type) {
                         return [ 'form' => null ];
                     }
-                    return [
-                        'form' => [
-                            'id'     => (int) $post->ID,
-                            'title'  => (string) $post->post_title,
-                            'status' => (string) $post->post_status,
-                            'config' => self::config((int) $post->ID),
-                        ],
-                    ];
+                    return $this->form_read((int) $post->ID);
                 },
+            ],
+        ] + $this->donation_operations();
+    }
+
+    /** Issue #680: donations, donors, campaigns, the summary and the two writes. */
+    private function donation_operations(): array
+    {
+        // The literal name, not OPT_IN_FILTER, so the hook stays greppable.
+        $enabled  = (bool) apply_filters('wpmcp_enable_give_write', false);
+        $paging   = Give_Donations::paging();
+        $date     = Give_Donations::date_schema();
+        $id       = [ 'type' => 'integer', 'minimum' => 1 ];
+        $statuses = array_keys(Give_Donations::STATUSES);
+        $filters  = [
+            'form_id'     => $id,
+            'campaign_id' => $id,
+            'mode'        => [ 'type' => 'string', 'enum' => [ 'live', 'test' ] ],
+            'from'        => $date,
+            'to'          => $date,
+        ];
+        $data     = [ 'mode' => 'read', 'capability' => self::DATA_CAPABILITY ];
+        $write    = [ 'enabled_by_default' => $enabled, 'opt_in_filter' => self::OPT_IN_FILTER ];
+        $form_obj = [ 'form_id' => [ 'type' => 'post', 'own_type' => true, 'access' => 'read' ] ];
+
+        return [
+            'list-donations'         => $data + [
+                'description'  => 'List GiveWP donations, newest first: id, status, date, amount, currency, form, campaign, donor id, gateway, mode; donor name and email MASKED. Filter by status, form_id, donor_id, campaign_id, mode (live or test), from and to (YYYY-MM-DD)',
+                'objects'      => $form_obj,
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'status'   => [ 'type' => 'string', 'enum' => $statuses ],
+                        'donor_id' => $id,
+                    ] + $filters + $paging,
+                ],
+                'handler'      => static fn (array $args): array => Give_Donations::list_donations($args),
+            ],
+            'get-donation'           => $data + [
+                'description'  => 'Read one GiveWP donation in full: amount, status, form, campaign, donor name, email, phone, company, billing address, comment, anonymous flag, gateway, transaction id and mode',
+                'objects'      => [ 'donation_id' => [ 'type' => 'post', 'own_type' => true, 'access' => 'read' ] ],
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'donation_id' => $id ], 'required' => [ 'donation_id' ] ],
+                'validate'     => static fn (array $args): ?array => Give_Donations::donation_refusal((int) $args['donation_id']),
+                'handler'      => static fn (array $args): array => Give_Donations::get_donation((int) $args['donation_id']),
+            ],
+            'list-donors'            => $data + [
+                'description'  => 'List GiveWP donors, newest first: id, user id, total donated, donation count, created date; name and email MASKED. search matches name or email',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'search' => [ 'type' => 'string', 'maxLength' => 200 ] ] + $paging ],
+                'validate'     => static fn (): ?array => Give_Donations::donors_refusal(),
+                'handler'      => static fn (array $args): array => Give_Donations::list_donors($args),
+            ],
+            'get-donor'              => $data + [
+                'description'  => 'Read one GiveWP donor in full: name, email, additional emails, first and last name, company, totals and the 10 latest donations',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'donor_id' => $id ], 'required' => [ 'donor_id' ] ],
+                'validate'     => static fn (array $args): ?array => Give_Donations::donor_refusal((int) $args['donor_id']),
+                'handler'      => static fn (array $args): array => Give_Donations::get_donor((int) $args['donor_id']),
+            ],
+            'list-campaigns'         => $data + [
+                'description'  => 'List GiveWP campaigns (GiveWP 4+): title, status, goal and goal type, dates, page, default form and every form, and raised amount and count from completed live donations. Filter by status',
+                'input_schema' => [ 'type' => 'object', 'properties' => [ 'status' => [ 'type' => 'string', 'maxLength' => 20 ] ] + $paging ],
+                'handler'      => static fn (array $args): array => Give_Donations::list_campaigns($args),
+            ],
+            'donation-summary'       => $data + [
+                'description'  => 'Count and total GiveWP donations by status and currency (trash left out). Filter by form_id, campaign_id, mode (live or test), from and to (YYYY-MM-DD, site time)',
+                'objects'      => $form_obj,
+                'input_schema' => [ 'type' => 'object', 'properties' => $filters ],
+                'handler'      => static fn (array $args): array => Give_Donations::summary($args),
+            ],
+            'update-form'            => $write + [
+                'mode'         => 'write',
+                'description'  => 'Change a GiveWP donation form: title, status (publish, draft, pending, private), price (the set amount, single-amount forms only), goal_enabled, goal. Visual form builder forms take status only. Snapshotted; undo: rollback-operation',
+                'objects'      => [ 'form_id' => [ 'type' => 'post', 'own_type' => true, 'access' => 'write' ] ],
+                'input_schema' => [
+                    'type'          => 'object',
+                    'properties'    => [
+                        'form_id'      => $id,
+                        'title'        => [ 'type' => 'string', 'minLength' => 1, 'maxLength' => 200 ],
+                        'status'       => [ 'type' => 'string', 'enum' => [ 'publish', 'draft', 'pending', 'private' ] ],
+                        'price'        => [ 'type' => 'number', 'minimum' => 0 ],
+                        'goal_enabled' => [ 'type' => 'boolean' ],
+                        'goal'         => [ 'type' => 'number', 'minimum' => 0 ],
+                    ],
+                    'required'      => [ 'form_id' ],
+                    'minProperties' => 2,
+                ],
+                'validate'     => static fn (array $args): ?array => Give_Donations::update_form_refusal($args),
+                'snapshot'     => static fn (array $args): array => [ 'object_type' => 'post', 'object_id' => (int) $args['form_id'] ],
+                'handler'      => fn (array $args): array => Give_Donations::update_form($args, fn (int $form): array => $this->form_read($form)),
+            ],
+            'update-donation-status' => $write + [
+                'mode'         => 'destructive',
+                'capability'   => self::DATA_CAPABILITY,
+                'undoable'     => false,
+                'description'  => 'Change a GiveWP donation\'s status (complete, pending, processing, refunded, failed, cancelled, abandoned, revoked, preapproval) through GiveWP, which recalculates totals and may email the donor; no gateway refund is made. Needs confirm:true; the record is snapshotted but the emails and totals are not undoable',
+                'objects'      => [ 'donation_id' => [ 'type' => 'post', 'own_type' => true, 'access' => 'write' ] ],
+                'input_schema' => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'donation_id' => $id,
+                        'status'      => [ 'type' => 'string', 'enum' => Give_Donations::WRITABLE_STATUSES ],
+                    ],
+                    'required'   => [ 'donation_id', 'status' ],
+                ],
+                'validate'     => static fn (array $args): ?array => Give_Donations::status_refusal($args),
+                'snapshot'     => static fn (array $args): array => [ 'object_type' => 'post', 'object_id' => (int) $args['donation_id'] ],
+                'handler'      => static fn (array $args): array => Give_Donations::update_status($args),
             ],
         ];
     }

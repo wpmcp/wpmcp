@@ -246,6 +246,26 @@ class UninstallDataTest extends \WP_UnitTestCase
         $this->assertDirectoryExists($this->outside);
     }
 
+    public function test_a_wpmcp_backup_dir_folder_is_removed_too(): void
+    {
+        $base = $this->root . '/private-backups';
+        wp_mkdir_p($base . '/wpmcp-site-backups');
+        file_put_contents($base . '/wpmcp-site-backups/a.zip', 'zip');
+        file_put_contents($base . '/keep.txt', 'x');
+        Data_Registry::set_delete_on_uninstall(true);
+        Uninstaller::set_backup_dir_for_tests([ true, $base . '/' ]);
+        $this->capture_queries();
+
+        try {
+            Uninstaller::uninstall();
+        } finally {
+            Uninstaller::set_backup_dir_for_tests(null);
+        }
+
+        $this->assertDirectoryDoesNotExist($base . '/wpmcp-site-backups');
+        $this->assertFileExists($base . '/keep.txt', 'Only the backup folder itself goes.');
+    }
+
     public function test_directory_removal_refuses_a_base_that_does_not_resolve(): void
     {
         $this->assertFalse(Uninstaller::delete_owned_dir($this->root . '/missing', '.wpmcp-backups'));

@@ -133,8 +133,9 @@ if (! defined('ABSPATH')) {
  * ['error' => ['code', 'message', 'data']] payload, and the op handler is
  * only ever reached after ALL of them pass - a rejected call has no side
  * effects and writes no snapshot):
- *   availability -> op exists in this channel -> enabled flag/filter ->
- *   op-level governance -> per-op capability -> per-op 'requires' dependency ->
+ *   availability (an unknown op still answers unknown_operation, issue
+ *   #1036) -> op exists in this channel -> per-op capability -> per-op
+ *   'requires' dependency -> enabled flag/filter -> op-level governance ->
  *   destructive confirm:true -> schema validation -> per-op validate() ->
  *   unknown args (writes only, issue #956) -> handler (an op with a
  *   confirm_preview asks for confirm:true after the unknown args check).
@@ -548,17 +549,9 @@ abstract class Integration_Dispatcher
         }
         $def = $ops[ $op ];
 
-        if (! $this->is_op_enabled($op, $def)) {
-            return $this->disabled_refusal($op, $def);
-        }
-
-        if (! $this->passes_op_governance($op, $def)) {
-            return $this->error('operation_denied', sprintf(
-                'Operation "%s" has been disabled by governance policy.',
-                $op
-            ), [ 'reason' => 'governance' ]);
-        }
-
+        // Issue #1041: capability, then the op's own plugin, then the
+        // opt-in. An op whose plugin is not active names that plugin, since
+        // switching on its opt-in would not let it run either.
         $denied = $this->capability_refusal($op, $def);
         if (null !== $denied) {
             return $denied;
@@ -571,6 +564,17 @@ abstract class Integration_Dispatcher
                 (string) ($requirement['message'] ?? sprintf('Operation "%s" is missing a dependency.', $op)),
                 (array) ($requirement['data'] ?? []) + [ 'operation' => $op ]
             );
+        }
+
+        if (! $this->is_op_enabled($op, $def)) {
+            return $this->disabled_refusal($op, $def);
+        }
+
+        if (! $this->passes_op_governance($op, $def)) {
+            return $this->error('operation_denied', sprintf(
+                'Operation "%s" has been disabled by governance policy.',
+                $op
+            ), [ 'reason' => 'governance' ]);
         }
 
         $unconfirmed  = 'destructive' === $def['mode'] && true !== ($args['confirm'] ?? false);
