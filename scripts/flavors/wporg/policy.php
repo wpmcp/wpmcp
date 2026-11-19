@@ -288,6 +288,13 @@ return [
         // only. strip.php takes out the lines in Plugin_Data_Integration that
         // merge the ops and count the pack towards availability.
         'src/Integrations/Offload_Media_Pack.php',
+        // Jetpack CRM contacts and forms and HubSpot forms (issue #684),
+        // paid-tier. strip.php takes out the lines in Plugin_Data_Integration
+        // that merge the ops and count the packs towards availability. The
+        // jpcrm kind of Plugin_Table_Rows_Snapshot stays: it acts on Jetpack
+        // CRM's own table and names no paid class.
+        'src/Integrations/Jetpack_Crm_Pack.php',
+        'src/Integrations/HubSpot_Pack.php',
         // Dynamic single, archive and search templates (issue #290): source
         // discovery, bindings, the theme-pair ops and their front-end wiring,
         // all paid-tier. strip.php takes out the line in Theme_Integration

@@ -75,10 +75,19 @@ if (! defined('ABSPATH')) {
  * copies of the rows are dropped (its BerlinDB cache group
  * rcp-membership_levels), as its own query does after a write.
  *
+ * Jetpack CRM contacts (issue #684, the `zbs_contacts` table, the one
+ * suffix "contacts") are keyed by their `ID` column. An update's image is
+ * put back as it was. A create's image holds no row: its undo removes the
+ * contact through Jetpack CRM's own deleteContact(), which also drops the
+ * tags, aliases, meta and logs the plugin added with it, and is refused,
+ * leaving the contact in place, once quotes, invoices, transactions or tasks
+ * have been linked to it since or while the plugin is not loaded.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
  * for a dictionary row, a Pretty Links link or a Restrict Content level, and Wordfence's own admin capability (manage_options,
- * manage_network on a multisite network) for a Wordfence row.
+ * manage_network on a multisite network) for a Wordfence row, and Jetpack
+ * CRM's admin_zerobs_customers (or manage_options) for a contact.
  */
 final class Plugin_Table_Rows_Snapshot
 {
@@ -95,6 +104,7 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_members'    => 'pmpro_',
         'pmpro_codes'      => 'pmpro_',
         'rcp_levels'       => 'restrict_content_',
+        'jpcrm'            => 'zbs_',
     ];
 
     /**
@@ -111,6 +121,7 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'rule_id',
         'wordfence_blocks' => 'IP',
         'pmpro_members'    => 'user_id',
+        'jpcrm'            => 'ID',
     ];
 
     /** kind => the only suffixes it allows, for a kind with a fixed table. */
@@ -122,6 +133,7 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_members'    => [ 'memberships_users' ],
         'pmpro_codes'      => [ 'discount_codes' ],
         'rcp_levels'       => [ 'pro' ],
+        'jpcrm'            => [ 'contacts' ],
     ];
 
     /**
@@ -418,6 +430,13 @@ final class Plugin_Table_Rows_Snapshot
             return;
         }
 
+        if ('jpcrm' === $kind && [] === (array) ($data['rows'] ?? [])) {
+            foreach ($ids as $id) {
+                self::remove_jpcrm_contact((int) $id);
+            }
+            return;
+        }
+
         global $wpdb;
         $in = implode(',', array_fill(0, count($ids), '%d'));
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- third-party table with no WP API; $in holds only %d placeholders.
@@ -467,6 +486,39 @@ final class Plugin_Table_Rows_Snapshot
             wp_cache_delete((int) $id, 'rcp-membership_levels');
         }
         wp_cache_set('last_changed', microtime(), 'rcp-membership_levels');
+    }
+
+    /**
+     * Undo a Jetpack CRM contact create: remove the contact through the
+     * plugin's own deleteContact(), so the tags, aliases, meta and logs it
+     * added go with it. Refused (Mutation_Failed, the contact left in place)
+     * once quotes, invoices, transactions or tasks are linked to it, or
+     * while the plugin's API is not loaded. A contact already gone is fine.
+     */
+    private static function remove_jpcrm_contact(int $id): void
+    {
+        global $wpdb;
+
+        $contacts = (string) self::table('jpcrm', 'contacts');
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Jetpack CRM's own table, read live.
+        if (0 === (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE ID = %d', $contacts, $id))) {
+            return;
+        }
+        $links = $wpdb->prefix . 'zbs_object_links';
+        if (self::table_exists($links)) {
+            // Quote 3, invoice 4, transaction 5 and task 6, linked to contact (type 1).
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Jetpack CRM's own table, read live.
+            $linked = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM %i WHERE zbsol_objtype_to = 1 AND zbsol_objid_to = %d AND zbsol_objtype_from IN (3, 4, 5, 6)', $links, $id));
+            if ($linked > 0) {
+                throw new Mutation_Failed(sprintf('Rollback refused: Jetpack CRM contact %d has %d quote(s), invoice(s), transaction(s) or task(s) linked since it was created, so it was left in place.', (int) $id, (int) $linked));
+            }
+        }
+        $zbs = $GLOBALS['zbs'] ?? null;
+        $api = is_object($zbs) && isset($zbs->DAL) && is_object($zbs->DAL) && isset($zbs->DAL->contacts) ? $zbs->DAL->contacts : null;
+        if (! is_object($api) || ! method_exists($api, 'deleteContact')) {
+            throw new Mutation_Failed(sprintf('Rollback refused: Jetpack CRM is not active, so contact %d was left in place. Activate it and undo again.', (int) $id));
+        }
+        $api->deleteContact([ 'id' => $id, 'saveOrphans' => false ]);
     }
 
     /**
@@ -620,6 +672,12 @@ final class Plugin_Table_Rows_Snapshot
         if (str_starts_with($kind, 'pmpro_')) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring Paid Memberships Pro levels, memberships or discount codes requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('jpcrm' === $kind) {
+            if (! current_user_can('admin_zerobs_customers') && ! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring a Jetpack CRM contact requires the admin_zerobs_customers capability.');
             }
             return;
         }

@@ -115,6 +115,8 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
         'plugin-data:fluentcrm-list-contacts:list_id'            => 'a FluentCRM list row, the FluentCRM permission',
         'plugin-data:fluentcrm-list-contacts:tag_id'             => 'a FluentCRM tag row, the FluentCRM permission',
         'plugin-data:fluentcrm-get-contact:id' => 'a FluentCRM contact row, the FluentCRM permission',
+        'plugin-data:jetpackcrm-get-contact:id' => 'a Jetpack CRM contact row in its own table, behind Jetpack CRM\'s own contact capabilities (masked below manage_options)',
+        'plugin-data:jetpackcrm-update-contact:id' => 'a Jetpack CRM contact row in its own table, behind Jetpack CRM\'s own contact capabilities',
         'plugin-data:fluentcrm-update-contact:id' => 'a FluentCRM contact row, the FluentCRM permission',
         'plugin-data:fluentcrm-delete-contact:id' => 'a FluentCRM contact row, the FluentCRM permission',
         'plugin-data:fluentcrm-update-contact-lists:id' => 'a FluentCRM contact row, the FluentCRM permission',

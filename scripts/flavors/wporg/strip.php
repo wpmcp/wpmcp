@@ -1502,6 +1502,25 @@ $edits['src/Plugin.php'][] = [
     1,
 ];
 $edits['src/Integrations/Plugin_Data_Integration.php'] = [
+    // The Jetpack CRM and HubSpot ops (issue #684) are the paid add-on's,
+    // removed by policy.php. Each line stands alone, so the edits below
+    // still match.
+    [
+        " *  - Issue #684 adds the paid-tier Jetpack CRM and HubSpot ops\n"
+            . " *    (Jetpack_Crm_Pack, HubSpot_Pack): Jetpack CRM contacts (masked in\n"
+            . " *    lists) and forms, contacts created and changed through its own API\n"
+            . " *    (off until wpmcp_enable_jetpack_crm_write) under 'plugin_table_rows'\n"
+            . " *    images, and the HubSpot forms placed on the site.\n",
+        '',
+        1,
+    ],
+    [ "            || Jetpack_Crm_Pack::active()\n", '', 1 ],
+    [ "            || HubSpot_Pack::active()\n", '', 1 ],
+    [ "            . ', Jetpack CRM contacts and forms, HubSpot forms'\n", '', 1 ],
+    [ "        \$groups[] = [ 'Jetpack CRM', false, Jetpack_Crm_Pack::operations() ];\n", '', 1 ],
+    [ "        \$groups[] = [ 'HubSpot', false, HubSpot_Pack::operations() ];\n", '', 1 ],
+    [ "            Jetpack_Crm_Pack::operations(),\n", '', 1 ],
+    [ "            HubSpot_Pack::operations(),\n", '', 1 ],
     // The Checkout Field Editor ops (issue #660) are the paid add-on's,
     // removed by policy.php; their lines go first, so every edit below
     // still matches the text it was written against.
