@@ -75,8 +75,20 @@ if (! defined('ABSPATH')) {
  * copies of the rows are dropped (its BerlinDB cache group
  * rcp-membership_levels), as its own query does after a write.
  *
+ * LearnPress (issue #672) keeps a course's curriculum in two tables of its
+ * own: `learnpress_sections` (kind learnpress_sections, the one suffix
+ * "sections"), keyed by the course (`section_course_id`), and
+ * `learnpress_section_items` (kind learnpress_section_items, the one suffix
+ * "section_items"), keyed by the section (`section_id`). A snapshot taken
+ * before a write therefore covers the rows the write inserts, the way the
+ * MemberPress kind does. After a restore, LearnPress's cached copy of each
+ * course it touched is rebuilt through LearnPress's own course model, as its
+ * curriculum editor does after a change.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
- * captured post for a Pods row or a MemberPress rule's rows, manage_options
+ * captured post for a Pods row, a MemberPress rule's rows or a LearnPress
+ * course's sections, edit_post on the course a LearnPress section belongs to
+ * for that section's items, manage_options
  * for a dictionary row, a Pretty Links link or a Restrict Content level, and Wordfence's own admin capability (manage_options,
  * manage_network on a multisite network) for a Wordfence row.
  */
@@ -95,6 +107,8 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_members'    => 'pmpro_',
         'pmpro_codes'      => 'pmpro_',
         'rcp_levels'       => 'restrict_content_',
+        'learnpress_sections'      => 'learnpress_',
+        'learnpress_section_items' => 'learnpress_',
     ];
 
     /**
@@ -111,6 +125,14 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'rule_id',
         'wordfence_blocks' => 'IP',
         'pmpro_members'    => 'user_id',
+        'learnpress_sections'      => 'section_course_id',
+        'learnpress_section_items' => 'section_id',
+    ];
+
+    /** kind => its primary key, for a kind whose table has no `id` column. */
+    private const ROW_KEYS = [
+        'learnpress_sections'      => 'section_id',
+        'learnpress_section_items' => 'section_item_id',
     ];
 
     /** kind => the only suffixes it allows, for a kind with a fixed table. */
@@ -122,6 +144,8 @@ final class Plugin_Table_Rows_Snapshot
         'pmpro_members'    => [ 'memberships_users' ],
         'pmpro_codes'      => [ 'discount_codes' ],
         'rcp_levels'       => [ 'pro' ],
+        'learnpress_sections'      => [ 'sections' ],
+        'learnpress_section_items' => [ 'section_items' ],
     ];
 
     /**
@@ -254,7 +278,7 @@ final class Plugin_Table_Rows_Snapshot
      * @param int[] $ids
      * @return array<int, array<string, string|null>>
      */
-    public static function rows(string $table, array $ids, string $column = 'id'): array
+    public static function rows(string $table, array $ids, string $column = 'id', string $order = 'id'): array
     {
         global $wpdb;
 
@@ -265,7 +289,7 @@ final class Plugin_Table_Rows_Snapshot
         $in = implode(',', array_fill(0, count($ids), '%d'));
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of a third-party table; $in holds only %d placeholders.
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY id ASC", $table, $column, ...$ids), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE %i IN ($in) ORDER BY %i ASC", ...array_merge([ $table, $column ], $ids, [ $order ])), ARRAY_A);
 
         return array_values((array) $rows);
     }
@@ -451,6 +475,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('rcp_levels' === $kind) {
             self::flush_rcp_level_cache($ids);
         }
+        if ('learnpress_sections' === $kind) {
+            self::refresh_learnpress_courses($ids);
+        }
+        if ('learnpress_section_items' === $kind) {
+            self::refresh_learnpress_courses(self::learnpress_courses_of($ids));
+        }
         self::after_wordfence_restore($kind);
     }
 
@@ -484,6 +514,68 @@ final class Plugin_Table_Rows_Snapshot
     }
 
     /**
+     * The courses LearnPress sections belong to (0 for a section that is
+     * gone), section id => course id.
+     *
+     * @param array<int, int|string> $sections
+     * @return array<int, int>
+     */
+    public static function learnpress_courses_of(array $sections): array
+    {
+        global $wpdb;
+
+        $sections = array_values(array_filter(array_map('intval', $sections), static fn (int $id): bool => $id > 0));
+        $table    = (string) self::table('learnpress_sections', 'sections');
+        if ([] === $sections || ! self::table_exists($table)) {
+            return array_fill_keys($sections, 0);
+        }
+        $in = implode(',', array_fill(0, count($sections), '%d'));
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- LearnPress's own table; $in holds only %d placeholders.
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT section_id, section_course_id FROM %i WHERE section_id IN ($in)", $table, ...$sections), ARRAY_A);
+
+        $out = array_fill_keys($sections, 0);
+        foreach ((array) $rows as $row) {
+            $out[ (int) $row['section_id'] ] = (int) $row['section_course_id'];
+        }
+        return $out;
+    }
+
+    /**
+     * Rebuild LearnPress's cached copy of each course (its learnpress_courses
+     * row and object cache) after its curriculum rows changed, the way
+     * LearnPress's own section models do after a save. A no-op while
+     * LearnPress is not loaded.
+     *
+     * @param array<int, int|string> $courses
+     */
+    public static function refresh_learnpress_courses(array $courses): void
+    {
+        $model = '\\LearnPress\\Models\\CourseModel';
+        $cache = '\\LP_Cache';
+        foreach (array_unique(array_filter(array_map('intval', $courses))) as $course) {
+            if (class_exists($model) && method_exists($model, 'find')) {
+                try {
+                    $found = $model::find($course, true);
+                    if (is_object($found) && method_exists($found, 'save')) {
+                        $found->sections_items = null;
+                        $found->total_items    = null;
+                        $found->save();
+                    }
+                } catch (\Throwable $e) {
+                    // A cache rebuild that fails leaves LearnPress to rebuild it on its next save.
+                    unset($e);
+                }
+            }
+            if (class_exists($cache)) {
+                $lp_cache = new $cache();
+                if (method_exists($lp_cache, 'clear')) {
+                    $lp_cache->clear("courseSection/find/course/{$course}");
+                }
+            }
+        }
+    }
+
+    /**
      * Rows of a kind under its ids. A binary-keyed kind is matched with
      * UNHEX() and its binary columns come back as lowercase hex.
      *
@@ -493,7 +585,7 @@ final class Plugin_Table_Rows_Snapshot
     private static function kind_rows(string $kind, string $table, array $ids): array
     {
         if (! isset(self::BINARY_COLUMNS[ $kind ])) {
-            return self::rows($table, $ids, self::key_column($kind));
+            return self::rows($table, $ids, self::key_column($kind), self::ROW_KEYS[ $kind ] ?? 'id');
         }
         if ([] === $ids) {
             return [];
@@ -635,12 +727,24 @@ final class Plugin_Table_Rows_Snapshot
             }
             return;
         }
+        if ('learnpress_section_items' === $kind) {
+            // A section is a row, not a post: its items take edit_post on its
+            // course, and a section that is gone takes manage_options.
+            $ids = array_values(self::learnpress_courses_of($ids));
+            if (in_array(0, $ids, true) && ! current_user_can('manage_options')) {
+                throw new Mutation_Failed('Rollback refused: restoring the items of a LearnPress section that is gone requires the manage_options capability.');
+            }
+            $ids = array_values(array_filter($ids));
+        }
         foreach ($ids as $id) {
             if (current_user_can('edit_post', $id)) {
                 continue;
             }
             if ('mepr_rule_access' === $kind) {
                 throw new Mutation_Failed('Rollback refused: restoring the MemberPress access conditions of rule ' . (int) $id . ' requires permission to edit it.');
+            }
+            if (str_starts_with($kind, 'learnpress_')) {
+                throw new Mutation_Failed('Rollback refused: restoring the curriculum of LearnPress course ' . (int) $id . ' requires permission to edit it.');
             }
             throw new Mutation_Failed('Rollback refused: restoring the Pods fields of post ' . (int) $id . ' requires permission to edit it.');
         }

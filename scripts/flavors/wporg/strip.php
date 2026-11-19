@@ -1740,9 +1740,9 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
         1,
     ],
     [
-        "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'\n"
+        "            . ', Tutor LMS, LifterLMS, LearnDash and LearnPress courses, TablePress tables'\n"
             . "            . ', FluentCRM and MailPoet';\n",
-        "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
+        "            . ', Tutor LMS, LifterLMS, LearnDash and LearnPress courses, TablePress tables';\n",
         1,
     ],
     [
@@ -1753,7 +1753,7 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
     ],
     [
         " *  - Issue #394 adds the paid-tier LMS ops (LMS_Pack): Tutor LMS,\n"
-            . " *    LifterLMS and LearnDash course, section, lesson and quiz trees with\n"
+            . " *    LifterLMS, LearnDash and LearnPress course, section, lesson and quiz trees with\n"
             . " *    snapshotted writes, and read-only enrollments (LearnDash also enrolls,\n"
             . " *    unenrolls and resets progress, each snapshotted).\n"
             . " *  - Issue #481 adds the paid-tier TablePress ops (TablePress_Pack): tables\n"
@@ -1777,7 +1777,7 @@ $edits['src/Integrations/Plugin_Data_Integration.php'] = [
     ],
     [
         "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans, Restrict Content and Restrict Content Pro memberships, Ultimate Member roles and forms'\n"
-            . "            . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables';\n",
+            . "            . ', Tutor LMS, LifterLMS, LearnDash and LearnPress courses, TablePress tables';\n",
         "        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans, Restrict Content and Restrict Content Pro memberships, Ultimate Member roles and forms';\n",
         1,
     ],
