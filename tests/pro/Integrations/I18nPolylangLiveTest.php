@@ -305,4 +305,43 @@ class I18nPolylangLiveTest extends \WP_UnitTestCase
         ksort($from_es);
         $this->assertSame($group, $from_es);
     }
+
+    /**
+     * Issue #689: a string the theme registers with pll_register_string()
+     * is listed with the languages it is missing in, update-strings stores
+     * a translation Polylang itself then serves, and rollback-operation
+     * puts the language's stored translations back exactly.
+     */
+    public function test_string_translation_through_polylang_and_rollback(): void
+    {
+        add_filter('wpmcp_enable_string_translation_write', '__return_true');
+        try {
+            pll_register_string('cta', 'Call us today', 'my-theme');
+            pll_register_string('more', 'Read more', 'my-theme');
+            $de = PLL()->model->get_language('de');
+            update_term_meta($de->term_id, '_pll_strings_translations', [ [ 'Read more', 'Weiterlesen' ] ]);
+            $before = get_term_meta($de->term_id, '_pll_strings_translations', true);
+
+            $listed  = $this->call('read', 'list-string-domains', [])['result'];
+            $domains = array_column($listed['domains'], null, 'domain');
+            $this->assertSame(2, $domains['my-theme']['strings']);
+            $this->assertSame(1, $domains['my-theme']['translated']['de']);
+
+            $rows = array_column($this->call('read', 'get-strings', [ 'domain' => 'my-theme', 'language' => 'de' ])['result']['strings'], null, 'string');
+            $this->assertSame('Weiterlesen', $rows['Read more']['translations']['de']);
+            $this->assertSame([ 'de' ], $rows['Call us today']['missing']);
+
+            $out = $this->call('write', 'update-strings', [ 'language' => 'de', 'strings' => [ [ 'key' => $rows['Call us today']['key'], 'translation' => 'Ruf uns an' ] ] ]);
+            $this->assertSame(1, $out['result']['written']);
+            $this->assertSame('Ruf uns an', pll_translate_string('Call us today', 'de'), 'Polylang serves the stored translation.');
+            $this->assertSame('Weiterlesen', pll_translate_string('Read more', 'de'), 'A translation the call did not name stays.');
+
+            $this->assertTrue(Rollback_Service::restore_operation($out['operation_id']));
+            wp_cache_delete($de->term_id, 'term_meta');
+            $this->assertSame($before, get_term_meta($de->term_id, '_pll_strings_translations', true));
+            $this->assertNotNull(PLL()->model->get_language('de'), 'The language itself survives the undo.');
+        } finally {
+            remove_all_filters('wpmcp_enable_string_translation_write');
+        }
+    }
 }

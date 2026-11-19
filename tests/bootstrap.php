@@ -106,6 +106,8 @@ tests_add_filter( 'muplugins_loaded', function () {
         wpmcp_maybe_require_plugin( 'generateblocks/plugin.php' );
         wpmcp_maybe_require_plugin( 'ultimate-addons-for-gutenberg/ultimate-addons-for-gutenberg.php' );
         wpmcp_maybe_require_plugin( 'otter-blocks/otter-blocks.php' );
+        wpmcp_maybe_require_plugin( 'stackable-ultimate-gutenberg-blocks/plugin.php' );
+        wpmcp_maybe_require_plugin( 'ultimate-blocks/ultimate-blocks.php' );
     }
 
     // The live BuddyPress job (issue #363, WPMCP_LIVE_BUDDYPRESS=1) runs the
