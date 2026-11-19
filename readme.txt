@@ -53,6 +53,7 @@ The difference: **every supported write takes a snapshot first.** If the agent g
 * With Pro, Weglot and GTranslate: languages and URL exclusions read (Weglot API keys never returned), and undoable GTranslate language list changes (off until the site turns them on)
 * With Pro, cache and performance settings for WP Rocket, Perfmatters, FlyingPress and LiteSpeed Cache: lazy load, minify, delay JS, CDN and preload read with license and CDN keys never returned, undoable settings changes, a cache preload and a LiteSpeed purge for one post or URL (off until the site turns them on)
 * With Pro, Elementor Pro forms: forms found in pages, and form submissions listed, read and exported as CSV, with undoable status changes and deletes (off until the site turns them on)
+* With Pro, Blocksy Companion extensions: listed with their on or off state and switched on or off through the companion's own manager, every toggle undoable (off until the site turns theme writes on)
 * With Pro, Elementor addon packs: Essential Addons, Premium Addons, Ultimate Addons and JetElements widgets listed with their controls, and each pack's modules switched on or off, every toggle undoable
 * Media library plus stock image imports, and regeneration of the image sizes a new theme or plugin added (undoable)
 * REST passthrough for anything else, still snapshotted
