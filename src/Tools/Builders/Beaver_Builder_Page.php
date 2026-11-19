@@ -190,7 +190,7 @@ final class Beaver_Builder_Page
         }
         $type = '' === $path ? 'layout' : (string) $nodes[$path]->type;
         if (! in_array($type, self::TEMPLATE_TYPES, true)) {
-            return new \WP_Error('invalid_beaver_builder_request', "A {$type} cannot be saved as a template; save its row, column or module.");
+            return new \WP_Error('invalid_beaver_builder_request', "Node type '{$type}' cannot be saved as a template; save its row, column or module.");
         }
 
         $type_object = get_post_type_object(self::TEMPLATE_POST_TYPE);
