@@ -41,6 +41,10 @@ if (! defined('ABSPATH')) {
  *    placements listed and read, ads created as drafts, changed, enabled
  *    and disabled, and placements pointed at an ad or group (off until
  *    wpmcp_enable_advanced_ads_write), each write under a post snapshot.
+ *  - Issue #908 adds the Max Mega Menu ops (Max_Mega_Menu_Pack): global
+ *    and per-location settings, themes and per-item settings read and
+ *    changed (off until wpmcp_enable_megamenu_write), each write
+ *    snapshotted and followed by a CSS rebuild, plus a CSS cache clear.
  *  - Issue #687 adds the Site Reviews ops (Site_Reviews_Pack): reviews
  *    listed (reviewer emails and IPs masked), read one at a time and
  *    summarised, and approved, unapproved, trashed or replied to (off until
@@ -136,7 +140,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     public function is_available(): bool
     {
-        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Site_Reviews_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
+        return BbPress_Pack::active() || JetEngine_Pack::active() || Pods_Pack::active() || TranslatePress_Pack::active() || Code_Snippets_Pack::active() || WS_Form_Pack::active() || Activity_Log_Pack::active() || Action_Scheduler_Pack::active() || Email_Log_Pack::active() || Pretty_Links_Pack::active() || Thirsty_Affiliates_Pack::active() || Advanced_Ads_Pack::active() || Max_Mega_Menu_Pack::active() || Site_Reviews_Pack::active() || WPGraphQL_Pack::active() || Simple_Pay_Pack::active() || Paid_Member_Subscriptions_Pack::active() || BuddyPress_Pack::active()
             || LMS_Pack::active()
             || Offload_Media_Pack::active()
             || TablePress_Pack::active()
@@ -158,7 +162,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
 
     protected function summary(): string
     {
-        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'
+        return 'JetEngine and Pods fields, TranslatePress strings, Code Snippets, BuddyPress and BuddyBoss Platform community data, bbPress forums, WS Form forms, WP Activity Log and Simple History logs, Pretty Links and ThirstyAffiliates links, Advanced Ads ads and placements, Max Mega Menu settings and themes, Action Scheduler queues, Site Reviews reviews, WP Mail Logging, Check and Log Email and Email Log emails, WPGraphQL queries, WP Simple Pay forms, Paid Member Subscriptions plans'
             . ', Tutor LMS, LifterLMS and LearnDash courses, TablePress tables'
             . ', WP Offload Media status'
             . ', FluentCRM and MailPoet'
@@ -192,6 +196,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             [ 'Pretty Links', false, Pretty_Links_Pack::operations() ],
             [ 'ThirstyAffiliates', false, Thirsty_Affiliates_Pack::operations() ],
             [ 'Advanced Ads', false, Advanced_Ads_Pack::operations() ],
+            [ 'Max Mega Menu', false, Max_Mega_Menu_Pack::operations() ],
             [ 'Site Reviews', false, Site_Reviews_Pack::operations() ],
             [ 'WP Simple Pay', false, Simple_Pay_Pack::operations() ],
             [ 'Paid Member Subscriptions', false, Paid_Member_Subscriptions_Pack::operations() ],
@@ -243,6 +248,7 @@ final class Plugin_Data_Integration extends Integration_Dispatcher
             Pretty_Links_Pack::operations(),
             Thirsty_Affiliates_Pack::operations(),
             Advanced_Ads_Pack::operations(),
+            Max_Mega_Menu_Pack::operations(),
             Site_Reviews_Pack::operations(),
             Simple_Pay_Pack::operations(),
             Paid_Member_Subscriptions_Pack::operations(),

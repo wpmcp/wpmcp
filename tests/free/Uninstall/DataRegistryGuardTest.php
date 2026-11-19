@@ -96,6 +96,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // GTranslate's settings, whose language lists the
             // gtranslate-set-languages op changes (issue #690).
             'GTranslate',
+            // Max Mega Menu's global and per-location settings, changed by
+            // the megamenu-update-location and -update-settings ops (#908).
+            'megamenu_settings',
             // FiboSearch's settings, changed by update-fibosearch-settings
             // on the theme pair (issue #700).
             'dgwt_wcas_settings',
