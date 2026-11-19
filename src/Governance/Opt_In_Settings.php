@@ -126,7 +126,7 @@ final class Opt_In_Settings
             'wpmcp_enable_helpdesk_write'          => __('Helpdesk: ticket writes', 'wpmcp'),
             'wpmcp_enable_learndash_learner_write' => __('LearnDash: learner enrolment and progress', 'wpmcp'),
             'wpmcp_enable_smtp_write'              => __('SMTP plugins: send a test email', 'wpmcp'),
-            'wpmcp_enable_backup_plugin_run'       => __('UpdraftPlus: start a backup', 'wpmcp'),
+            'wpmcp_enable_backup_plugin_run'       => __('Backup plugins (UpdraftPlus, BackWPup): start a backup', 'wpmcp'),
             'wpmcp_enable_pretty_links_write'      => __('Pretty Links: writes', 'wpmcp'),
             'wpmcp_enable_thirstyaffiliates_write' => __('ThirstyAffiliates: writes', 'wpmcp'),
             'wpmcp_enable_site_reviews_write'      => __('Site Reviews: writes', 'wpmcp'),

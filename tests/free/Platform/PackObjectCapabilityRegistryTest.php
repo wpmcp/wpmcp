@@ -51,6 +51,8 @@ class PackObjectCapabilityRegistryTest extends \WP_UnitTestCase
         'theme:get-privacy-request:request_id' => 'a core personal data request (a user_request post, never a content post), behind manage_options plus export_others_personal_data or erase_others_personal_data for its type',
         'theme:mark-request-complete:request_id' => 'a core personal data request (a user_request post, never a content post), behind manage_options plus export_others_personal_data or erase_others_personal_data for its type',
         'theme:ignore-wordfence-scan-issue:issue_id' => 'a Wordfence scan issue row in its own table, behind manage_options (manage_network on a network), Wordfence\'s own capability',
+        'theme:list-backwpup-backups:job_id' => 'a BackWPup job in its own backwpup_jobs site option, behind manage_options (manage_network_options on a network)',
+        'theme:run-backwpup-backup:job_id' => 'a BackWPup job in its own backwpup_jobs site option, behind manage_options (manage_network_options on a network)',
         'plugin-data:actionscheduler-get-action:action_id' => 'an Action Scheduler queue action in its own store (database or posts), behind manage_options (the capability the Action Scheduler admin screen takes)',
         'plugin-data:actionscheduler-cancel-action:action_id' => 'an Action Scheduler queue action in its own store (database or posts), behind manage_options (the capability the Action Scheduler admin screen takes)',
         'plugin-data:actionscheduler-run-action:action_id' => 'an Action Scheduler queue action in its own store (database or posts), behind manage_options (the capability the Action Scheduler admin screen takes)',

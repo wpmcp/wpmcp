@@ -53,6 +53,7 @@ final class Plugin_Refusal
         'All In One WP Security' => [ 'file' => 'all-in-one-wp-security-and-firewall/wp-security.php', 'slug' => 'all-in-one-wp-security-and-firewall' ],
         'Limit Login Attempts Reloaded' => [ 'file' => 'limit-login-attempts-reloaded/limit-login-attempts-reloaded.php', 'slug' => 'limit-login-attempts-reloaded' ],
         'UpdraftPlus'      => [ 'file' => 'updraftplus/updraftplus.php', 'slug' => 'updraftplus' ],
+        'BackWPup'         => [ 'file' => 'backwpup/backwpup.php', 'slug' => 'backwpup' ],
         'Code Snippets'    => [ 'file' => 'code-snippets/code-snippets.php', 'slug' => 'code-snippets' ],
         'bbPress'          => [ 'file' => 'bbpress/bbpress.php', 'slug' => 'bbpress' ],
         'BuddyPress'       => [ 'file' => 'buddypress/bp-loader.php', 'slug' => 'buddypress' ],
