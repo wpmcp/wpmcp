@@ -278,7 +278,10 @@ class ToolsListBudgetTest extends \WP_UnitTestCase
      *  bytes over 407 tools. Cornerstone (#646) added no tool: its read,
      *  scope reads and element operations, publish, restore and template
      *  inserts on the builder pair, by naming it in the three builder
-     *  descriptions: 209444 -> 209539 bytes over 407 tools. */
+     *  descriptions: 209444 -> 209539 bytes over 407 tools. Bricks
+     *  element-level editing (#633) added no tool: element operations,
+     *  publish, restore, template inserts and save_template on the builder
+     *  pair, by naming Bricks in the update-builder-content lists. */
     // Raised 209000 -> 215000 on 2026-11-09 for five integration PRs (#784, #786, #787, #788, WPBakery) that together exceed 209000; owner approved.
     private const TOOLS_LIST_BYTE_BUDGET = 215000;
 

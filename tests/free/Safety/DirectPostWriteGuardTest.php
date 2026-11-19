@@ -41,6 +41,10 @@ class DirectPostWriteGuardTest extends \WP_UnitTestCase
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new theme add-on layout post (issue #656); every field is new. Updates go through Save_Filters.',
         ],
+        'Tools/Builders/Bricks_Page.php'              => [
+            'calls'  => ['wp_insert_post' => 1],
+            'reason' => 'Creates a new Bricks section template from a page element (issue #633); every field is new.',
+        ],
         'Tools/Builders/Oxygen_Page.php'              => [
             'calls'  => ['wp_insert_post' => 1],
             'reason' => 'Creates a new Oxygen Component from a page node (issue #635); every field is new.',

@@ -4,7 +4,7 @@ namespace WPMCP\Tests\Pro\Builders;
 
 use WPMCP\Pro\Gate;
 use WPMCP\Safety\{Rollback_Service, Snapshot_Store};
-use WPMCP\Tools\Builders\{Bricks_Cache, Update_Builder_Content};
+use WPMCP\Tools\Builders\{Bricks_Cache, Get_Builder_Content, Update_Builder_Content};
 
 /**
  * Issue #914: the Bricks page write against the real Bricks theme.
@@ -19,6 +19,11 @@ use WPMCP\Tools\Builders\{Bricks_Cache, Update_Builder_Content};
  * write so Bricks renders it, its external CSS file must be rebuilt by Bricks'
  * own generator, and undo must put back the exact layout, the editor mode and
  * the CSS file.
+ *
+ * Issue #633: element operations against the real theme. An element added
+ * by id is rendered by Bricks and styled in its rebuilt CSS file, a section
+ * template saved from a page is a real Bricks template, and undo restores
+ * both.
  *
  * Everywhere else Bricks is absent and the test is skipped; the live leg runs
  * with --fail-on-skipped so it cannot pass vacuously.
@@ -104,6 +109,42 @@ class BricksLiveTest extends \WP_UnitTestCase
 
         $this->assertTrue(\Bricks\Helpers::render_with_bricks($id));
         $this->assertSame('', $this->css_file($id), 'inline CSS loading keeps no page CSS file');
+    }
+
+    public function test_an_added_element_is_rendered_and_styled_by_bricks_and_undo_removes_it(): void
+    {
+        $id = self::factory()->post->create(['post_type' => 'page', 'post_status' => 'publish']);
+        update_post_meta($id, '_bricks_page_content_2', self::OLD);
+        update_post_meta($id, '_bricks_editor_mode', 'bricks');
+        $read = (new Get_Builder_Content())->handle(['post_id' => $id]);
+        $this->assertSame(BRICKS_VERSION, $read['plugin_version']);
+        $this->assertArrayNotHasKey('version_note', $read);
+
+        $out = (new Update_Builder_Content())->handle([
+            'post_id'       => $id,
+            'builder'       => 'bricks',
+            'operation'     => 'add',
+            'to'            => 'aaaaaa',
+            'element'       => ['name' => 'heading', 'settings' => ['text' => 'Added by id', '_cssId' => 'added-heading', '_typography' => ['color' => ['hex' => '#00ff00']]]],
+            'expected_hash' => $read['hash'],
+        ]);
+        $this->assertIsArray($out, is_wp_error($out) ? $out->get_error_code() . ': ' . $out->get_error_message() : '');
+
+        $html = (string) \Bricks\Frontend::render_data(get_post_meta($id, '_bricks_page_content_2', true));
+        $this->assertStringContainsString('Added by id', $html);
+        $this->assertStringContainsString('Old heading', $html);
+        $this->assertStringContainsString('added-heading', $this->css_file($id));
+
+        $saved = (new Update_Builder_Content())->handle(['post_id' => $id, 'builder' => 'bricks', 'operation' => 'save_template', 'path' => $out['path'], 'element' => ['title' => 'Live template']]);
+        $this->assertIsArray($saved, is_wp_error($saved) ? $saved->get_error_code() . ': ' . $saved->get_error_message() : '');
+        $this->assertContains($saved['template_id'], array_map('intval', (array) \Bricks\Templates::get_templates_by_type('section')));
+
+        Rollback_Service::restore_operation($saved['operation_id']);
+        Rollback_Service::restore_operation($out['operation_id']);
+
+        $this->assertNotSame('publish', get_post_status($saved['template_id']));
+        $this->assertSame(self::OLD, get_post_meta($id, '_bricks_page_content_2', true));
+        $this->assertStringNotContainsString('added-heading', $this->css_file($id));
     }
 
     public function test_a_post_type_bricks_does_not_edit_is_refused(): void
