@@ -273,6 +273,12 @@ return [
         // the ops and count the pack towards availability. The option
         // snapshot it writes is generic and needs no plugin class.
         'src/Integrations/Translation_Settings_Pack.php',
+        // Loco Translate .po files (issue #691), paid-tier, carried onto the
+        // pair by Translation_Settings_Pack; strip.php takes out the line in
+        // Plugin_Data_Integration that names its ops' plugin. The file_write
+        // snapshots it writes are the generic file tools' own.
+        'src/Integrations/Loco_Translate_Pack.php',
+        'src/Integrations/Po_File.php',
         // SureCart store data (issue #665), paid-tier. strip.php takes out
         // its lines in Plugin_Data_Integration; SureCart_Api and
         // SureCart_Snapshot in src/Safety stay for the rollback core.
