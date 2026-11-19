@@ -230,9 +230,12 @@ The connection self-test calls this site's own REST route, `scan-security`
 fetches this site's front page to read its security headers, and the
 analytics abilities call this site's own URL. These are requests to your own
 server. The analytics abilities read data through Google Site Kit's REST
-routes when that plugin is active and already connected; this plugin holds
-no analytics credentials of its own and talks to no analytics provider
-directly.
+routes when that plugin is active and already connected, or from the stats
+plugin the site runs: Independent Analytics, Burst Statistics and WP
+Statistics from their own tables on this site, MonsterInsights and Jetpack
+through their own reporting code, which uses the account that plugin is
+already connected to. This plugin holds no analytics credentials of its own
+and talks to no analytics provider directly.
 
 = WP MCP Cloud (only if a cloud connection was saved elsewhere) =
 
@@ -269,6 +272,10 @@ WP MCP asks before destructive actions: through your MCP client's confirmation p
 = Does this replace my backup plugin? =
 
 No. Snapshots are fine-grained, per-operation undo, not full-site backups. Keep your backup solution.
+
+= Where are site backup archives stored? =
+
+In wp-content/uploads/wpmcp-site-backups by default, behind a deny rule that Apache honours. On nginx and other servers that ignore .htaccess, define WPMCP_BACKUP_DIR in wp-config.php with a folder outside the web root, for example define( 'WPMCP_BACKUP_DIR', '/home/example/wpmcp-backups' ); archives then go to its wpmcp-site-backups subfolder, and archives made earlier are moved there after the next backup. When the folder is under the web root, trigger-backup and get-backup-status request a test file placed in it from this site's own URL (at most once a day) and warn on the Dashboard if the server returns it; get-backup-status reports the folder in use and the last result.
 
 = Which clients work? =
 
