@@ -56,6 +56,10 @@ if (! defined('ABSPATH')) {
  * "links") are keyed by their own id. A create reserves its id before the
  * snapshot, so the restore removes the row the write inserted.
  *
+ * Discount Rules for WooCommerce rules (issue #901, the `wdr_rules` table,
+ * the one suffix "rules") are keyed by their own id the same way; restoring
+ * one takes manage_woocommerce, the plugin's own capability.
+ *
  * Restoring takes the capability the write itself needs: edit_post on each
  * captured post for a Pods row or a MemberPress rule's rows, manage_options
  * for a dictionary row or a Pretty Links link, and Wordfence's own admin capability (manage_options,
@@ -72,6 +76,7 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => 'mepr_rule_access_',
         'rank_math'        => 'rank_math_',
         'prli'             => 'prli_',
+        'wdr'              => 'wdr_',
     ];
 
     /**
@@ -94,6 +99,7 @@ final class Plugin_Table_Rows_Snapshot
         'mepr_rule_access' => [ 'conditions' ],
         'rank_math'        => [ 'redirections' ],
         'prli'             => [ 'links' ],
+        'wdr'              => [ 'rules' ],
     ];
 
     /** kind => its binary columns, carried as lowercase hex in the snapshot and in the key. */
@@ -456,6 +462,12 @@ final class Plugin_Table_Rows_Snapshot
         if ('trp_dictionary' === $kind) {
             if (! current_user_can('manage_options')) {
                 throw new Mutation_Failed('Rollback refused: restoring TranslatePress translations requires the manage_options capability.');
+            }
+            return;
+        }
+        if ('wdr' === $kind) {
+            if (! current_user_can('manage_woocommerce')) {
+                throw new Mutation_Failed('Rollback refused: restoring a Discount Rules rule requires the manage_woocommerce capability.');
             }
             return;
         }
