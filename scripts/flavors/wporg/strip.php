@@ -839,6 +839,31 @@ $edits['src/Skills/library/wpmcp-governance/SKILL.md'] = [
     ],
 ];
 
+// The integrations router (issue #850) points at every area playbook and
+// is listed while a builder read tool is registered. The paid playbooks and
+// that tool are not in this build, so their lines go.
+$edits['src/Skills/library/integrations/SKILL.md'] = [
+    ["  - wpmcp/get-builder-content\n", '', 1],
+    [
+        "- Pages built with Elementor: `wpmcp-elementor-editing`.\n"
+            . "- Pages built with Bricks, Breakdance, Divi, Oxygen, WPBakery, Avada, Beaver Builder: `integrations/page-builders`.\n"
+            . "- Courses in Tutor LMS, LifterLMS or LearnDash: `integrations/lms`.\n"
+            . "- Contacts, lists and campaigns in FluentCRM or MailPoet: `integrations/crm`.\n"
+            . "- Whole-page translation, Weglot and GTranslate: `integrations/page-translation`.\n"
+            . "- TablePress tables: `integrations/tablepress`.\n"
+            . "- Amelia appointments and events: `integrations/bookings`.\n"
+            . "- MemberPress memberships and access rules: `integrations/memberpress`.\n"
+            . "- FunnelKit funnels and checkout steps: `integrations/funnels`.\n",
+        '',
+        1,
+    ],
+    [
+        "Map a plugin request (courses, contacts, translations, events, tables, bookings, memberships, funnels, builders) to its skill",
+        "Map a plugin request (translations, events, memberships) to its skill",
+        1,
+    ],
+];
+
 $edits['src/Skills/library/wpmcp-elementor-editing/SKILL.md'] = [
     [
         "The Elementor tools are pro tier and require Elementor to be active. If they\n",

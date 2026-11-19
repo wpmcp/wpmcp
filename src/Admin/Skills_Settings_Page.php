@@ -103,7 +103,12 @@ class Skills_Settings_Page
                                 echo esc_html(sprintf(
                                     /* translators: %s: comma-separated ability names. */
                                     __('Hidden, requires: %s', 'wpmcp'),
-                                    implode(', ', $skill['missing_abilities'])
+                                    implode(', ', $skill['missing_abilities'] ?? [])
+                                        . (isset($skill['missing_any']) ? ' ' . sprintf(
+                                            /* translators: %s: comma-separated ability or operation names. */
+                                            __('(one of: %s)', 'wpmcp'),
+                                            implode(', ', $skill['missing_any'])
+                                        ) : '')
                                 ));
                             } elseif (! empty($skill['locked'])) {
                                 echo esc_html__('Listed, body needs a Pro licence', 'wpmcp');
