@@ -19,6 +19,11 @@ if (! defined('ABSPATH')) {
  * is reported failed, with the safety archive to restore. Backup_Job_Store
  * marks the stored record failed the same way (issue #860), so
  * list-backup-jobs agrees and the recovery restore is not refused.
+ *
+ * Every answer also carries `storage` (issue #846): the backup folder in
+ * use, whether it came from WPMCP_BACKUP_DIR, whether it is outside the web
+ * root, and the last check that the folder is not downloadable. That check
+ * is refreshed here when it is more than a day old (Backup_Dir_Health).
  */
 class Get_Backup_Status
 {
@@ -29,7 +34,8 @@ class Get_Backup_Status
 
         $live = self::live_restore($job_id, $job);
         if (null !== $live) {
-            return $live;
+            // The database is being replaced: report, never write.
+            return $live + ['storage' => Backup_Dir_Health::report()];
         }
 
         if (null === $job) {
@@ -39,8 +45,26 @@ class Get_Backup_Status
         // A chunked build's step cursor (issue #783) is internal; its
         // progress record says how far the build got.
         unset($job['build']);
+        $job['storage'] = self::storage();
 
         return $job;
+    }
+
+    /**
+     * The folder in use and its last exposure check, refreshed when due.
+     * Only the check runs here; moving archives is left to the backup jobs.
+     */
+    private static function storage(): array
+    {
+        if (Backup_Dir_Health::is_due()) {
+            try {
+                Backup_Dir_Health::self_check();
+            } catch (\Throwable $e) {
+                unset($e);
+            }
+        }
+
+        return Backup_Dir_Health::report();
     }
 
     /** The record of a restore whose import is under way or died, or null. */

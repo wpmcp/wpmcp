@@ -125,6 +125,10 @@ WP MCP asks before destructive actions: through your MCP client's confirmation p
 
 No. Snapshots are fine-grained, per-operation undo, not full-site backups. Keep your backup solution.
 
+= Where are site backup archives stored? =
+
+In wp-content/uploads/wpmcp-site-backups by default, behind a deny rule that Apache honours. On nginx and other servers that ignore .htaccess, define WPMCP_BACKUP_DIR in wp-config.php with a folder outside the web root, for example define( 'WPMCP_BACKUP_DIR', '/home/example/wpmcp-backups' ); archives then go to its wpmcp-site-backups subfolder, and archives made earlier are moved there after the next backup. When the folder is under the web root, trigger-backup and get-backup-status request a test file placed in it from this site's own URL (at most once a day) and warn on the Dashboard if the server returns it; get-backup-status reports the folder in use and the last result.
+
 = Which AI clients work? =
 
 Any MCP client: Claude Code, Claude Desktop, ChatGPT, Cursor, Windsurf, and others. Authentication works via OAuth 2.1 or WordPress application passwords.
