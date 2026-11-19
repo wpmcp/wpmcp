@@ -81,6 +81,16 @@ class Get_Rendered_Html
         return $this->last_pinned_ip;
     }
 
+    /**
+     * The URL a post_id, path or full URL names, after the same site-only
+     * guard this tool applies (issue #703: the Query Monitor page profile
+     * fetches through the same rules). Throws InvalidArgumentException.
+     */
+    public function target(array $args): string
+    {
+        return $this->resolve_target($args);
+    }
+
     public function handle(array $args): array
     {
         $has_chunk  = isset($args['chunk']) && '' !== $args['chunk'];

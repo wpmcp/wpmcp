@@ -78,6 +78,8 @@ use WPMCP\Admin\Handshake_Settings_Page;
 use WPMCP\Admin\Connection_Page;
 use WPMCP\Admin\Announcements;
 use WPMCP\Admin\Snapshot_Retention_Notice;
+use WPMCP\Admin\Backup_Dir_Notice;
+use WPMCP\Admin\New_Tools_Notice;
 use WPMCP\Admin\Pro_Banner;
 use WPMCP\Admin\Ability_Grid_Page;
 use WPMCP\Admin\Memory_Page;
@@ -960,6 +962,12 @@ final class Plugin
             // a deeper history than the flat cap keeps it until the owner
             // decides, and this is the notice that asks.
             Snapshot_Retention_Notice::register();
+            // Backup folder served over the web (issue #846): a Dashboard
+            // warning from the stored self-check, no request on page load.
+            Backup_Dir_Notice::register();
+            // Tools an update added and the state they arrived in (issue
+            // #853), on the Dashboard until an administrator dismisses it.
+            New_Tools_Notice::register();
             // In-admin Pro banner: a dismissible pricing-page link for free
             // installs on the Dashboard, the Plugins list and WP MCP screens
             // (docs/superpowers/specs/2026-11-01-pro-upgrade-banner.md).
@@ -981,6 +989,9 @@ final class Plugin
             // A direct call to a plugin-data tool held back for want of an
             // active plugin names the plugin to activate (issue #876).
             (new \WPMCP\MCP\Hidden_Tool_Refusal())->register();
+            // The page request get-query-monitor-page-profile loads with a
+            // one-time token (issue #703); a no-op on every other request.
+            \WPMCP\Integrations\Query_Monitor_Status::register();
             // Mounts /wp-json/mcp/wpmcp-server, the JSON-RPC endpoint the
             // README and get-connection-info have always advertised. Without
             // it wp_register_ability() gives us abilities but no MCP
@@ -1652,7 +1663,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-media',
             'free',
-            'Read a Media Library attachment: title, URL, every registered size, dimensions, mime type, alt text, caption and description',
+            'Read a Media Library attachment: title, URL, every registered size and missing_sizes, dimensions, mime type, alt text, caption and description',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1764,7 +1775,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/list-media',
             'free',
-            'List Media Library attachments, filtered by type ("image" or a mime like "image/png"), after/before dates and search, paged newest first with total/pages',
+            'List Media Library attachments, filtered by type ("image" or a mime like "image/png"), after/before dates and search, paged newest first with total/pages. missing_sizes:true adds each image\'s ungenerated registered sizes',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -1774,6 +1785,7 @@ final class Plugin
                     'before'   => [ 'type' => 'string' ],
                     'page'     => [ 'type' => 'integer' ],
                     'per_page' => [ 'type' => 'integer' ],
+                    'missing_sizes' => [ 'type' => 'boolean' ],
                 ],
             ],
             [$list_media, 'handle'],
@@ -1802,17 +1814,17 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/resize-media',
             'free',
-            'Regenerate the given registered image sizes of an attachment from its original and report each file (name, dimensions, URL). Snapshot-first with a file backup (undoable)',
+            'Regenerate the given registered image sizes of an attachment from its original and report each file (name, dimensions, URL). Omit sizes to fill the missing ones; media_ids: up to 20 attachments. Snapshot-first with a file backup (undoable)',
             [
                 'type'       => 'object',
                 'properties' => [
                     'media_id'   => [ 'type' => 'integer' ],
+                    'media_ids'  => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
                     'sizes'      => [ 'type' => 'array', 'items' => [ 'type' => 'string' ] ],
                     'session_id' => [ 'type' => 'string' ],
                     // Resize even when some files could not be backed up.
                     'allow_unrecoverable_files' => [ 'type' => 'boolean' ],
                 ],
-                'required'   => [ 'media_id', 'sizes' ],
             ],
             [$resize_media, 'handle'],
             'edit_posts',
@@ -2121,15 +2133,17 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/moderate-comment',
             'free',
-            'Set a comment\'s status: approve, unapprove, spam, not_spam (Akismet learns), trash or untrash. Reversible',
+            'Set a comment\'s status: approve, unapprove, spam, not_spam (Akismet learns), trash, untrash, or recheck (Akismet rechecks pending; confirm:true). ids[] for up to 100. Reversible',
             [
                 'type'       => 'object',
                 'properties' => [
                     'id'         => [ 'type' => 'integer' ],
+                    'ids'        => [ 'type' => 'array', 'items' => [ 'type' => 'integer' ] ],
                     'status'     => [ 'type' => 'string' ],
+                    'confirm'    => [ 'type' => 'boolean' ],
                     'session_id' => [ 'type' => 'string' ],
                 ],
-                'required'   => [ 'id', 'status' ],
+                'required'   => [ 'status' ],
             ],
             [$moderate_comment, 'handle'],
             'moderate_comments',
@@ -2788,7 +2802,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/scan-security',
             'free',
-            'Scan this site for malware (deep=true: whole tree), core file integrity, hardening gaps, outdated software and known vulnerabilities (vulnerabilities=true; sends slugs and versions to wpvulnerability.net). Returns a 0-100 score, A-F grade and ranked fixes',
+            'Scan this site for malware (deep=true: whole tree), core file integrity, hardening gaps, outdated software and known vulnerabilities (vulnerabilities=true; sends slugs and versions to wpvulnerability.net); checks:[compromise] looks for hack traces. Returns a 0-100 score, A-F grade and ranked fixes',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -2796,7 +2810,7 @@ final class Plugin
                         'type'  => 'array',
                         'items' => [
                             'type' => 'string',
-                            'enum' => ['malware', 'integrity', 'hardening', 'software'],
+                            'enum' => ['malware', 'integrity', 'hardening', 'software', 'compromise'],
                         ],
                     ],
                     'deep'            => [ 'type' => 'boolean' ],
@@ -2819,7 +2833,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/incident-response',
             'free',
-            'list-app-passwords (no secrets); revoke-app-password (uuid or all); end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files (files scan-security flags, from the checksum-verified official package, never wp-content; undo: rollback-operation); quarantine-file (path, reason: moves it to a private folder; not core, wp-config or WP MCP files; undo: rollback-operation); list-quarantine; restore-quarantined-file (id, overwrite); purge-quarantined-file (id). Quarantine needs the wpmcp_enable_fs_writes opt-in. Writes need confirm:true. Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords). Your session and app password stay unless include_current. Other users take edit_users',
+            'list-app-passwords (no secrets); revoke-app-password (uuid or all); list-sessions (one user, masked, no tokens); end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files (files scan-security flags, from the checksum-verified official package, never wp-content; undo: rollback-operation); quarantine-file (path, reason: moves it to a private folder; not core, wp-config or WP MCP files; undo: rollback-operation); list-quarantine; restore-quarantined-file (id, overwrite); purge-quarantined-file (id). Quarantine needs the wpmcp_enable_fs_writes opt-in. Writes need confirm:true. Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords). Your session and app password stay unless include_current. Other users take edit_users',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -3704,8 +3718,9 @@ final class Plugin
     }
 
     /**
-     * Block suite packs (issue #287): Kadence Blocks, GenerateBlocks,
-     * Spectra, Otter Blocks and the Blocksy companion blocks, plus pattern
+     * Block suite packs (issues #287, #649): Kadence Blocks, GenerateBlocks,
+     * Spectra, Otter Blocks, the Blocksy companion blocks, Stackable and
+     * Ultimate Blocks, plus pattern
      * import, behind one pro dispatcher pair that registers only while a supported
      * suite is loaded. Its own method so the WordPress.org directory build
      * drops it by name, with the pack's files.
@@ -5787,7 +5802,7 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/update-governance-settings',
             'free',
-            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}}. Undoable; refuses unknown names and disabling the governance or undo tools. site_wide audits ability calls outside MCP; enforce also refuses abilities toggled off by name',
+            'Batch-update stored governance toggles by ability, domain and operation, e.g. {ability: {"wpmcp/delete-post": false}, domain: {"database": false}}. Undoable; refuses unknown names and disabling the governance or undo tools. site_wide audits ability calls outside MCP; enforce also refuses abilities toggled off by name. auto_enable_new_tools: updates switch their new safe tools on',
             [
                 'type'       => 'object',
                 'properties' => [
@@ -5795,6 +5810,7 @@ final class Plugin
                     'domain'    => [ 'type' => 'object' ],
                     'operation' => [ 'type' => 'object' ],
                     'site_wide' => [ 'type' => 'string', 'enum' => [ 'off', 'audit', 'enforce' ] ],
+                    'auto_enable_new_tools' => [ 'type' => 'boolean' ],
                 ],
             ],
             [$update_governance_settings, 'handle'],
@@ -5986,6 +6002,20 @@ final class Plugin
     }
 
     /**
+     * The `source` argument of get-analytics-summary and get-top-pages
+     * (issue #699): Site Kit or one of the stats plugins.
+     *
+     * @return array<string,mixed>
+     */
+    private static function analytics_source_schema(): array
+    {
+        return [
+            'type' => 'string',
+            'enum' => [ 'site-kit', 'independent-analytics', 'burst', 'wp-statistics', 'monsterinsights', 'jetpack' ],
+        ];
+    }
+
+    /**
      * Register the analytics/Search Console reporting tools as free-tier
      * abilities (issue #49).
      *
@@ -6053,12 +6083,13 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-analytics-summary',
             'free',
-            'Read-only sessions/users/pageviews summary over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider. Errors when no provider is connected',
+            'Read-only sessions/users/pageviews summary over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider, or the stats plugin named in source (default: first active). Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
                     'start_date' => [ 'type' => 'string' ],
                     'end_date'   => [ 'type' => 'string' ],
+                    'source'     => self::analytics_source_schema(),
                 ],
             ],
             [$get_analytics_summary, 'handle'],
@@ -6070,13 +6101,14 @@ final class Plugin
         $registrar->register(new Ability(
             'wpmcp/get-top-pages',
             'free',
-            'Read-only list of top pages by pageviews over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider; limit default 10, max 100. Errors when no provider is connected',
+            'Read-only list of top pages by pageviews over a date range (Y-m-d; default the 28 days ending yesterday) from the connected analytics provider or the stats plugin named in source; limit default 10, max 100. Errors when no provider is connected',
             [
                 'type'       => 'object',
                 'properties' => [
                     'start_date' => [ 'type' => 'string' ],
                     'end_date'   => [ 'type' => 'string' ],
                     'limit'      => [ 'type' => 'integer' ],
+                    'source'     => self::analytics_source_schema(),
                 ],
             ],
             [$get_top_pages, 'handle'],

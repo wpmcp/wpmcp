@@ -103,6 +103,9 @@ class DataRegistryGuardTest extends \WP_UnitTestCase
             // Relevanssi's own settings, one option per name, changed by
             // update-relevanssi-settings on the theme pair (issue #700).
             'relevanssi_*',
+            // Checkout Field Editor's checkout sections, whose fields the
+            // update-checkout-fields op changes (issue #660).
+            'wc_fields_*',
         ],
         'transient'      => [
             'scrape_key_*',

@@ -4,6 +4,7 @@ namespace WPMCP\Tools\Security;
 
 use WPMCP\Governance\Governance_Audit_Log;
 use WPMCP\MCP\Confirmation_Required;
+use WPMCP\Privacy\Masking;
 
 if (! defined('ABSPATH')) {
     exit;
@@ -17,6 +18,9 @@ if (! defined('ABSPATH')) {
  *  - list-app-passwords: a user's application passwords, never the hashes;
  *    the last IP is anonymized with wp_privacy_anonymize_ip().
  *  - revoke-app-password: one (uuid) or all (all:true).
+ *  - list-sessions: one user's login sessions (issue #715): login and
+ *    expiry times, the IP anonymized, the user agent masked, which one is
+ *    the caller's own; never the session token or its hash.
  *  - end-sessions: every login session of one user, or of all users.
  *  - rotate-salts: Salt_Rotator.
  *  - reinstall-core-files: Core_File_Repair.
@@ -45,6 +49,7 @@ class Incident_Response
     public const ACTIONS = [
         'list-app-passwords',
         'revoke-app-password',
+        'list-sessions',
         'end-sessions',
         'rotate-salts',
         'reinstall-core-files',
@@ -74,6 +79,9 @@ class Incident_Response
 
         if ('list-app-passwords' === $action) {
             return $this->list_app_passwords($args);
+        }
+        if ('list-sessions' === $action) {
+            return $this->list_sessions($args);
         }
         if ('list-quarantine' === $action) {
             $result = $this->quarantine()->list();
@@ -206,6 +214,55 @@ class Incident_Response
     // -----------------------------------------------------------------
     // sessions
     // -----------------------------------------------------------------
+
+    /**
+     * One user's login sessions, newest login first. Each row is masked the
+     * way every list is (src/Privacy/Masking.php): the IP anonymized like the
+     * application password listing, the user agent cut to its first
+     * character. The session token and its verifier hash never leave.
+     */
+    private function list_sessions(array $args): array
+    {
+        $user_id = $this->target_user($args);
+        if (! $this->may_manage($user_id)) {
+            throw new \RuntimeException('You cannot list this user\'s sessions (another user\'s take edit_users).');
+        }
+
+        $manager = \WP_Session_Tokens::get_instance($user_id);
+        $token   = get_current_user_id() === $user_id ? wp_get_session_token() : '';
+        $current = '' !== $token ? $manager->get($token) : null;
+        $marked  = false;
+        $rows    = [];
+        foreach ($manager->get_all() as $session) {
+            if (! is_array($session)) {
+                continue;
+            }
+            $is_current = false;
+            if (! $marked && is_array($current) && $session == $current) { // phpcs:ignore Universal.Operators.StrictComparisons.LooseEqual -- array equality is the intent
+                $is_current = true;
+                $marked     = true;
+            }
+            $ip     = (string) ($session['ip'] ?? '');
+            $ua     = (string) ($session['ua'] ?? '');
+            $rows[] = [
+                'login'      => (int) ($session['login'] ?? 0),
+                'expiration' => (int) ($session['expiration'] ?? 0),
+                'ip'         => '' === $ip ? null : wp_privacy_anonymize_ip($ip),
+                'user_agent' => '' === $ua ? null : Masking::value($ua),
+                'current'    => $is_current,
+            ];
+        }
+        usort($rows, static fn (array $a, array $b): int => $b['login'] <=> $a['login']);
+
+        Governance_Audit_Log::record_quietly(self::ABILITY, true, sprintf('list-sessions:user=%d', $user_id));
+
+        return [
+            'user_id'  => $user_id,
+            'sessions' => $rows,
+            'count'    => count($rows),
+            'masked'   => true,
+        ];
+    }
 
     private function end_sessions(array $args): array
     {

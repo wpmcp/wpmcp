@@ -83,6 +83,14 @@ final class Data_Registry
     ];
 
     /**
+     * Defined in wp-config.php (issue #846): the folder that holds
+     * wpmcp-site-backups instead of uploads, with other network sites under
+     * sites/<blog id>/ (Site_Backup_Dir::CONSTANT). Uninstall removes the
+     * wpmcp-site-backups folder there too.
+     */
+    public const BACKUP_DIR_CONSTANT = 'WPMCP_BACKUP_DIR';
+
+    /**
      * Directories directly under wp-content, shared by every site of a
      * network: the restore staging directory (Restore_Files) and compiled
      * widget classes (Compiled_Widget_Manifest).
