@@ -62,6 +62,55 @@ class ProRefusalTest extends \WP_UnitTestCase
         });
     }
 
+    /**
+     * A direct HTTP tools/call of a Pro tool on an unlicensed install is
+     * answered with the pro_required refusal and its upgrade link, not the
+     * adapter's "Tool not found", and goes out as HTTP 200: a Streamable
+     * HTTP client reads a 404 on POST as an expired session.
+     */
+    public function test_http_answers_a_declared_pro_tool_with_the_pro_refusal_and_status_200(): void
+    {
+        $this->with_a_declared_pro_tool(function (Registrar $registrar): void {
+            $call = [ 'jsonrpc' => '2.0', 'id' => 4, 'method' => 'tools/call', 'params' => [ 'name' => 'wpmcp-test-pro-only', 'arguments' => [] ] ];
+            $miss = [ 'jsonrpc' => '2.0', 'id' => 4, 'error' => [ 'code' => -32003, 'message' => 'Tool not found: wpmcp-test-pro-only' ] ];
+
+            $request = new \WP_REST_Request('POST', '/mcp/wpmcp-server');
+            $request->set_header('content-type', 'application/json');
+            $request->set_body((string) wp_json_encode($call));
+            $response = (new \WPMCP\MCP\Hidden_Tool_Refusal())->filter_response(new \WP_REST_Response($miss, 404), null, $request);
+            $out      = $response->get_data();
+
+            $this->assertSame(200, $response->get_status());
+            $this->assertArrayNotHasKey('error', $out);
+            $this->assertTrue($out['result']['isError']);
+            $this->assertSame('pro_required', $out['result']['structuredContent']['error']['code']);
+            $this->assertSame($registrar->pro_required('wpmcp/test-pro-only')->get_error_message(), $out['result']['content'][0]['text']);
+            $this->assertStringContainsString('utm_medium=tool-refusal', $out['result']['content'][0]['text']);
+
+            // A name that is no tool at all keeps the adapter's answer and status.
+            $call['params']['name'] = 'wpmcp-no-such-tool';
+            $request->set_body((string) wp_json_encode($call));
+            $kept = (new \WPMCP\MCP\Hidden_Tool_Refusal())->filter_response(new \WP_REST_Response($miss, 404), null, $request);
+            $this->assertSame($miss, $kept->get_data());
+            $this->assertSame(404, $kept->get_status());
+        });
+    }
+
+    public function test_the_elementor_dialect_refusal_of_build_page_carries_the_upgrade_link(): void
+    {
+        Gate::set_pro_for_tests(false);
+        try {
+            (new \WPMCP\Tools\Compose\Build_Page())->handle([
+                'spec' => [ 'title' => 'X', 'dialect' => 'elementor', 'content' => [ [ 'type' => 'container', 'children' => [ [ 'type' => 'widget', 'settings' => [ 'widget' => 'heading' ] ] ] ] ] ],
+            ]);
+            $this->fail('the elementor dialect ran without a licence');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('needs an active WP MCP Pro license', $e->getMessage());
+            $this->assertStringContainsString(Pro_Refusal::upgrade_sentence(), $e->getMessage());
+            $this->assertStringContainsString('utm_medium=tool-refusal', $e->getMessage());
+        }
+    }
+
     public function test_stdio_answers_a_declared_pro_tool_with_the_pro_refusal_not_unknown_tool(): void
     {
         $this->with_a_declared_pro_tool(function (Registrar $registrar): void {

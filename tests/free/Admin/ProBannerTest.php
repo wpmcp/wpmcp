@@ -206,6 +206,41 @@ class ProBannerTest extends \WP_UnitTestCase
         $this->assertStringNotContainsString('utm_medium=admin-banner', $refusal['url']);
     }
 
+    /** utm_content names the build the click came from, so a flavor's upgrades can be counted apart. */
+    public function test_the_offer_names_the_build_flavor(): void
+    {
+        $this->assertStringContainsString('utm_content=full', Pro_Banner::offer()['url']);
+
+        \WPMCP\Plugin::set_flavor_for_tests('elementor');
+        try {
+            $this->assertStringContainsString('utm_content=elementor', Pro_Banner::offer()['url']);
+            $this->assertStringContainsString('utm_content=elementor', Pro_Banner::offer('tool-refusal')['url']);
+        } finally {
+            \WPMCP\Plugin::set_flavor_for_tests(null);
+        }
+    }
+
+    /** The Elementor flavor's handshake line says what Pro adds; other builds and licensed installs add nothing. */
+    public function test_the_handshake_upgrade_line_is_for_the_unlicensed_elementor_flavor_only(): void
+    {
+        $this->assertSame('', Pro_Banner::handshake_line(''));
+
+        \WPMCP\Plugin::set_flavor_for_tests('elementor');
+        try {
+            \WPMCP\Pro\Gate::set_pro_for_tests(false);
+            $line = Pro_Banner::handshake_line('');
+            $this->assertStringContainsString('Safe MCP for Elementor', $line);
+            $this->assertStringContainsString('WP MCP Pro', $line);
+            $this->assertStringContainsString('upgrade link', $line);
+
+            \WPMCP\Pro\Gate::set_pro_for_tests(true);
+            $this->assertSame('', Pro_Banner::handshake_line(''));
+        } finally {
+            \WPMCP\Pro\Gate::set_pro_for_tests(null);
+            \WPMCP\Plugin::set_flavor_for_tests(null);
+        }
+    }
+
     public function test_the_offer_is_filterable_and_sanitized(): void
     {
         add_filter('wpmcp_pro_banner_offer', static fn (array $offer): array => [

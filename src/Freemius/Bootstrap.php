@@ -53,7 +53,12 @@ class Bootstrap
             'type'                => 'plugin',
             'public_key'          => WPMCP_FS_PUBLIC_KEY,
             'is_premium'          => false,
-            'has_premium_version' => true,
+            // false only in a build that upgrades in place (see
+            // upgrades_in_place()): the SDK then treats the installed folder
+            // as the whole product, so it adds the "Activate License" link,
+            // never tells a buyer to download and upload another zip, and
+            // never instantiates its updater for this folder.
+            'has_premium_version' => ! self::upgrades_in_place(),
             'premium_slug'        => 'wpmcp-pro',
             'has_addons'          => false,
             'has_paid_plans'      => true,
@@ -98,6 +103,25 @@ class Bootstrap
                 'override_exact' => true,
             ],
         ];
+    }
+
+    /**
+     * The vertical builds that carry the licensing SDK and unlock WP MCP Pro
+     * inside their own folder (Safe MCP for Elementor). They are not the
+     * zip deployed to the licensing SDK's server, so that server's package
+     * must never be offered as their update or as a download to install.
+     */
+    private const IN_PLACE_FLAVORS = ['elementor'];
+
+    /**
+     * Whether this build upgrades in place: its main file defines a
+     * WPMCP_FLAVOR listed in IN_PLACE_FLAVORS. Read from the constant, not
+     * Plugin::flavor(), because scripts/lib/inline-fs-config.php evaluates
+     * config() with only this file loaded.
+     */
+    public static function upgrades_in_place(): bool
+    {
+        return defined('WPMCP_FLAVOR') && in_array(WPMCP_FLAVOR, self::IN_PLACE_FLAVORS, true);
     }
 
     /**
@@ -156,6 +180,48 @@ class Bootstrap
         return function_exists('wpmcp_fs') ? wpmcp_fs() : null;
     }
 
+    /**
+     * Point the licensing SDK's cached main file for this product at the
+     * build that is booting.
+     *
+     * The SDK caches one main file per product id (fs_accounts:
+     * id_slug_type_path_map[id].path, and the plugin_main_file entry of the
+     * product's storage) and keeps it for as long as that file exists. Every
+     * WP MCP build that carries the SDK (the full plugin, Safe MCP for
+     * Elementor) is the same product, so once one of them ran, the other
+     * inherited its file: its row links landed on the wrong plugin, its
+     * activation, deactivation and uninstall hooks were registered for the
+     * other file, and its premium basename was computed from the other
+     * file's name, which also hid a wpmcp-pro/ install from the SDK's
+     * updater. Only one build boots per request (src/flavor-guard.php), so
+     * the one that boots claims the cache. A no-op when the cache already
+     * names this file; inert when the SDK's classes are not loaded.
+     */
+    private static function claim_main_file(): void
+    {
+        $sdk_ready = defined('WPMCP_FILE') && defined('WP_FS__ACCOUNTS_OPTION_NAME')
+            && class_exists('FS_Options') && class_exists('FS_Storage');
+        if (! $sdk_ready) {
+            return;
+        }
+
+        $mine = plugin_basename(WPMCP_FILE);
+
+        $accounts = \FS_Options::instance(WP_FS__ACCOUNTS_OPTION_NAME, true);
+        $map      = $accounts->get_option('id_slug_type_path_map', []);
+        if (is_array($map) && isset($map[ WPMCP_FS_ID ]['path']) && $map[ WPMCP_FS_ID ]['path'] !== $mine) {
+            $map[ WPMCP_FS_ID ]['path'] = $mine;
+            $accounts->set_option('id_slug_type_path_map', $map, true);
+        }
+
+        $storage = \FS_Storage::instance('plugin', (string) self::config()['slug']);
+        $main    = $storage->plugin_main_file;
+        if (is_object($main) && ! empty($main->path) && $main->path !== $mine) {
+            $main->path                = $mine;
+            $storage->plugin_main_file = $main;
+        }
+    }
+
     public static function init(): void
     {
         // Exactly once: the global accessor existing means the SDK is live.
@@ -196,6 +262,10 @@ class Bootstrap
         // Before the instance exists: a staging copy resolves as a temporary
         // duplicate and keeps Pro without using a licence site.
         Staging_Copy::boot();
+
+        // Before the instance exists: the SDK must bind to THIS build's main
+        // file, not to a sibling build that ran on an earlier request.
+        self::claim_main_file();
 
         wpmcp_fs();
 

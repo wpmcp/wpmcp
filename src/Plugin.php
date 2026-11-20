@@ -473,7 +473,96 @@ final class Plugin
             'structure', 'taxonomy', 'export', 'backup', 'migration', 'analysis',
             'connect', 'governance', 'skills', 'gateway',
         ],
+        // Safe MCP for Elementor (scripts/build-elementor-release.sh): the
+        // WooCommerce flavor's safety core with Elementor in place of the
+        // store tools, and without migration. The elementor and
+        // widget_builder groups register their Pro tools too, so a direct
+        // call is answered with the upgrade link (Registrar::pro_required).
+        // This build ships the whole tree with the licensing SDK, so with a
+        // paid licence it lifts this list (FLAVOR_GROUPS_LIFT_WITH_PRO).
+        'elementor' => [
+            'compose', 'elementor', 'widget_builder', 'menu', 'seo', 'linking',
+            'redirects', 'meta', 'diagnostics', 'cron', 'maintenance', 'context',
+            'block', 'structure', 'taxonomy', 'export', 'backup', 'analysis',
+            'connect', 'governance', 'skills', 'gateway',
+        ],
     ];
+
+    /**
+     * Flavors whose FLAVOR_GROUPS list applies only until a WP MCP Pro
+     * licence is active: they ship the full tree and the licensing SDK, so
+     * a licence turns them into the full plugin in place, with no second zip
+     * to install. A flavor not listed here (the WooCommerce one) is pruned
+     * at build time and keeps its list for good.
+     */
+    private const FLAVOR_GROUPS_LIFT_WITH_PRO = ['elementor'];
+
+    /**
+     * Per-flavor tier changes, applied to every ability as it is declared
+     * (Registrar::register(), through flavor_tier()), so registration,
+     * execution, the ability grid and every catalog agree.
+     *
+     *  - 'free': Pro abilities this flavor gives away. Safe MCP for
+     *    Elementor's free set is reading Elementor pages and editing the
+     *    elements already on them, each write snapshotted (owner decision,
+     *    21 Nov 2026, scope B). Adding, removing, moving, reordering and
+     *    duplicating elements, atomic elements, templates, theme builder,
+     *    popups, kit and global writes, brand kits, custom CSS and code, the
+     *    widget builder and the add-on packs stay Pro.
+     *  - 'pro_domains': domains whose free abilities this flavor keeps for
+     *    WP MCP Pro, except the names in 'keep_free'. They register in the
+     *    unconditional prologue of register_abilities_into(), so the group
+     *    list cannot drop them: file access and raw SQL, the cut the
+     *    WooCommerce flavor makes at build time (its manifest), with the
+     *    read-only schema tools kept the same way. Named by domain because
+     *    that build's gate refuses any shipped file that names an ability
+     *    it strips (scripts/flavors/woocommerce/assert-narrowed.php).
+     *
+     * The main plugin's tiers are unchanged: only the flavor named here
+     * reads its entry.
+     */
+    private const FLAVOR_TIERS = [
+        'elementor' => [
+            'free'        => [
+                'wpmcp/get-elementor-data',
+                'wpmcp/find-element',
+                'wpmcp/export-page',
+                'wpmcp/detect-elementor-version',
+                'wpmcp/list-dynamic-tags',
+                'wpmcp/update-element',
+                'wpmcp/update-widget',
+                'wpmcp/set-element-label',
+                'wpmcp/update-container',
+                'wpmcp/update-page-settings',
+                'wpmcp/batch-update',
+            ],
+            'pro_domains' => [ 'filesystem', 'database' ],
+            'keep_free'   => [ 'wpmcp/list-tables', 'wpmcp/describe-table' ],
+        ],
+    ];
+
+    /**
+     * The tier an ability has in this build: its declared tier, unless this
+     * flavor's FLAVOR_TIERS entry moves it.
+     */
+    public static function flavor_tier(Ability $ability): string
+    {
+        $moves = self::FLAVOR_TIERS[ self::flavor() ] ?? null;
+        if (null === $moves) {
+            return $ability->tier;
+        }
+        if ('pro' === $ability->tier && in_array($ability->name, $moves['free'] ?? [], true)) {
+            return 'free';
+        }
+        if (
+            'free' === $ability->tier
+            && in_array($ability->domain, $moves['pro_domains'] ?? [], true)
+            && ! in_array($ability->name, $moves['keep_free'] ?? [], true)
+        ) {
+            return 'pro';
+        }
+        return $ability->tier;
+    }
 
     /**
      * Listeners on wpmcp_rollback_options_restored, which every option and
@@ -576,7 +665,11 @@ final class Plugin
 
     private function group_enabled(string $group): bool
     {
-        $allowed = self::FLAVOR_GROUPS[ self::flavor() ] ?? null;
+        $flavor  = self::flavor();
+        $allowed = self::FLAVOR_GROUPS[ $flavor ] ?? null;
+        if (null !== $allowed && in_array($flavor, self::FLAVOR_GROUPS_LIFT_WITH_PRO, true) && Registrar::tier_permitted('pro')) {
+            $allowed = null;
+        }
         return null === $allowed || in_array($group, $allowed, true);
     }
 

@@ -279,7 +279,7 @@ next_steps() {
 	cat <<EOF
 [release] Left to do by hand (secrets stay on this Mac):
   1. Build: scripts/build-release.sh, scripts/build-woo-release.sh, scripts/build-wporg-release.sh,
-     then scripts/release-assets.sh stage $VER (copies dist/wpmcp.zip and
+     scripts/build-elementor-release.sh, then scripts/release-assets.sh stage $VER (copies dist/wpmcp.zip and
      dist/safe-mcp-for-woocommerce.zip, checks every zip, prints the upload list).
   2. Freemius: deploy dist/wpmcp-$VER.zip with the freemius-deploy-local.sh pattern, then mark it released.
   3. Publish the GitHub release v$VER (after Freemius has the version) with every file
@@ -287,6 +287,10 @@ next_steps() {
   4. scripts/release-assets.sh verify v$VER (fails if wpmcp.zip or
      safe-mcp-for-woocommerce.zip is missing, which breaks the README download link).
   5. MCP registry: bump server.json to $VER, mcp-publisher login and publish.
+  6. Safe MCP for Elementor mirror: publish release v$VER on wpmcp/wordpress-mcp-for-elementor
+     with dist/safe-mcp-for-elementor-$VER.zip and dist/safe-mcp-for-elementor.zip, and push
+     scripts/flavors/elementor/README.md there. Never deploy that zip to Freemius: the
+     licensing server serves the full plugin only.
 EOF
 }
 

@@ -2,6 +2,7 @@
 
 namespace WPMCP\Admin;
 
+use WPMCP\Plugin;
 use WPMCP\Pro\Gate;
 
 if (! defined('ABSPATH')) {
@@ -77,6 +78,7 @@ class Pro_Banner
         $instance = new self();
         add_action('admin_notices', [$instance, 'render']);
         Management_Access::add_handler('admin_post_' . self::DISMISS_ACTION, [$instance, 'handle_dismiss']);
+        add_filter('wpmcp_handshake_upgrade_line', [self::class, 'handshake_line']);
 
         return $instance;
     }
@@ -139,10 +141,38 @@ class Pro_Banner
                     'utm_source'   => 'plugin',
                     'utm_medium'   => $medium,
                     'utm_campaign' => 'pro-banner',
+                    // Which build the click came from (full, elementor, ...),
+                    // so a flavor's upgrades can be told apart.
+                    'utm_content'  => (string) preg_replace('/[^a-z0-9_-]/', '', Plugin::flavor()),
                 ],
                 $base
             ),
         ];
+    }
+
+    /**
+     * The handshake's upgrade line (filter wpmcp_handshake_upgrade_line, read
+     * by MCP\Handshake_Instructions::build()): on an unlicensed Safe MCP for
+     * Elementor install it tells the connecting agent what the free build
+     * does, what WP MCP Pro adds, and that a Pro tool answers with an upgrade
+     * link to pass on, so the agent can say so instead of guessing. Other
+     * builds and licensed installs keep whatever the filter already holds.
+     *
+     * @param mixed $line
+     */
+    public static function handshake_line($line): string
+    {
+        $line = is_string($line) ? $line : '';
+        if ('elementor' !== Plugin::flavor() || Gate::is_pro()) {
+            return $line;
+        }
+
+        return 'This site runs Safe MCP for Elementor: read Elementor pages and edit the elements already on them'
+            . ' (update-element, update-widget, update-container, update-page-settings, batch-update), each write'
+            . ' snapshotted. Adding, removing, moving or duplicating elements, build-page with the elementor dialect,'
+            . ' templates, theme builder, popups, global styles and classes, custom CSS and the widget builder come'
+            . ' with WP MCP Pro: calling one of those tools returns an upgrade link, so relay it to the user rather'
+            . ' than working around it.';
     }
 
     /**
@@ -255,6 +285,15 @@ class Pro_Banner
                 .wpmcp-pro-banner__actions code { padding: 2px 6px; }
             </style>
             <p class="wpmcp-pro-banner__eyebrow"><?php esc_html_e('WP MCP Pro', 'wpmcp'); ?></p>
+            <?php if ('elementor' === Plugin::flavor()) : ?>
+            <h2><?php esc_html_e('Let your AI agent build Elementor layouts, not just edit them.', 'wpmcp'); ?></h2>
+            <ul>
+                <li><?php esc_html_e('Add, move, duplicate and remove elements and widgets', 'wpmcp'); ?></li>
+                <li><?php esc_html_e('Whole pages, templates, theme builder and popups', 'wpmcp'); ?></li>
+                <li><?php esc_html_e('Global colors, fonts, classes and custom CSS', 'wpmcp'); ?></li>
+                <li><?php esc_html_e('Unlimited snapshot history and the full WP MCP toolset', 'wpmcp'); ?></li>
+            </ul>
+            <?php else : ?>
             <h2><?php esc_html_e('Pro keeps every snapshot, and builds Elementor pages too.', 'wpmcp'); ?></h2>
             <ul>
                 <li><?php esc_html_e('Unlimited snapshot history and session restore', 'wpmcp'); ?></li>
@@ -262,6 +301,7 @@ class Pro_Banner
                 <li><?php esc_html_e('Custom widget and block builders, forms adapter pack', 'wpmcp'); ?></li>
                 <li><?php esc_html_e('WP MCP Cloud sync and priority support', 'wpmcp'); ?></li>
             </ul>
+            <?php endif; ?>
             <p class="wpmcp-pro-banner__actions">
                 <a class="button button-primary" href="<?php echo esc_url($offer['url']); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e('See Pro pricing', 'wpmcp'); ?></a>
                 <span>

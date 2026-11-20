@@ -168,6 +168,39 @@ class UninstallDataTest extends \WP_UnitTestCase
         }
     }
 
+    /**
+     * Deleting one WP MCP build while another is installed (the Elementor
+     * flavor next to the full plugin, say) must leave the stores and the
+     * cron events the build that stays depends on, even with the
+     * delete-all-data setting on: they share every one of them.
+     */
+    public function test_with_another_build_installed_uninstall_is_a_no_op(): void
+    {
+        $dir  = WP_PLUGIN_DIR . '/wpmcp-sibling-' . wp_generate_password(6, false, false);
+        $main = $dir . '/safe-mcp-for-elementor.php';
+        wp_mkdir_p($dir);
+        file_put_contents($main, "<?php\n/**\n * Plugin Name: sibling fixture\n * WPMCP Flavor: elementor\n */\n");
+        wp_clean_plugins_cache(false);
+
+        try {
+            $this->seed();
+            Data_Registry::set_delete_on_uninstall(true);
+            wp_schedule_event(time() + 600, 'daily', 'wpmcp_run_backup_schedule', [ 'database' ]);
+
+            Uninstaller::uninstall();
+
+            $this->assertSame('kept', get_option('wpmcp_test_store'), 'A sibling build lost its data.');
+            $this->assertTrue((bool) get_site_option(Data_Registry::SETTING, false));
+            $this->assertIsInt(wp_next_scheduled('wpmcp_run_backup_schedule', [ 'database' ]), 'A sibling build lost its cron event.');
+            $this->assertFileExists($this->site_uploads() . '/wpmcp-site-backups/archive.zip');
+        } finally {
+            wp_clear_scheduled_hook('wpmcp_run_backup_schedule', [ 'database' ]);
+            @unlink($main);
+            @rmdir($dir);
+            wp_clean_plugins_cache(false);
+        }
+    }
+
     public function test_uninstall_leaves_everything_else_alone(): void
     {
         $this->seed();

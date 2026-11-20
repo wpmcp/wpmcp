@@ -26,6 +26,7 @@ release_asset_table() {
 wpmcp|wpmcp/wpmcp.php|self-hosted|wpmcp.zip|the WP MCP plugin. Free to use; upload it under Plugins > Add New > Upload Plugin. Pro unlocks in the same plugin when you add a licence.
 safe-mcp-for-woocommerce|safe-mcp-for-woocommerce/safe-mcp-for-woocommerce.php|wporg|safe-mcp-for-woocommerce.zip|Safe MCP for WooCommerce, store tools and the safety core only.
 wpmcp-directory|wpmcp/wpmcp.php|wporg|-|the wordpress.org directory edition, without the licensing SDK or Pro features.
+safe-mcp-for-elementor|safe-mcp-for-elementor/safe-mcp-for-elementor.php|self-hosted|safe-mcp-for-elementor.zip|Safe MCP for Elementor, Elementor reads and edits of existing elements plus the safety core; a WP MCP Pro licence unlocks everything in the same plugin. Needs Elementor.
 TABLE
 }
 

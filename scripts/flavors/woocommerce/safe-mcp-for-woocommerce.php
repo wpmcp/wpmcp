@@ -29,8 +29,17 @@ if ( wpmcp_flavor_should_defer( __FILE__, 'woocommerce', defined( 'WPMCP_VERSION
 	// No translation loader here (issue #1147): WordPress.org loads this
 	// slug's language packs just in time for the notice below.
 	add_action( 'admin_notices', function () {
+		// A vertical that took the request defines WPMCP_FLAVOR; the full and
+		// directory builds rank higher and carry every tool this one has. A
+		// vertical of the same rank (Safe MCP for Elementor) does not, so
+		// that case says only one of the two can run.
+		$tie = defined( 'WPMCP_FLAVOR' ) && wpmcp_flavor_rank( (string) WPMCP_FLAVOR ) === wpmcp_flavor_rank( 'woocommerce' );
 		echo '<div class="notice notice-warning"><p>';
-		echo esc_html__( 'Safe MCP for WooCommerce is inactive because another WP MCP build that already includes all of its tools is active on this site.', 'safe-mcp-for-woocommerce' );
+		echo esc_html(
+			$tie
+				? __( 'Safe MCP for WooCommerce is inactive because another WP MCP build is active on this site, and only one can run at a time. They share settings and history, so deactivate the one you do not need.', 'safe-mcp-for-woocommerce' )
+				: __( 'Safe MCP for WooCommerce is inactive because another WP MCP build that already includes all of its tools is active on this site.', 'safe-mcp-for-woocommerce' )
+		);
 		echo '</p></div>';
 	} );
 	return;

@@ -61,7 +61,11 @@ if (! function_exists('wpmcp_flavor_rank')) {
         $ranks = [
             'full'        => 3,
             'wporg'       => 2,
+            // The verticals each carry one ecosystem's slice and neither is
+            // a superset of the other, so they tie and the one core loads
+            // first keeps the request (each main file's notice says so).
             'woocommerce' => 1,
+            'elementor'   => 1,
         ];
 
         return $ranks[$flavor] ?? 0;
@@ -158,6 +162,89 @@ if (! function_exists('wpmcp_flavor_should_defer')) {
             $other = wpmcp_flavor_of(WP_PLUGIN_DIR . '/' . $plugin);
 
             if ('' !== $other && wpmcp_flavor_rank($other) > $rank) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+if (! function_exists('wpmcp_other_build_installed')) {
+    /**
+     * Whether another WP MCP build is installed on this site, active or not:
+     * any plugin outside $plugin_dir whose main file carries a `WPMCP Flavor:`
+     * header.
+     *
+     * The uninstall paths ask this first. Every build shares the same options,
+     * custom tables and cron hooks, so deleting one build (say the Elementor
+     * flavor next to the full plugin) must not clear the crons or drop the
+     * data the build that stays depends on. Unlike wpmcp_flavor_should_defer()
+     * it reads every installed plugin's header, not only wpmcp*.php ones: the
+     * verticals' main files are named after their slug, and an uninstall is
+     * rare enough that one header read per plugin costs nothing.
+     *
+     * @param string $plugin_dir Absolute directory of the build being removed.
+     * @return bool
+     */
+    function wpmcp_other_build_installed(string $plugin_dir): bool
+    {
+        if (! function_exists('get_plugins')) {
+            $admin = ABSPATH . 'wp-admin/includes/plugin.php';
+            if (! is_file($admin)) {
+                return false;
+            }
+            require_once $admin;
+        }
+
+        $self = basename(rtrim(str_replace('\\', '/', $plugin_dir), '/'));
+
+        foreach (array_keys((array) get_plugins()) as $plugin) {
+            $plugin = (string) $plugin;
+            if (false === strpos($plugin, '/') || dirname($plugin) === $self) {
+                continue;
+            }
+            if ('' !== wpmcp_flavor_of(WP_PLUGIN_DIR . '/' . $plugin)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+if (! function_exists('wpmcp_other_build_active')) {
+    /**
+     * Whether another WP MCP build is active on this site or network-wide:
+     * an active plugin outside $plugin_dir whose main file carries a
+     * `WPMCP Flavor:` header.
+     *
+     * Deactivation asks this first. Deactivating the build that booted (say
+     * the full plugin next to an active Safe MCP for Elementor) hands the
+     * site to the other one on the next request, and that one runs on the
+     * same recurring cron events and background jobs, so they must stay.
+     *
+     * @param string $plugin_dir Absolute directory of the build being deactivated.
+     * @return bool
+     */
+    function wpmcp_other_build_active(string $plugin_dir): bool
+    {
+        $self   = basename(rtrim(str_replace('\\', '/', $plugin_dir), '/'));
+        $active = (array) get_option('active_plugins', []);
+
+        if (function_exists('is_multisite') && is_multisite()) {
+            $active = array_merge(
+                $active,
+                array_keys((array) get_site_option('active_sitewide_plugins', []))
+            );
+        }
+
+        foreach ($active as $plugin) {
+            $plugin = (string) $plugin;
+            if (false === strpos($plugin, '/') || dirname($plugin) === $self) {
+                continue;
+            }
+            if ('' !== wpmcp_flavor_of(WP_PLUGIN_DIR . '/' . $plugin)) {
                 return true;
             }
         }

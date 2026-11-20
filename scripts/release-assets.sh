@@ -4,6 +4,7 @@
 #
 #   https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip
 #   https://github.com/wpmcp/wordpress-mcp/releases/latest/download/safe-mcp-for-woocommerce.zip
+#   https://github.com/wpmcp/wordpress-mcp/releases/latest/download/safe-mcp-for-elementor.zip
 #
 # Those links are in the README, on wpmcp-pro.com and in docs, so every
 # release must upload the unversioned copies next to the versioned zips. A
@@ -12,7 +13,7 @@
 #
 #   scripts/release-assets.sh stage [<version>]
 #       After the builds (build-release.sh, build-woo-release.sh,
-#       build-wporg-release.sh). Checks each zip is the build it claims to be,
+#       build-wporg-release.sh, build-elementor-release.sh). Checks each zip is the build it claims to be,
 #       copies the unversioned files into dist/, and prints the files to
 #       upload, in order. <version> defaults to WPMCP_VERSION in wpmcp.php.
 #   scripts/release-assets.sh notes [<version>]
@@ -35,6 +36,11 @@
 #   safe-mcp-for-woocommerce.zip       same bytes, stable name
 #   wpmcp-directory-<v>.zip            the wordpress.org directory cut, paid
 #                                      tier and licensing removed
+#   safe-mcp-for-elementor-<v>.zip     the GitHub-only Elementor flavor, with
+#                                      the upgrade banner and licensing SDK
+#                                      (scripts/build-elementor-release.sh);
+#                                      never deployed to Freemius
+#   safe-mcp-for-elementor.zip         same bytes, stable name
 #
 # Up to 1.2.0 the headline wpmcp.zip was the directory cut and the banner
 # build was published as wpmcp-pro-<v>.zip; that name is retired.

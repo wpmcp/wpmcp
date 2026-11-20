@@ -34,12 +34,16 @@ gate rather than substitute for one:
       - `readme.txt`
       - `scripts/flavors/wporg/readme.txt`
       - `scripts/flavors/woocommerce/readme.txt`
+      - `scripts/flavors/elementor/readme.txt`
 
       No loader carries it (issue #754): Plugin Check reports
       `plugin_header_tested_up_to_not_allowed` when one does. `wpmcp.php`,
       `scripts/flavors/wporg/wpmcp.php` and
-      `scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php` carry
-      `Requires at least` and `Requires PHP` only.
+      `scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php` and
+      `scripts/flavors/elementor/safe-mcp-for-elementor.php` carry
+      `Requires at least` and `Requires PHP` only (the Elementor loader also
+      carries `Elementor tested up to`, which Elementor reads, not Plugin
+      Check).
 
       Bump only after an actual smoke pass against that WordPress version, and
       record the pass below. Then raise `TESTED_UP_TO_FLOOR` in
@@ -53,14 +57,14 @@ gate rather than substitute for one:
 - [ ] Update the prose that hardcodes a version: the "Version headers"
       paragraph in `WPORG-SUBMISSION.md` and the B-23 row in `COMPLIANCE.md`.
 - [ ] Confirm `Requires at least` and `Requires PHP` still reflect reality.
-      `ReleaseHeadersTest` holds the three readmes and the three loaders to
+      `ReleaseHeadersTest` holds the shipped readmes and loaders to
       one value for each; this item is about whether that value is still true,
       which no test can decide.
 
 ## Verification
 
 - [ ] Full test suite green on every WordPress version and on the latest released MCP Adapter plugin (`bin/test-local.sh --all`; its summary names the adapter version).
-- [ ] All three artifacts built, each from the readme it ships:
+- [ ] All four artifacts built, each from the readme it ships:
       - `scripts/build-release.sh` (the plugin, root `readme.txt`):
         `dist/wpmcp-<version>.zip`, the headline GitHub download and the
         Freemius deploy, with the upgrade banner and `Update URI`
@@ -68,9 +72,14 @@ gate rather than substitute for one:
         `dist/safe-mcp-for-woocommerce-<version>.zip`
       - `scripts/build-wporg-release.sh` (wp.org directory, `scripts/flavors/wporg/readme.txt`):
         `dist/wpmcp-directory-<version>.zip`
+      - `scripts/build-elementor-release.sh` (Safe MCP for Elementor, GitHub
+        only, `scripts/flavors/elementor/readme.txt`):
+        `dist/safe-mcp-for-elementor-<version>.zip`, with the upgrade banner,
+        the licensing SDK and `Update URI`; never deployed to Freemius
 - [ ] `scripts/release-assets.sh stage <version>`: adds the stable-name
-      copies `dist/wpmcp.zip` and `dist/safe-mcp-for-woocommerce.zip`, checks
-      that the headline zip is the banner build with `Update URI` and that
+      copies `dist/wpmcp.zip`, `dist/safe-mcp-for-woocommerce.zip` and
+      `dist/safe-mcp-for-elementor.zip`, checks
+      that the self-hosted zips are banner builds with `Update URI` and that
       neither wp.org zip carries `Update URI` or the licensing SDK, and prints
       the upload list.
 - [ ] Plugin Check clean on each built zip (CI's `plugin-check` job runs it

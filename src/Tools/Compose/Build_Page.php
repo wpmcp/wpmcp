@@ -60,7 +60,8 @@ class Build_Page
 
         if ('elementor' === $spec['dialect']) {
             if (! Gate::can_use('build-page-builder')) {
-                throw new \RuntimeException('The builder (Elementor) dialect of build-page needs an active WP MCP Pro license on this site. The Gutenberg dialect is free and always available: pass dialect "gutenberg" to build the page with blocks instead.');
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- returned to the MCP client as a plain-text tool error, never rendered; escaping would turn the upgrade link's & into &amp;.
+                throw new \RuntimeException('The builder (Elementor) dialect of build-page needs an active WP MCP Pro license on this site. The Gutenberg dialect is free and always available: pass dialect "gutenberg" to build the page with blocks instead.' . \WPMCP\MCP\Pro_Refusal::upgrade_sentence());
             }
             if (! class_exists('\\Elementor\\Plugin')) {
                 throw new \RuntimeException('The builder dialect requires Elementor to be active on this site.');
