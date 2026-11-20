@@ -4,7 +4,7 @@ Tags: mcp, ai, ai agent, automation, undo
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -145,6 +145,28 @@ OAuth is off by default. Clients configured with an application password (Claude
 Yes. The safety core and the MCP server are free and GPL. Pro adds convenience and depth (Elementor deep editing, builders, cloud sync), not safety. Snapshot retention is not part of that: it is the same flat, filterable number on every install.
 
 == Changelog ==
+
+= 1.2.0 =
+New integrations, site security tools, and a switch in wp-admin that turns on OAuth sign-in for ChatGPT and the Claude connector. No new top-level tools: everything is an operation on an existing tool, and every write is snapshotted and undoable unless it says otherwise.
+
+New:
+* Connect ChatGPT: an "Allow OAuth sign-in" switch on the WP MCP Connection screen, and a ChatGPT card with the server URL and setup steps next to the Claude connector card. OAuth stays off by default; switching it off refuses existing OAuth tokens on their next request. The WPMCP_OAUTH_ENABLED constant and the wpmcp_oauth_enabled filter still win over the switch (#842).
+* Hardening: get-hardening-status and set-hardening switch off XML-RPC, hide the WordPress version, block user enumeration for logged-out visitors, hide PHP errors, switch off the file editor and add security headers, each undoable with rollback-operation and with no wp-config.php or .htaccess edits (#847).
+* Incident response: quarantine-file moves a suspicious file into a protected quarantine folder, list-quarantine shows what is held, and restore-quarantined-file writes it back byte for byte (#844).
+* scan-security with checks ["compromise"] looks for signs of an existing compromise: back-dated PHP files, look-alike plugin and theme folders, hidden must-use plugins, cron callbacks in uploads, and database dumps or wp-config copies in public folders. It is opt-in and not part of the default scan (#845).
+* Backups: WPMCP_BACKUP_DIR in wp-config.php keeps full-site archives outside the web root, older archives are moved there, and a self-check reports whether the backup folder can be fetched from the web (#846). BackWPup jobs and archives can be listed, and a job started behind the backup plugins opt-in (#694).
+* Core Font Library: list fonts, install a Google font so the site serves it itself, install one face from an upload or URL, and delete a family (backed up first); writes are off until the site turns them on (#712).
+* Theme settings for OceanWP, Neve, Hestia and Hello Elementor: colors, typography and layout (#655).
+* Easy Digital Downloads: downloads, orders, customers, discounts and a sales summary with buyer details masked in lists; download create and update off until the site turns them on (#664).
+* GiveWP: donations, donors, campaigns and a donation summary with donor details masked in lists; form edits and donation status changes off until the site turns them on (#680).
+* Restrict Content and Restrict Content Pro membership levels and members, and Ultimate Member roles, members, forms and member directories; writes off until the site turns them on (#669).
+* get-query-monitor-page-profile loads a page as a logged-out visitor through Query Monitor and returns page time, memory, query count, the slowest queries, HTTP calls and PHP errors (#703).
+* get-analytics-summary and get-top-pages also read Independent Analytics, Burst Statistics, WP Statistics, MonsterInsights and Jetpack Stats (#699).
+* With Pro: Otter Blocks settings, page styles and patterns (#647); Stackable and Ultimate Blocks on the block suites tools (#649); Ultimate Addons for Elementor headers, footers, custom blocks and display rules (#651); WooCommerce customer downloads (with download links redacted), countries and currencies, product and review totals, and tax rates created, updated and deleted (#657); Checkout Field Editor checkout fields (#660); FunnelKit order bumps (#663); CartFlows flows, steps and checkout products (#662); SureCart products, orders, customers and coupons (#665); Paid Memberships Pro members, orders, discount codes and level writes (#667); Gravity Forms notification and confirmation edits (#674) and undoable entry deletes (#675); Polylang theme and plugin string translations (#689); Loco Translate .po strings (#691); WPCode snippets and header and footer scripts (#697).
+* The WooCommerce zip is now Safe MCP for WooCommerce (safe-mcp-for-woocommerce): store tools and the safety core only. File tools, raw SQL and database writes, site migration and search and replace, and the file and salt actions of incident-response are not in that zip and answer not_in_this_build; the full plugin and Pro keep all of them (#1140).
+
+Fixes:
+* The privacy requests group on WP MCP > Opt-in operations has a readable name again, the known issue in 1.1.0 (#1100).
 
 = 1.1.0 =
 New integrations and core operations, and the fixes found in the 1.0 test pass. No new top-level tools: everything is an operation on an existing tool, and every write is snapshotted and undoable unless it says otherwise.
@@ -1049,6 +1071,9 @@ Admin and tooling:
 * Freemius licensing shows its stock, default-off opt-in screen on activation rather than deciding consent for you. Sites that ran a pre-release build under anonymous mode see that connect screen once after upgrading; Skip dismisses it and the plugin keeps working unchanged. The WordPress.org build ships no licensing SDK at all.
 
 == Upgrade Notice ==
+
+= 1.2.0 =
+New site security tools (hardening, file quarantine, compromise checks, backups outside the web root), an OAuth switch for ChatGPT, and new integrations. Recommended for all sites.
 
 = 1.1.0 =
 New integrations (WPGraphQL, search, image optimization, Advanced Ads, security status, payment gateway health and more) and fixes from the 1.0 test pass. Recommended for all sites.
