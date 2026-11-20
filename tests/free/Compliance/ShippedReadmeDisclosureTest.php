@@ -187,14 +187,20 @@ class ShippedReadmeDisclosureTest extends \WP_UnitTestCase
 
     /**
      * Shipped readmes that carry no WP MCP Cloud entry, with the reason.
-     * Empty on purpose: every build ships src/Admin/Announcements.php, which
-     * Plugin boots unconditionally and which fetches /announcements through
-     * Cloud_Client whenever a cloud URL and key are saved. The directory cut
-     * keeps src/Cloud for that reason (scripts/flavors/wporg/policy.php), and
-     * the WooCommerce cut keeps it too since issue #257 (without it the
-     * vertical fatals on load), so all three readmes must disclose it.
+     * The full plugin and the directory cut ship src/Admin/Announcements.php,
+     * which Plugin boots unconditionally and which fetches /announcements
+     * through Cloud_Client whenever a cloud URL and key are saved, so both
+     * readmes must disclose it.
+     *
+     * The WooCommerce cut strips Announcements and src/Cloud together (issue
+     * #1140, decision D4; scripts/flavors/woocommerce/assert-narrowed.php
+     * fails its build if either ships), so it reaches no cloud host and its
+     * readme has nothing to disclose. A Cloud entry there would describe a
+     * request the zip cannot make.
      */
-    private const CLOUD_ENTRY_EXCLUSIONS = [];
+    private const CLOUD_ENTRY_EXCLUSIONS = [
+        'scripts/flavors/woocommerce/readme.txt',
+    ];
 
     /**
      * One "External services" entry: the bullet (full plugin readme, one

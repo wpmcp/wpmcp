@@ -66,7 +66,32 @@ foreach (['label' => 'is_string', 'removed_methods' => 'is_array', 'edits' => 'i
  * labelled strip failure rather than a TypeError halfway through the edits.
  */
 $manifest_errors = [];
-foreach (['removed_methods', 'removed_paths'] as $key) {
+/**
+ * Optional: inline ability registrations the flavor removes by name (issue
+ * #1140). Only the WooCommerce vertical narrows the unconditional
+ * registrations in register_abilities_into(), so the directory cut's
+ * manifest leaves this key out and nothing changes for it.
+ */
+if (! array_key_exists('removed_abilities', $manifest)) {
+    $manifest['removed_abilities'] = [];
+} elseif (! is_array($manifest['removed_abilities'])) {
+    fwrite(STDERR, sprintf("%s: 'removed_abilities' must be a list of ability names\n", $manifest_path));
+    exit(2);
+}
+/**
+ * Optional: files the flavor adds to the stage (issue #1140), as staged
+ * relative path => source path relative to the manifest's directory. Copied
+ * before any edit, so the edits and every later gate see them; a target that
+ * already exists fails the strip, because an overlay must never replace a
+ * file the source tree ships.
+ */
+if (! array_key_exists('added_files', $manifest)) {
+    $manifest['added_files'] = [];
+} elseif (! is_array($manifest['added_files'])) {
+    fwrite(STDERR, sprintf("%s: 'added_files' must map a staged path to a source path\n", $manifest_path));
+    exit(2);
+}
+foreach (['removed_methods', 'removed_paths', 'removed_abilities'] as $key) {
     foreach ($manifest[$key] as $index => $entry) {
         if (! is_string($entry) || '' === trim($entry)) {
             $manifest_errors[] = sprintf("'%s'[%s] must be a non-empty string", $key, $index);
@@ -2161,6 +2186,25 @@ foreach ($manifest['edits'] as $relative => $file_edits) {
 $failures = [];
 $applied = 0;
 
+/** The flavor's added files, before the edits so the edits can wire them in. */
+foreach ($manifest['added_files'] as $relative => $source) {
+    $from = dirname($manifest_path) . '/' . $source;
+    $to   = $stage . '/' . $relative;
+    if (! is_string($relative) || ! is_string($source) || ! is_file($from)) {
+        $failures[] = sprintf('added file %s: source %s not found', $relative, $source);
+        continue;
+    }
+    if (file_exists($to)) {
+        $failures[] = sprintf('added file %s: already exists in the staged tree', $relative);
+        continue;
+    }
+    if (! is_dir(dirname($to)) || ! copy($from, $to)) {
+        $failures[] = sprintf('added file %s: could not be copied', $relative);
+        continue;
+    }
+    $applied++;
+}
+
 /** Apply the exact-string edits. */
 foreach ($edits as $relative => $file_edits) {
     $path = $stage . '/' . $relative;
@@ -2272,6 +2316,21 @@ foreach ($manifest['removed_paths'] as $relative) {
     $undeleted = remove_path($path);
     if ([] !== $undeleted) {
         $failures[] = sprintf('%s: could not be removed (%s)', $relative, implode(', ', $undeleted));
+        continue;
+    }
+    $applied++;
+}
+
+/**
+ * The flavor's named inline registrations (issue #1140). Each name must
+ * match exactly one `$registrar->register(new Ability('<name>', ...));`
+ * statement in Plugin.php, so a rename upstream fails the strip instead of
+ * silently shipping the ability.
+ */
+foreach ($manifest['removed_abilities'] as $ability_name) {
+    $result = remove_named_ability($plugin_php, $ability_name);
+    if (true !== $result) {
+        $failures[] = sprintf('src/Plugin.php: %s', $result);
         continue;
     }
     $applied++;
@@ -2487,6 +2546,33 @@ function remove_pro_abilities(string $path): int
     }
 
     return $removed;
+}
+
+/**
+ * Delete the one `$registrar->register(new Ability( '<name>', ...));`
+ * statement registering $name (issue #1140).
+ *
+ * @return true|string true on success, else why it could not be removed.
+ */
+function remove_named_ability(string $path, string $name)
+{
+    $contents = (string) file_get_contents($path);
+    $pattern  = '/\$registrar->register\(new Ability\(\s*\n\s*\'' . preg_quote($name, '/') . '\',/';
+    $found    = preg_match_all($pattern, $contents, $matches, PREG_OFFSET_CAPTURE);
+    if (1 !== $found) {
+        return sprintf('expected exactly 1 inline registration of %s, found %d', $name, (int) $found);
+    }
+    $start = $matches[0][0][1];
+    $end   = statement_end($contents, $start);
+    if (null === $end) {
+        return sprintf('unbalanced registration of %s', $name);
+    }
+    $line_start = (int) strrpos(substr($contents, 0, $start), "\n") + 1;
+    $line_end   = strpos($contents, "\n", $end);
+    $contents   = substr($contents, 0, $line_start) . substr($contents, false === $line_end ? $end + 1 : $line_end + 1);
+    file_put_contents($path, $contents);
+
+    return true;
 }
 
 /** Offset of the ';' closing the statement that starts at $from. */

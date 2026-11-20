@@ -54,7 +54,7 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     private const REQUIRES_LOADERS = [
         'wpmcp.php',
         'scripts/flavors/wporg/wpmcp.php',
-        'scripts/flavors/woocommerce/wpmcp-for-woocommerce.php',
+        'scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php',
     ];
 
     /** Readmes whose header block reaches a user or a reviewer. */
@@ -74,7 +74,7 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
     private const SHIPPED_NAME_PAIRS = [
         'readme.txt' => 'wpmcp.php',
         'scripts/flavors/wporg/readme.txt' => 'scripts/flavors/wporg/wpmcp.php',
-        'scripts/flavors/woocommerce/readme.txt' => 'scripts/flavors/woocommerce/wpmcp-for-woocommerce.php',
+        'scripts/flavors/woocommerce/readme.txt' => 'scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php',
     ];
 
     /**

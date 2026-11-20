@@ -1,4 +1,4 @@
-=== WP MCP for WooCommerce ===
+=== Safe MCP for WooCommerce ===
 Contributors: fahdi
 Tags: ecommerce, mcp, ai, ai agent, automation
 Requires at least: 6.9
@@ -12,7 +12,7 @@ AI agents run your WooCommerce store over MCP, from products and orders to conte
 
 == Description ==
 
-WP MCP for WooCommerce turns your store into an MCP (Model Context Protocol) server, built on the official WordPress Abilities API. Connect Claude, Cursor, or any MCP client and let an AI agent manage products, look after orders, and edit your store's pages and content.
+Safe MCP for WooCommerce turns your store into an MCP (Model Context Protocol) server, built on the official WordPress Abilities API. Connect Claude, Cursor, or any MCP client and let an AI agent manage products, look after orders, and edit your store's pages and content.
 
 The difference: **every mutating operation takes a snapshot first.** A wrong bulk price update, a bad product edit, a page the agent got wrong: each is one click from undone in the History screen. The agent physically cannot make an unrecoverable change.
 
@@ -23,6 +23,7 @@ The difference: **every mutating operation takes a snapshot first.** A wrong bul
 * Layered governance where permissions can only be narrowed, never widened
 * Full audit log of every tool call
 * No remote code execution tools of any kind in this plugin
+* No file browser or editor, no SQL console and no code snippets
 
 = What agents can do =
 
@@ -32,8 +33,12 @@ The difference: **every mutating operation takes a snapshot first.** A wrong bul
 * SEO metadata through Yoast SEO, Rank Math, or SEOPress
 * Site context, diagnostics, exports, and scheduled maintenance
 * Media library work, including stock image search and import
-* Security scans, performance analysis, and plugin/theme installs and updates
+* Security scans, performance analysis, and plugin/theme installs and updates from WordPress.org
 * Everything snapshotted, logged, and reversible
+
+= What this plugin does not do =
+
+It has no tool to read, list, search, write, edit, delete or quarantine files, run SQL or write database rows directly, search and replace across the whole site, store or create code snippets, move a site to or from another server, reinstall core files, or rewrite wp-config.php. An agent that asks for one of those tools by name is told it is not in this build.
 
 = Looking for more? =
 
@@ -41,19 +46,15 @@ This plugin is complete for WooCommerce stores. The full WP MCP plugin adds page
 
 = Privacy =
 
-The plugin collects nothing about you and sends nothing to the author. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing on the schedule ever makes a network request, and neither does activation. Every host it can reach is listed under "External services" below, and each request happens only while you or your agent are running the specific ability that needs it, except the cloud announcements check described under WP MCP Cloud, which runs only if a cloud connection was saved, and, with OAuth switched on, the client metadata document fetch described below, which runs while an MCP client signs in.
+The plugin collects nothing about you and sends nothing to the author. Its only scheduled task is a daily local cleanup of expired OAuth tokens; nothing on the schedule ever makes a network request, and neither does activation. Every host it can reach is listed under "External services" below, and each request happens only while you or your agent are running the specific ability that needs it, except, with OAuth switched on, the client metadata document fetch described below, which runs while an MCP client signs in.
 
-WP MCP keeps copies of site data it needs to work: undo snapshots of what an agent changed (which can include users, comments, orders and form entries), the request and governance audit logs, agent memory and the content search index. All of it stays on your site, and all of it takes part in WordPress's own personal data tools: Tools > Export Personal Data lists a person's records from each store, and Tools > Erase Personal Data redacts them from undo snapshots (a redacted snapshot can no longer be rolled back, and says so), anonymizes them in the logs and deletes the memory and index entries that hold them. WP MCP's erasure runs after your other plugins' own, so their copies in WP MCP's snapshots are covered too. Site backup archives made by WP MCP are full database copies and are left unchanged; the erasure says so when any exist.
+This plugin keeps copies of site data it needs to work: undo snapshots of what an agent changed (which can include users, comments, orders and form entries), the request and governance audit logs, agent memory and the content search index. All of it stays on your site, and all of it takes part in WordPress's own personal data tools: Tools > Export Personal Data lists a person's records from each store, and Tools > Erase Personal Data redacts them from undo snapshots (a redacted snapshot can no longer be rolled back, and says so), anonymizes them in the logs and deletes the memory and index entries that hold them. WP MCP's erasure runs after your other plugins' own, so their copies in WP MCP's snapshots are covered too. Site backup archives made by WP MCP are full database copies and are left unchanged; the erasure says so when any exist.
 
 == External services ==
 
 = WordPress.org core checksums API (api.wordpress.org) =
 
-Used by the `scan-security` ability to compare this site's core files against the official checksums for its version, so modified core files can be reported, and by the `incident-response` ability's `quarantine-file` action for a file in wp-admin, wp-includes or the install root, so a core file is never quarantined. It is contacted only when an administrator or an agent runs one of these. What is sent: the WordPress version and the site locale, under a `WPMCP-Security-Scanner/1.0` user agent. No content and no personal data. Privacy policy: https://wordpress.org/about/privacy/
-
-= WordPress.org core package, core file reinstall (api.wordpress.org, downloads.wordpress.org) =
-
-Used by the `incident-response` ability, only when you or your agent run its `reinstall-core-files` action. It fetches the same core checksums as above, then downloads the official WordPress package for this site's version from downloads.wordpress.org through core's `download_url()`, with core's standard user agent (WordPress version and this site's address). Only files matching the official checksums are written. Privacy policy: https://wordpress.org/about/privacy/
+Used by the `scan-security` ability to compare this site's core files against the official checksums for its version, so modified core files can be reported. It is contacted only when an administrator or an agent runs it. What is sent: the WordPress version and the site locale, under a `WPMCP-Security-Scanner/1.0` user agent. No content and no personal data. Privacy policy: https://wordpress.org/about/privacy/
 
 = WordPress.org plugin directory API, abandoned-plugin check (api.wordpress.org) =
 
@@ -103,10 +104,6 @@ Used by the `search-stock-images` ability when the Unsplash provider is chosen, 
 
 Used only when OAuth is switched on (it is off by default) and an MCP client signs in with an https URL as its client ID, a Client ID Metadata Document. While a signed-in user authorizes that client, this site fetches that one URL to read the client's name and allowed redirect addresses. Nothing about your site or its users is sent: it is a plain GET under a WPMCP-OAuth-Client-Metadata/1.0 user agent. Private, loopback and reserved addresses are refused, redirects are not followed, the document is capped at 5 KB, and it is cached per its Cache-Control header (an hour by default), so a repeat sign-in sends nothing. Set the wpmcp_oauth_cimd_enabled filter to false to turn this off, or require approval of new clients on the WP MCP Connection screen. The client's publisher's own terms and privacy policy apply to the document it hosts.
 
-= WP MCP Cloud (only if a cloud connection was saved elsewhere) =
-
-This build ships no tool that can connect to the author's optional cloud service, but it keeps the announcements feed, which reads a cloud URL and API key if one was saved earlier by the full WP MCP plugin on this site. Only then, when an administrator opens a WP MCP admin screen, it fetches notices from that saved URL, at most once a day, or once an hour after a failed fetch. What is sent: a GET request for /announcements with your saved API key in the Authorization header; no site content. With no saved connection, nothing is sent. Terms: https://wpmcp-pro.com/terms.html Privacy policy: https://wpmcp-pro.com/privacy.html
-
 = Loopback requests to this site itself =
 
 The connection self-test calls this site's own REST route, and `scan-security` fetches this site's front page to read its security headers. Both are requests to your own server, not calls to any third party. With `checks:["compromise"]`, `scan-security` also fetches up to three of this site's pages as a browser, as a search crawler (a Googlebot user agent) and with a www.google.com Referer header, to spot content shown only to search engines, and sends HEAD requests for backup or dump files it finds in public folders. Nothing is sent to www.google.com: the Referer is only a header on the request to your own site.
@@ -125,11 +122,11 @@ The Model Context Protocol is an open standard that lets AI assistants use tools
 
 = Can the AI destroy my store? =
 
-Every mutating tool snapshots the affected data first, and this build ships no code-execution tools at all. You can restore any snapshot, or roll back an entire agent session.
+Every mutating tool snapshots the affected data first, and this build ships no code-execution, file-writing or raw database tools at all. You can restore any snapshot, or roll back an entire agent session.
 
 = What if my AI client skips permission prompts? =
 
-WP MCP asks before destructive actions: through your MCP client's confirmation prompt when the client supports one, otherwise by refusing until the agent passes confirm:true. A client set to skip its own permission prompts (for example Claude Code started with --dangerously-skip-permissions, or any auto-approve mode) also skips those WP MCP confirmations, because it answers them itself without asking you. Actions that cannot be undone are never confirmed through the client: they run only when the agent's own call carries confirm:true, and the refusal says exactly what that will do. Keep permission prompts on when an agent can reach those tools.
+This plugin asks before destructive actions: through your MCP client's confirmation prompt when the client supports one, otherwise by refusing until the agent passes confirm:true. A client set to skip its own permission prompts (for example Claude Code started with --dangerously-skip-permissions, or any auto-approve mode) also skips those WP MCP confirmations, because it answers them itself without asking you. Actions that cannot be undone are never confirmed through the client: they run only when the agent's own call carries confirm:true, and the refusal says exactly what that will do. Keep permission prompts on when an agent can reach those tools.
 
 = Does this replace my backup plugin? =
 

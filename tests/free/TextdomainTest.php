@@ -58,9 +58,9 @@ class TextdomainTest extends \WP_UnitTestCase
 
         // The WooCommerce build's main file declares its own domain, and its
         // WPMCP_TEXT_DOMAIN has to agree with the header the sniff reads.
-        $woo = dirname(WPMCP_FILE) . '/scripts/flavors/woocommerce/wpmcp-for-woocommerce.php';
-        $this->assertSame('wpmcp-for-woocommerce', $this->declared_text_domain($woo));
-        $this->assertSame('wpmcp-for-woocommerce', $this->defined_text_domain($woo));
+        $woo = dirname(WPMCP_FILE) . '/scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php';
+        $this->assertSame('safe-mcp-for-woocommerce', $this->declared_text_domain($woo));
+        $this->assertSame('safe-mcp-for-woocommerce', $this->defined_text_domain($woo));
         $this->assertStringContainsString('Domain Path: /languages', (string) file_get_contents($woo));
         $this->assertStringContainsString('Domain Path: /languages', (string) file_get_contents(WPMCP_FILE));
     }

@@ -31,7 +31,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(sed -n "s/^define( 'WPMCP_VERSION', '\([0-9.]*\)' );/\1/p" "$ROOT/wpmcp.php")"
 [ -n "$VERSION" ] || { echo "could not read WPMCP_VERSION from wpmcp.php" >&2; exit 1; }
 
-SLUG="wpmcp-for-woocommerce"
+# The wp.org slug, and so the zip's directory, the main file and the i18n
+# text domain (issue #1140, owner decision 20 Nov 2026: "Safe MCP for
+# WooCommerce"; "mcp-for-woocommerce" belongs to another author, and a "wp"
+# prefix draws Plugin Check's trademarked_term warning). The compliance engine
+# derives the slug from the main file's name, as wp.org's text-domain check
+# expects them to agree. src/flavor-guard.php reads only main files named
+# wpmcp*.php, so a full or directory build never reads this one; that is
+# harmless, because a higher-ranked build never defers to this flavor.
+SLUG="safe-mcp-for-woocommerce"
+MAIN="$SLUG.php"
 STAGE_PARENT="$(mktemp -d)"
 STAGE="$STAGE_PARENT/$SLUG"
 trap 'rm -rf "$STAGE_PARENT"' EXIT
@@ -47,7 +56,7 @@ cp -R "$ROOT/src" "$STAGE/src"
 # Ship the translation directory the Domain Path header points at (issue #184).
 mkdir -p "$STAGE/languages"
 find "$ROOT/languages" -maxdepth 1 \( -name '*.po' -o -name '*.mo' -o -name '*.l10n.php' \) -exec cp {} "$STAGE/languages/" \;
-sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/$SLUG.php" > "$STAGE/$SLUG.php"
+sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/$MAIN" > "$STAGE/$MAIN"
 sed "s/{{VERSION}}/$VERSION/g" "$ROOT/scripts/flavors/woocommerce/readme.txt" > "$STAGE/readme.txt"
 
 # Name gate. This build stages its own header/readme pair out of
@@ -104,9 +113,9 @@ fi
 # the store must ship. With the group off the post type is never registered
 # and Memory_Store::block_rules() short-circuits to an empty rule set.
 #
-# src/Cloud stays for the same reason it stays in the directory cut: it is a
-# plain HTTP seam with no paid gating, and Admin\Announcements, which boots
-# unconditionally, constructs a Cloud_Client.
+# Unlike the directory cut, this flavor drops src/Cloud and
+# Admin\Announcements (issue #1140, decision D4): the announcements feed was
+# the cloud client's only caller here, so both leave together.
 php "$ROOT/scripts/flavors/wporg/strip.php" "$STAGE" "$ROOT/scripts/flavors/woocommerce/manifest.php"
 
 # A textual transform that produces an unparsable file must never reach a zip,
@@ -116,9 +125,17 @@ lint_stage() {
   local file
   while IFS= read -r file; do
     php -l "$file" > /dev/null || { echo "ERROR: syntax error in $file $1" >&2; exit 1; }
-  done < <(find "$STAGE/src" "$STAGE/$SLUG.php" "$STAGE/uninstall.php" -name '*.php')
+  done < <(find "$STAGE/src" "$STAGE/$MAIN" "$STAGE/uninstall.php" -name '*.php')
 }
 lint_stage "after the strip"
+
+# The narrowing guard (issue #1140): store tools plus the safety core only.
+# File writes, raw SQL and DB writes, the PHP snippet store, code snippet
+# creation, site migration, rotate-salts and the cloud client must not ship,
+# re-derived from the stage against scripts/flavors/woocommerce/narrowed.php
+# rather than trusted to the manifest. It runs again over the extracted zip.
+php "$ROOT/scripts/flavors/woocommerce/assert-narrowed.php" "$STAGE" \
+  || { echo "ERROR: the $SLUG build ships something the wp.org narrowing strips" >&2; exit 1; }
 
 # The class-reference gates, defined once so the full build and --check-only
 # run the same commands. See the long comments at the original call sites in
@@ -202,8 +219,8 @@ lint_stage "after the text-domain rewrite"
 # are part of the MCP response contract, it leaves the filter names quoted in
 # user-facing exception text pointing at filters that no longer exist, and it
 # orphans the custom tables and options of any install that updates into it.
-grep -q 'flavor-guard.php' "$STAGE/$SLUG.php" || {
-  echo "ERROR: $SLUG.php does not load the flavor coexistence guard" >&2
+grep -q 'flavor-guard.php' "$STAGE/$MAIN" || {
+  echo "ERROR: $MAIN does not load the flavor coexistence guard" >&2
   exit 1
 }
 [ -f "$STAGE/src/flavor-guard.php" ] || {
@@ -230,12 +247,12 @@ GUARD_I18N="$(grep -nE \
 }
 # The MCP adapter guard (issue #386): global functions the main file calls
 # right after the autoloader, so a prune that dropped them would fatal.
-[ -f "$STAGE/src/adapter-guard.php" ] && grep -q "wpmcp_prefer_shared_mcp_adapter" "$STAGE/$SLUG.php" || {
+[ -f "$STAGE/src/adapter-guard.php" ] && grep -q "wpmcp_prefer_shared_mcp_adapter" "$STAGE/$MAIN" || {
   echo "ERROR: the $SLUG build does not ship or apply src/adapter-guard.php" >&2
   exit 1
 }
-grep -q "^ \* WPMCP Flavor: woocommerce$" "$STAGE/$SLUG.php" || {
-  echo "ERROR: $SLUG.php does not declare the woocommerce flavor header" >&2
+grep -q "^ \* WPMCP Flavor: woocommerce$" "$STAGE/$MAIN" || {
+  echo "ERROR: $MAIN does not declare the woocommerce flavor header" >&2
   exit 1
 }
 
@@ -248,7 +265,7 @@ grep -q "^ \* WPMCP Flavor: woocommerce$" "$STAGE/$SLUG.php" || {
 # job at all. Reporting a path that was never staged as "a construct survived"
 # would send the next reader looking for a call site that is not there.
 set +e
-php "$ROOT/scripts/lib/exec-gate.php" "$STAGE/src" "$STAGE/vendor" "$STAGE/$SLUG.php"
+php "$ROOT/scripts/lib/exec-gate.php" "$STAGE/src" "$STAGE/vendor" "$STAGE/$MAIN"
 gate_status=$?
 set -e
 case "$gate_status" in
@@ -281,6 +298,9 @@ unzip -q "$ZIP" -d "$BUILD_DIR"
 php "$ROOT/tools/compliance/bin/compliance.php" \
   --profile=wporg-free --artifact --path="$BUILD_DIR/$SLUG" \
   || { echo "ERROR: the compliance engine found blockers in $ZIP" >&2; exit 1; }
+# The narrowing guard again, over the shipped bytes rather than the stage.
+php "$ROOT/scripts/flavors/woocommerce/assert-narrowed.php" "$BUILD_DIR/$SLUG" \
+  || { echo "ERROR: $ZIP ships something the wp.org narrowing strips" >&2; exit 1; }
 # The execution files themselves are absent from the artifact, checked on the
 # zip listing rather than on the staging directory: the rm list, the staging
 # copy and the zip step are three chances to reintroduce them (#167). Shared

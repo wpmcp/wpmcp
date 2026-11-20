@@ -282,7 +282,13 @@ class FlavorTest extends \WP_UnitTestCase
 
         try {
             $needed = [];
+            // Registrations the narrowing deletes (issue #1140) never reach
+            // the zip, so their pruned handlers are not a divergence.
+            $removed = array_keys((require $root . '/scripts/flavors/woocommerce/narrowed.php')['abilities']);
             foreach ($this->registered_names('woocommerce') as $name) {
+                if (in_array($name, $removed, true)) {
+                    continue;
+                }
                 $ability = $this->ability_by_name('woocommerce', $name);
                 // The strip removes every pro-tier registration along with
                 // its files, so only free-tier tools ship in this zip.
@@ -339,10 +345,10 @@ class FlavorTest extends \WP_UnitTestCase
     private function stripped_woo_src(): string
     {
         $root  = dirname(__DIR__, 2);
-        $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-woo-prune-' . uniqid('', true) . '/wpmcp-for-woocommerce';
+        $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-woo-prune-' . uniqid('', true) . '/safe-mcp-for-woocommerce';
         $this->assertTrue(mkdir($stage, 0777, true), 'could not create the staging directory');
         $this->copy_tree($root . '/src', $stage . '/src');
-        foreach (['wpmcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
+        foreach (['safe-mcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
             file_put_contents(
                 $stage . '/' . $rendered,
                 str_replace('{{VERSION}}', '0.0.0', (string) file_get_contents($root . '/scripts/flavors/woocommerce/' . $rendered))

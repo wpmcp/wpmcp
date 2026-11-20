@@ -38,7 +38,7 @@ gate rather than substitute for one:
       No loader carries it (issue #754): Plugin Check reports
       `plugin_header_tested_up_to_not_allowed` when one does. `wpmcp.php`,
       `scripts/flavors/wporg/wpmcp.php` and
-      `scripts/flavors/woocommerce/wpmcp-for-woocommerce.php` carry
+      `scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php` carry
       `Requires at least` and `Requires PHP` only.
 
       Bump only after an actual smoke pass against that WordPress version, and

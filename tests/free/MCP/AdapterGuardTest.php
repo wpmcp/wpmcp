@@ -46,7 +46,7 @@ class AdapterGuardTest extends \WP_UnitTestCase
     public function test_every_main_file_applies_the_guard_after_its_autoloader(): void
     {
         $root = dirname(__DIR__, 3);
-        foreach (['wpmcp.php', 'scripts/flavors/wporg/wpmcp.php', 'scripts/flavors/woocommerce/wpmcp-for-woocommerce.php'] as $main) {
+        foreach (['wpmcp.php', 'scripts/flavors/wporg/wpmcp.php', 'scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php'] as $main) {
             $source   = (string) file_get_contents($root . '/' . $main);
             $autoload = strpos($source, "require_once __DIR__ . '/vendor/autoload.php';");
             $guard    = strpos($source, "wpmcp_prefer_shared_mcp_adapter( __DIR__ . '/vendor' );");
