@@ -172,9 +172,10 @@ edits, ability-description and readme scrubs, and the manifest and tests.
 
 Directory landscape (plugins API search "mcp", 2026-11-20): 1,005 results.
 Notable: official `mcp-adapter` by WordPress.org (80,000 installs, added
-2026-10-02), the competitor (40,000), WPVibe (100,000), AI Engine (90,000),
-Royal MCP (10,000), and `cowboy-mcp` "Free MCP Server with Undo" (2,000, added
-2026-07-03), which already uses our undo wedge in its listing title. Slugs
+2026-10-02), the competitor (40,000), three other AI or MCP plugins with
+100,000, 90,000 and 10,000 installs, and a 2,000-install "MCP server with
+undo" listing (added 2026-07-03), which already uses our undo wedge in its
+listing title. Slugs
 `wpmcp` and `wp-mcp` are free.
 
 | Option | For | Against |
