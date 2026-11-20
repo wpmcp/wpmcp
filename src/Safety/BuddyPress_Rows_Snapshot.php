@@ -605,9 +605,9 @@ final class BuddyPress_Rows_Snapshot
                 $right = self::number_thread($child, $right, $seen);
             }
         }
-        $where = 1 === $left ? 'id = %d' : "type = 'activity_comment' AND id = %d";
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; $where is one of two literals holding one placeholder.
-        if (false === $wpdb->query($wpdb->prepare('UPDATE %i SET mptt_left = %d, mptt_right = %d WHERE ' . $where, $table, $left, $right, $parent))) {
+        // The top item is matched by id alone, a reply also by its type.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table, renumbered live; the WHERE is one of two literals holding one placeholder.
+        if (false === $wpdb->query($wpdb->prepare('UPDATE %i SET mptt_left = %d, mptt_right = %d WHERE ' . (1 === $left ? 'id = %d' : "type = 'activity_comment' AND id = %d"), $table, $left, $right, $parent))) {
             throw new Mutation_Failed('Could not renumber a BuddyPress activity thread.');
         }
         return $right + 1;
@@ -618,9 +618,9 @@ final class BuddyPress_Rows_Snapshot
     {
         global $wpdb;
 
-        [$sql, $args] = self::where($set);
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; where() builds only placeholders from an allowlisted table and column.
-        if (false === $wpdb->query($wpdb->prepare('DELETE FROM %i WHERE ' . $sql, self::table((string) $set['table']), ...$args))) {
+        [$args, $ids, $filters] = self::where($set);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- BuddyPress's own table; where() allowlists the table and every column, bound with %i.
+        if (false === $wpdb->query($wpdb->prepare('DELETE FROM %i WHERE %i IN (' . implode(',', array_fill(0, count($ids), '%d')) . ')' . implode('', array_fill(0, count($filters), ' AND %i = %s')), self::table((string) $set['table']), ...$args))) {
             throw new Mutation_Failed('Could not clear the BuddyPress rows being restored.');
         }
     }
@@ -975,17 +975,20 @@ final class BuddyPress_Rows_Snapshot
     {
         global $wpdb;
 
-        [$sql, $args] = self::where($set);
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of BuddyPress's own table; where() builds only placeholders.
-        $rows = $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE ' . $sql . ' ORDER BY id ASC', self::table((string) $set['table']), ...$args), ARRAY_A);
+        [$args, $ids, $filters] = self::where($set);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of BuddyPress's own table; where() allowlists every column, bound with %i.
+        $rows = $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE %i IN (' . implode(',', array_fill(0, count($ids), '%d')) . ')' . implode('', array_fill(0, count($filters), ' AND %i = %s')) . ' ORDER BY id ASC', self::table((string) $set['table']), ...$args), ARRAY_A);
 
         return array_values((array) $rows);
     }
 
     /**
-     * The WHERE clause of a set as placeholders and their values.
+     * The values a set's WHERE binds, after the table: its key column, its
+     * ids, then a name and a value per filter. The callers write the clause
+     * itself, "%i IN (%d, ...)" with one " AND %i = %s" per filter, inside
+     * prepare() (issue #1147).
      *
-     * @return array{0: string, 1: array<int, int|string>}
+     * @return array{0: array<int, int|string>, 1: int[], 2: string[]} the values, the ids, the filter columns
      */
     private static function where(array $set): array
     {
@@ -997,20 +1000,21 @@ final class BuddyPress_Rows_Snapshot
         if ([] === $ids) {
             $ids = [ 0 ];
         }
-        $sql  = '%i IN (' . implode(',', array_fill(0, count($ids), '%d')) . ')';
-        $args = array_merge([ $column ], $ids);
+        $args    = array_merge([ $column ], $ids);
+        $filters = [];
         if (null !== ($set['object_type'] ?? null)) {
-            $sql   .= ' AND object_type = %s';
-            $args[] = (string) $set['object_type'];
+            $filters[] = 'object_type';
+            $args[]    = 'object_type';
+            $args[]    = (string) $set['object_type'];
         }
         foreach ((array) ($set['match'] ?? []) as $name => $value) {
             if (! in_array($name, [ 'class', 'component_name', 'component' ], true)) {
                 throw new \InvalidArgumentException('Not a BuddyPress filter column.');
             }
-            $sql   .= ' AND %i = %s';
-            $args[] = (string) $name;
-            $args[] = (string) $value;
+            $filters[] = (string) $name;
+            $args[]    = (string) $name;
+            $args[]    = (string) $value;
         }
-        return [ $sql, $args ];
+        return [ $args, $ids, $filters ];
     }
 }

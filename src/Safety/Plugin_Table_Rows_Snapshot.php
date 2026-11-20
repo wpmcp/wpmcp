@@ -575,30 +575,27 @@ final class Plugin_Table_Rows_Snapshot
         $live   = self::columns($table);
         $binary = self::BINARY_COLUMNS[ $kind ];
         foreach ($rows as $row) {
-            $columns = [];
-            $values  = [];
-            $names   = [];
-            $args    = [];
+            $values = [];
+            $names  = [];
+            $args   = [];
             foreach ((array) $row as $column => $value) {
                 $column = (string) $column;
                 if (! in_array($column, $live, true)) {
                     throw new Mutation_Failed('Could not restore a row of ' . esc_html($table) . ': its column ' . esc_html($column) . ' is gone.');
                 }
-                $columns[] = '%i';
-                $names[]   = $column;
-                if (null === $value) {
-                    $values[] = 'NULL';
-                    continue;
+                $names[] = $column;
+                // Each value is one of three literals: NULL, %s, or UNHEX(%s)
+                // for a binary column.
+                $values[] = (null === $value ? 'NULL' : (in_array($column, $binary, true) ? 'UNHEX(%s)' : '%s'));
+                if (null !== $value) {
+                    $args[] = (string) $value;
                 }
-                $values[] = in_array($column, $binary, true) ? 'UNHEX(%s)' : '%s';
-                $args[]   = (string) $value;
             }
-            if ([] === $columns) {
+            if ([] === $names) {
                 continue;
             }
-            $sql = 'INSERT INTO %i (' . implode(', ', $columns) . ') VALUES (' . implode(', ', $values) . ')';
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- third-party table with no WP API; $sql holds only %i, %s, UNHEX(%s) and NULL.
-            if (false === $wpdb->query($wpdb->prepare($sql, $table, ...$names, ...$args))) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- third-party table with no WP API; one %i per column, and $values holds only %s, UNHEX(%s) and NULL.
+            if (false === $wpdb->query($wpdb->prepare('INSERT INTO %i (' . implode(', ', array_fill(0, count($names), '%i')) . ') VALUES (' . implode(', ', $values) . ')', $table, ...$names, ...$args))) {
                 throw new Mutation_Failed('Could not restore a row of ' . esc_html($table) . ': ' . esc_html($wpdb->last_error));
             }
         }

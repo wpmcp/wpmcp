@@ -78,7 +78,12 @@ class Find_Unused_Media
         $cursor   = max(0, (int) ($args['cursor'] ?? 0));
         $with_un  = ! empty($args['unattached']);
 
-        [ $mime_sql, $mime_args ] = $this->mime_clause((string) ($args['type'] ?? ''));
+        // "image" matches image/*, "image/png" exactly. The clause is one of
+        // two literals so the query below is visibly prepared (issue #1147).
+        $type      = trim((string) ($args['type'] ?? ''));
+        $exact     = false !== strpos($type, '/');
+        $mime_args = '' === $type ? [] : [ $exact ? $type : $wpdb->esc_like($type) . '/%' ];
+        $mime_sql  = ('' === $type ? '' : ($exact ? ' AND post_mime_type = %s' : ' AND post_mime_type LIKE %s'));
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- id-keyed paging over attachments; the mime clause is built from placeholders.
         $batch = (array) $wpdb->get_results($wpdb->prepare("SELECT ID, post_title, post_mime_type, post_date, post_parent FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_status IN ('inherit', 'private') AND ID > %d{$mime_sql} ORDER BY ID ASC LIMIT %d", array_merge([ $cursor ], $mime_args, [ $per_page ])));
@@ -158,22 +163,6 @@ class Find_Unused_Media
         }
 
         return $out;
-    }
-
-    /** @return array{0:string,1:array} "image" matches image/*, "image/png" exactly. */
-    private function mime_clause(string $type): array
-    {
-        global $wpdb;
-
-        $type = trim($type);
-        if ('' === $type) {
-            return [ '', [] ];
-        }
-        if (false !== strpos($type, '/')) {
-            return [ ' AND post_mime_type = %s', [ $type ] ];
-        }
-
-        return [ ' AND post_mime_type LIKE %s', [ $wpdb->esc_like($type) . '/%' ] ];
     }
 
     /** @return array<int,true> */
@@ -286,30 +275,30 @@ class Find_Unused_Media
             $url
         );
 
-        $content_or = $this->ors('post_content', count($content));
+        $content_or = implode(' OR ', array_fill(0, count($content), 'post_content LIKE %s'));
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- reference scan of post content; every pattern is a placeholder.
-        if (null !== $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE ID <> %d AND post_type <> 'revision' AND {$content_or} LIMIT 1", array_merge([ $id ], $content)))) {
+        if (null !== $wpdb->get_var($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE ID <> %d AND post_type <> 'revision' AND ({$content_or}) LIMIT 1", array_merge([ $id ], $content)))) {
             return true;
         }
 
         $ignored = implode(',', array_fill(0, count(self::IGNORED_META_KEYS), '%s'));
         $gallery = [ $n . ',%', '%,' . $n, '%,' . $n . ',%' ];
-        $gallery_or = $this->ors('pm.meta_value', count($gallery));
-        $meta_or    = $this->ors('pm.meta_value', count($meta));
+        $gallery_or = implode(' OR ', array_fill(0, count($gallery), 'pm.meta_value LIKE %s'));
+        $meta_or    = implode(' OR ', array_fill(0, count($meta), 'pm.meta_value LIKE %s'));
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- reference scan of post meta (builder data, custom fields); every pattern is a placeholder.
-        if (null !== $wpdb->get_var($wpdb->prepare("SELECT pm.meta_id FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id WHERE pm.post_id <> %d AND p.post_type <> 'revision' AND pm.meta_key NOT IN ({$ignored}) AND (pm.meta_value = %s OR (pm.meta_key = '_product_image_gallery' AND {$gallery_or}) OR {$meta_or}) LIMIT 1", array_merge([ $id ], self::IGNORED_META_KEYS, [ $n ], $gallery, $meta)))) {
+        if (null !== $wpdb->get_var($wpdb->prepare("SELECT pm.meta_id FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id WHERE pm.post_id <> %d AND p.post_type <> 'revision' AND pm.meta_key NOT IN ({$ignored}) AND (pm.meta_value = %s OR (pm.meta_key = '_product_image_gallery' AND ({$gallery_or})) OR ({$meta_or})) LIMIT 1", array_merge([ $id ], self::IGNORED_META_KEYS, [ $n ], $gallery, $meta)))) {
             return true;
         }
 
-        $term_or = $this->ors('meta_value', count($meta));
+        $term_or = implode(' OR ', array_fill(0, count($meta), 'meta_value LIKE %s'));
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- reference scan of term meta (category thumbnails); every pattern is a placeholder.
-        if (null !== $wpdb->get_var($wpdb->prepare("SELECT meta_id FROM {$wpdb->termmeta} WHERE meta_value = %s OR {$term_or} LIMIT 1", array_merge([ $n ], $meta)))) {
+        if (null !== $wpdb->get_var($wpdb->prepare("SELECT meta_id FROM {$wpdb->termmeta} WHERE meta_value = %s OR ({$term_or}) LIMIT 1", array_merge([ $n ], $meta)))) {
             return true;
         }
 
-        $option_or = $this->ors('option_value', count($meta));
+        $option_or = implode(' OR ', array_fill(0, count($meta), 'option_value LIKE %s'));
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- reference scan of options (widgets, theme mods); every pattern is a placeholder.
-        return null !== $wpdb->get_var($wpdb->prepare("SELECT option_id FROM {$wpdb->options} WHERE option_name NOT LIKE %s AND option_name NOT LIKE %s AND {$option_or} LIMIT 1", array_merge([ $wpdb->esc_like('_transient_') . '%', $wpdb->esc_like('_site_transient_') . '%' ], $meta)));
+        return null !== $wpdb->get_var($wpdb->prepare("SELECT option_id FROM {$wpdb->options} WHERE option_name NOT LIKE %s AND option_name NOT LIKE %s AND ({$option_or}) LIMIT 1", array_merge([ $wpdb->esc_like('_transient_') . '%', $wpdb->esc_like('_site_transient_') . '%' ], $meta)));
     }
 
     /**
@@ -350,11 +339,6 @@ class Find_Unused_Media
         global $wpdb;
 
         return '%' . $wpdb->esc_like($head) . '%' . $wpdb->esc_like($tail) . '%';
-    }
-
-    private function ors(string $column, int $count): string
-    {
-        return '(' . implode(' OR ', array_fill(0, $count, $column . ' LIKE %s')) . ')';
     }
 
     private function size_on_disk(int $id): int

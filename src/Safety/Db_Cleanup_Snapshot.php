@@ -162,15 +162,14 @@ final class Db_Cleanup_Snapshot
     {
         global $wpdb;
 
-        $clauses = [];
-        $values  = [ $table ];
+        $values = [ $table ];
         foreach ($where as $column => $value) {
-            $clauses[] = '%i = %s';
-            $values[]  = $column;
-            $values[]  = (string) $value;
+            $values[] = $column;
+            $values[] = (string) $value;
         }
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- live existence check before a reinsert; the clauses hold only placeholders.
-        return null !== $wpdb->get_var($wpdb->prepare('SELECT 1 FROM %i WHERE ' . implode(' AND ', $clauses) . ' LIMIT 1', ...$values));
+        // One "%i = %s" per column of the key (issue #1147).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- live existence check before a reinsert; every column is bound with %i.
+        return null !== $wpdb->get_var($wpdb->prepare('SELECT 1 FROM %i WHERE ' . implode(' AND ', array_fill(0, count($where), '%i = %s')) . ' LIMIT 1', ...$values));
     }
 
     /**

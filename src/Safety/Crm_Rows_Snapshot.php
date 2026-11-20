@@ -811,18 +811,20 @@ final class Crm_Rows_Snapshot
         if (! in_array($column, [ 'id', 'subscriber_id', 'object_id', 'segment_id', 'tag_id', 'newsletter_id', 'automation_id' ], true)) {
             throw new \InvalidArgumentException('Not a CRM key column.');
         }
-        $sql  = '%i = %d';
-        $args = [ $column, (int) ($set['id'] ?? 0) ];
-        foreach ((array) ($set['match'] ?? []) as $name => $value) {
+        $match   = (array) ($set['match'] ?? []);
+        $filters = [];
+        foreach ($match as $name => $value) {
             if ('object_type' !== $name) {
                 throw new \InvalidArgumentException('Not a CRM filter column.');
             }
-            $sql   .= ' AND %i = %s';
-            $args[] = (string) $name;
-            $args[] = (string) $value;
+            $filters[] = (string) $name;
+            $filters[] = (string) $value;
         }
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of the plugin's own table; $sql holds only placeholders over an allowlisted table and column.
-        $rows = $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE ' . $sql . ' ORDER BY id ASC', self::table((string) $set['table']), ...$args), ARRAY_A);
+        $args = array_merge([ self::table((string) $set['table']), $column, (int) ($set['id'] ?? 0) ], $filters);
+        // One " AND %i = %s" per filter, so the whole query is a literal of
+        // placeholders handed straight to prepare() (issue #1147).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of the plugin's own table; every table and column is allowlisted and bound with %i.
+        $rows = $wpdb->get_results($wpdb->prepare('SELECT * FROM %i WHERE %i = %d' . implode('', array_fill(0, count($match), ' AND %i = %s')) . ' ORDER BY id ASC', ...$args), ARRAY_A);
         if (! is_array($rows)) {
             throw new Mutation_Failed('Could not read the CRM rows of ' . esc_html((string) $set['table']) . '.');
         }
