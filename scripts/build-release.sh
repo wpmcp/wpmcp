@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# Build the self-hosted distribution zip: dist/wpmcp-pro-<version>.zip
+# Build the self-hosted distribution zip: dist/wpmcp-<version>.zip
 #
-# One artifact serves free and pro, gated at runtime by Pro\Gate. This is the
-# zip sold and delivered off-directory, where licensing and the two guarded
-# execution sites are permitted. The WordPress.org cut is a different artifact
-# with the paid tier removed rather than gated: scripts/build-wporg-release.sh,
-# which is the one that writes dist/wpmcp-<version>.zip.
+# One artifact serves free and pro, gated at runtime by Pro\Gate: it runs as
+# the free plugin until a licence is active. This is the headline GitHub
+# download (published as wpmcp-<version>.zip and as the stable wpmcp.zip, see
+# scripts/release-assets.sh) and the zip deployed to Freemius. It carries the
+# licensing SDK and the in-plugin upgrade banner, and an Update URI header so
+# WordPress never offers a same-slug wordpress.org package as its update.
+#
+# The WordPress.org cut is a different artifact with the paid tier removed
+# rather than gated: scripts/build-wporg-release.sh, which writes
+# dist/wpmcp-directory-<version>.zip and must never carry Update URI.
+#
+# Up to 1.2.0 this zip was named wpmcp-pro-<version>.zip and the directory
+# cut took wpmcp-<version>.zip.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,7 +46,7 @@ rm -f "$STAGE/composer.json" "$STAGE/composer.lock"
 php "$ROOT/scripts/lib/inline-fs-config.php" "$ROOT" "$STAGE"
 
 mkdir -p "$ROOT/dist"
-ZIP="$ROOT/dist/wpmcp-pro-$VERSION.zip"
+ZIP="$ROOT/dist/wpmcp-$VERSION.zip"
 rm -f "$ZIP"
 (cd "$STAGE_PARENT" && zip -rq "$ZIP" wpmcp -x "*.DS_Store")
 
@@ -57,6 +65,14 @@ case "$FS_FILE" in
     *"'public_key'"*"'has_paid_plans'"*) ;;
     *) echo "gate: wpmcp-fs.php carries no inlined fs_dynamic_init config" >&2; exit 1 ;;
 esac
+
+# Gate: this is the build with the upgrade path. If the banner, the licensing
+# SDK or the Update URI header goes missing, GitHub users get a plugin with no
+# way to Pro (or one WordPress may "update" to the stripped directory cut).
+# Shared with scripts/release-assets.sh (scripts/lib/release-flavors.sh).
+# shellcheck source=scripts/lib/release-flavors.sh
+. "$ROOT/scripts/lib/release-flavors.sh"
+assert_self_hosted_zip "$ZIP" wpmcp/wpmcp.php "$VERSION" || { echo "gate: $ZIP is not the self-hosted banner build" >&2; exit 1; }
 
 echo "built $ZIP"
 unzip -l "$ZIP" | tail -2
