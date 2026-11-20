@@ -310,7 +310,8 @@ $edits['src/Tools/Compose/Build_Page.php'][] = [
     <<<'SRC'
         if ('elementor' === $spec['dialect']) {
             if (! Gate::can_use('build-page-builder')) {
-                throw new \RuntimeException('The builder (Elementor) dialect of build-page needs an active WP MCP Pro license on this site. The Gutenberg dialect is free and always available: pass dialect "gutenberg" to build the page with blocks instead.');
+                // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- returned to the MCP client as a plain-text tool error, never rendered; escaping would turn the upgrade link's & into &amp;.
+                throw new \RuntimeException('The builder (Elementor) dialect of build-page needs an active WP MCP Pro license on this site. The Gutenberg dialect is free and always available: pass dialect "gutenberg" to build the page with blocks instead.' . \WPMCP\MCP\Pro_Refusal::upgrade_sentence());
             }
             if (! class_exists('\\Elementor\\Plugin')) {
                 throw new \RuntimeException('The builder dialect requires Elementor to be active on this site.');
@@ -1968,6 +1969,52 @@ SRC,
 
 SRC,
         '',
+        1,
+    ],
+];
+
+// The HTTP not-found rewrite answers a declared Pro tool with the same
+// pro_required refusal, which this build removes above, so it goes back to
+// rewriting only the inactive-plugin case.
+$edits['src/MCP/Hidden_Tool_Refusal.php'] = [
+    [
+        <<<'SRC'
+        // A declared Pro tool on an unlicensed install (issue #631) gets the
+        // refusal call-tool and stdio give, upgrade link included, rather
+        // than the adapter's "Tool not found".
+        $error ??= self::pro_refusal($name);
+
+SRC,
+        '',
+        1,
+    ],
+    [
+        <<<'SRC'
+
+    /**
+     * The pro_required refusal for an advertised tool name that maps to a
+     * declared Pro ability this install did not register, or null.
+     */
+    private static function pro_refusal(string $tool_name): ?\WP_Error
+    {
+        $plugin = Plugin::instance();
+        foreach ($plugin->declared_abilities() as $ability) {
+            if (Stdio_Transport::tool_name($ability->name) === $tool_name) {
+                return $plugin->registrar()->pro_required($ability->name);
+            }
+        }
+        return null;
+    }
+
+SRC,
+        '',
+        1,
+    ],
+    [
+        " * error carrying the code and data. A declared Pro tool on an unlicensed\n"
+            . " * install is answered the same way with Registrar::pro_required, which\n"
+            . " * carries the upgrade link. It runs after the request was\n",
+        " * error carrying the code and data. It runs after the request was\n",
         1,
     ],
 ];

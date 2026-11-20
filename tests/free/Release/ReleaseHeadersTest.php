@@ -55,6 +55,7 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         'wpmcp.php',
         'scripts/flavors/wporg/wpmcp.php',
         'scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php',
+        'scripts/flavors/elementor/safe-mcp-for-elementor.php',
     ];
 
     /** Readmes whose header block reaches a user or a reviewer. */
@@ -62,6 +63,7 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         'readme.txt',
         'scripts/flavors/wporg/readme.txt',
         'scripts/flavors/woocommerce/readme.txt',
+        'scripts/flavors/elementor/readme.txt',
     ];
 
     /**
@@ -75,6 +77,7 @@ class ReleaseHeadersTest extends \WP_UnitTestCase
         'readme.txt' => 'wpmcp.php',
         'scripts/flavors/wporg/readme.txt' => 'scripts/flavors/wporg/wpmcp.php',
         'scripts/flavors/woocommerce/readme.txt' => 'scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php',
+        'scripts/flavors/elementor/readme.txt' => 'scripts/flavors/elementor/safe-mcp-for-elementor.php',
     ];
 
     /**

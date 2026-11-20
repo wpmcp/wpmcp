@@ -14,7 +14,9 @@ if (! defined('ABSPATH')) {
  * while a covered plugin is loaded, so the adapter answers "Tool not found"
  * and stdio "Unknown tool". Both are replaced with the refusal that names
  * the plugin to activate (Registrar::plugin_inactive_for_tool), as a tool
- * error carrying the code and data. It runs after the request was
+ * error carrying the code and data. A declared Pro tool on an unlicensed
+ * install is answered the same way with Registrar::pro_required, which
+ * carries the upgrade link. It runs after the request was
  * authenticated and dispatched, only rewrites that one not-found answer,
  * and grants nothing: the tool stays unregistered.
  */
@@ -68,6 +70,7 @@ class Hidden_Tool_Refusal
         if (! is_array($body) || ! is_array($data)) {
             return $response;
         }
+        $original = $data;
 
         if (array_is_list($body) && array_is_list($data)) {
             // The adapter drops notification answers, so match by JSON-RPC id, not position.
@@ -86,7 +89,15 @@ class Hidden_Tool_Refusal
         } elseif (! array_is_list($body) && ! array_is_list($data)) {
             $data = self::rewrite($body, $data);
         }
+        if ($data === $original) {
+            return $response;
+        }
         $response->set_data($data);
+        // The adapter answers an unknown tool with HTTP 404, and a
+        // Streamable HTTP client reads a 404 on POST as an expired session
+        // and starts over instead of showing the refusal. A rewritten answer
+        // is a normal tool result, so it goes out as 200.
+        $response->set_status(200);
 
         return $response;
     }
@@ -108,10 +119,29 @@ class Hidden_Tool_Refusal
         }
         $arguments = is_array($params['arguments'] ?? null) ? $params['arguments'] : [];
         $error     = Plugin::instance()->registrar()->plugin_inactive_for_tool($name, $arguments);
+        // A declared Pro tool on an unlicensed install (issue #631) gets the
+        // refusal call-tool and stdio give, upgrade link included, rather
+        // than the adapter's "Tool not found".
+        $error ??= self::pro_refusal($name);
         if (null === $error) {
             return $answer;
         }
 
         return [ 'jsonrpc' => '2.0', 'id' => $answer['id'] ?? null, 'result' => self::result($error) ];
+    }
+
+    /**
+     * The pro_required refusal for an advertised tool name that maps to a
+     * declared Pro ability this install did not register, or null.
+     */
+    private static function pro_refusal(string $tool_name): ?\WP_Error
+    {
+        $plugin = Plugin::instance();
+        foreach ($plugin->declared_abilities() as $ability) {
+            if (Stdio_Transport::tool_name($ability->name) === $tool_name) {
+                return $plugin->registrar()->pro_required($ability->name);
+            }
+        }
+        return null;
     }
 }

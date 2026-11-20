@@ -55,6 +55,14 @@ class Handshake_Instructions
 
         $parts[] = $this->can_view_site_context() ? $this->auto_summary() : $this->safety_line();
 
+        // A build with a paid tier may add one line saying what it leaves to
+        // that tier (Admin\Pro_Banner::handshake_line, Safe MCP for
+        // Elementor), so the agent knows before it calls a tool.
+        $upgrade = apply_filters('wpmcp_handshake_upgrade_line', '');
+        if (is_string($upgrade) && '' !== trim($upgrade)) {
+            $parts[] = $this->clamp(trim(wp_strip_all_tags($upgrade)), self::MAX_ADMIN_LENGTH);
+        }
+
         $memory = $this->memory_block();
         if ('' !== $memory) {
             $parts[] = $memory;

@@ -22,7 +22,8 @@ if (! defined('ABSPATH')) {
  *    own uninstall hook still runs, and that build's licensing bootstrap
  *    attaches uninstall() to the SDK's after_uninstall action.
  *
- * So this class may only use WordPress core, Cron_Registry and Data_Registry.
+ * So this class may only use WordPress core, Cron_Registry, Data_Registry and
+ * src/flavor-guard.php (which both entry points load).
  *
  * Data is kept by default. With Data_Registry::delete_on_uninstall() on, the
  * stores Data_Registry lists are removed on every site of a network:
@@ -41,6 +42,15 @@ class Uninstaller
 
     public static function uninstall(): void
     {
+        // Another WP MCP build installed on this site shares every option,
+        // table and cron hook with this one, so removing this copy must leave
+        // them for it. The guard is loaded by every main file and by
+        // uninstall.php; without it (a test calling this directly) there is
+        // no sibling to protect.
+        if (function_exists('wpmcp_other_build_installed') && wpmcp_other_build_installed(dirname(__DIR__))) {
+            return;
+        }
+
         // Read before anything is deleted: the setting is one of the stores.
         $delete = Data_Registry::delete_on_uninstall();
 

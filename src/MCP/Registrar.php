@@ -88,6 +88,9 @@ class Registrar
 
     public function register(Ability $a): void
     {
+        // A flavor may move an ability between tiers (Plugin::FLAVOR_TIERS);
+        // done here, before anything reads the tier, so every model agrees.
+        $a->tier = \WPMCP\Plugin::flavor_tier($a);
         // Record the declaration BEFORE the tier/governance gates: the
         // ability grid (issue #78) lists governance-disabled abilities so an
         // admin can see and re-enable them, and it narrows this set by tier

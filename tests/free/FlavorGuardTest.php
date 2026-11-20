@@ -19,6 +19,7 @@ class FlavorGuardTest extends \WP_UnitTestCase
     private const FULL  = 'full';
     private const WPORG = 'wporg';
     private const WOO   = 'woocommerce';
+    private const ELEM  = 'elementor';
 
     /** @var string[] absolute paths of fixture main files written this test */
     private array $fixture_files = [];
@@ -238,13 +239,14 @@ class FlavorGuardTest extends \WP_UnitTestCase
      * it passes must be the one its own header declares, because that header
      * is what the other builds rank it by.
      */
-    public function test_all_three_main_files_call_the_guard_before_defining_constants(): void
+    public function test_every_main_file_calls_the_guard_before_defining_constants(): void
     {
         $root  = dirname(__DIR__, 2);
         $files = [
             $root . '/wpmcp.php'                                                => self::FULL,
             $root . '/scripts/flavors/wporg/wpmcp.php'                          => self::WPORG,
             $root . '/scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php'   => self::WOO,
+            $root . '/scripts/flavors/elementor/safe-mcp-for-elementor.php'       => self::ELEM,
         ];
 
         foreach ($files as $file => $expected_flavor) {
@@ -266,5 +268,72 @@ class FlavorGuardTest extends \WP_UnitTestCase
             $this->assertSame($expected_flavor, wpmcp_flavor_of($file), "WPMCP Flavor header in {$file} does not match the id it passes");
             $this->assertStringContainsString('admin_notices', $source, "the losing build shows no notice in {$file}");
         }
+    }
+
+    public function test_the_elementor_flavor_ranks_with_the_woocommerce_one(): void
+    {
+        $this->assertSame(wpmcp_flavor_rank(self::WOO), wpmcp_flavor_rank(self::ELEM));
+        $this->assertGreaterThan(wpmcp_flavor_rank(self::ELEM), wpmcp_flavor_rank(self::WPORG));
+        $this->assertGreaterThan(wpmcp_flavor_rank('anything-else'), wpmcp_flavor_rank(self::ELEM));
+    }
+
+    public function test_the_elementor_flavor_defers_to_the_full_plugin_and_the_full_plugin_never_to_it(): void
+    {
+        $self = $this->install('safe-mcp-for-elementor/safe-mcp-for-elementor.php', self::ELEM);
+        $full = $this->install('wpmcp/wpmcp.php', self::FULL);
+        update_option('active_plugins', ['safe-mcp-for-elementor/safe-mcp-for-elementor.php', 'wpmcp/wpmcp.php']);
+
+        $this->assertTrue(wpmcp_flavor_should_defer($self, self::ELEM, false));
+        $this->assertFalse(wpmcp_flavor_should_defer($full, self::FULL, false));
+    }
+
+    /**
+     * Neither vertical is a superset of the other, so they tie, and the one
+     * core loaded first keeps the request (the other sees WPMCP_VERSION).
+     * Each main file's notice then says only one can run rather than claim
+     * the other includes all of its tools.
+     */
+    public function test_the_two_verticals_tie_and_fall_back_to_load_order(): void
+    {
+        $elem = $this->install('safe-mcp-for-elementor/safe-mcp-for-elementor.php', self::ELEM);
+        $woo  = $this->install('safe-mcp-for-woocommerce/safe-mcp-for-woocommerce.php', self::WOO);
+        update_option('active_plugins', ['safe-mcp-for-elementor/safe-mcp-for-elementor.php', 'safe-mcp-for-woocommerce/safe-mcp-for-woocommerce.php']);
+
+        $this->assertFalse(wpmcp_flavor_should_defer($elem, self::ELEM, false));
+        $this->assertTrue(wpmcp_flavor_should_defer($woo, self::WOO, true));
+
+        $root = dirname(__DIR__, 2);
+        foreach (['elementor/safe-mcp-for-elementor.php', 'woocommerce/safe-mcp-for-woocommerce.php'] as $main) {
+            $source = (string) file_get_contents($root . '/scripts/flavors/' . $main);
+            $this->assertStringContainsString('only one can run at a time', $source, "{$main} has no tie notice");
+            $this->assertStringContainsString("wpmcp_flavor_rank( (string) WPMCP_FLAVOR )", $source, "{$main} does not tell a tie from a superset");
+        }
+    }
+
+    public function test_other_build_installed_sees_an_inactive_sibling_but_not_itself_or_unrelated_plugins(): void
+    {
+        $this->install('safe-mcp-for-elementor/safe-mcp-for-elementor.php', self::ELEM);
+        $this->install('wpmcp-companion/wpmcp-companion.php');
+        wp_clean_plugins_cache(false);
+
+        $this->assertFalse(wpmcp_other_build_installed(WP_PLUGIN_DIR . '/safe-mcp-for-elementor'), 'its own folder or an unrelated plugin counted as a sibling');
+
+        $this->install('wpmcp/wpmcp.php', self::FULL);
+        wp_clean_plugins_cache(false);
+        $this->assertTrue(wpmcp_other_build_installed(WP_PLUGIN_DIR . '/safe-mcp-for-elementor/'));
+        $this->assertTrue(wpmcp_other_build_installed(WP_PLUGIN_DIR . '/wpmcp-pro'), 'the full plugin in another folder must see the flavor');
+        wp_clean_plugins_cache(false);
+    }
+
+    public function test_other_build_active_reads_only_the_active_list(): void
+    {
+        $this->install('safe-mcp-for-elementor/safe-mcp-for-elementor.php', self::ELEM);
+        $this->install('wpmcp/wpmcp.php', self::FULL);
+
+        update_option('active_plugins', ['wpmcp/wpmcp.php']);
+        $this->assertFalse(wpmcp_other_build_active(WP_PLUGIN_DIR . '/wpmcp'), 'a build counted itself');
+
+        update_option('active_plugins', ['wpmcp/wpmcp.php', 'safe-mcp-for-elementor/safe-mcp-for-elementor.php']);
+        $this->assertTrue(wpmcp_other_build_active(WP_PLUGIN_DIR . '/wpmcp'));
     }
 }

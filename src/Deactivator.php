@@ -21,6 +21,13 @@ class Deactivator
     /** @param bool $network_wide Passed by core for a network deactivation. */
     public static function deactivate($network_wide = false): void
     {
+        // Another WP MCP build that is still active takes the site over on
+        // the next request and runs on the same events and jobs, so they
+        // stay (src/flavor-guard.php, which every main file loads).
+        if (function_exists('wpmcp_other_build_active') && wpmcp_other_build_active(dirname(__DIR__))) {
+            return;
+        }
+
         Cron_Registry::for_each_site((bool) $network_wide, [ Cron_Registry::class, 'clear_all' ]);
     }
 }

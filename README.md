@@ -2,21 +2,31 @@
 
 <img src="assets/wpmcp-icon.svg" width="112" alt="wpmcp logo">
 
-# wpmcp
+# WordPress MCP Server Plugin (WP MCP)
 
-### Let an AI agent build and edit your WordPress site, with an undo for every supported write.
+WP MCP is a free WordPress MCP plugin that turns your site into an MCP server, so Claude, ChatGPT, Cursor and other AI agents can manage WordPress and WooCommerce, with undo for every supported write.
 
-An MCP server for WordPress: 407 abilities (274 in the free plugin) across 61 domains, page builder support from Gutenberg to Elementor, and a snapshot before every supported write with one-click rollback in the core.
+### [Download wpmcp.zip](https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip)
 
-**Docs and Pro: [wpmcp-pro.com](https://wpmcp-pro.com/)**
+Free, latest release, installs like any other plugin. **Docs and Pro: [wpmcp-pro.com](https://wpmcp-pro.com/)**
 
-[![CI](https://github.com/wpmcp/wpmcp/actions/workflows/ci.yml/badge.svg)](https://github.com/wpmcp/wpmcp/actions/workflows/ci.yml)
+407 abilities (274 in the free plugin) across 61 domains, page builder support from Gutenberg to Elementor, and a snapshot before every supported write with one-click rollback in the core.
+
+[![CI](https://github.com/wpmcp/wordpress-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/wpmcp/wordpress-mcp/actions/workflows/ci.yml)
 [![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2%2B-blue.svg)](LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-%3E%3D8.1-8892BF.svg)](https://php.net)
 [![WordPress](https://img.shields.io/badge/WordPress-%3E%3D6.9-21759B.svg)](https://wordpress.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 </div>
+
+**Install in a minute**
+
+1. Download [wpmcp.zip](https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip).
+2. In wp-admin, go to **Plugins > Add New > Upload Plugin**, choose the zip, click **Install Now**, then **Activate**.
+3. Open **wpmcp > Connection** and connect Claude, ChatGPT or Cursor.
+
+If it saves you a rollback, [star it on GitHub](https://github.com/wpmcp/wordpress-mcp) so other WordPress builders can find it.
 
 ---
 
@@ -74,7 +84,7 @@ Snapshots cover WordPress data: posts and their content, meta and terms, options
 
 - **Package updates and deletes.** `update-plugin`, `update-theme`, the core update in `manage-updates`, `delete-plugin` and `delete-theme` do not back up package files. Off by default, and each needs `confirm: true`.
 - **Raw database row writes.** `update-rows` and `delete-rows` write a before-image to a capped audit log, not a restorable snapshot. Off by default.
-- **A `.php` file undo whose site check cannot run.** File writes and deletes are undoable since [#602](https://github.com/wpmcp/wpmcp/issues/602), but a `.php` restore is refused when the site check cannot run, and the response gives the backup path for a manual copy. File tools are off by default.
+- **A `.php` file undo whose site check cannot run.** File writes and deletes are undoable since [#602](https://github.com/wpmcp/wordpress-mcp/issues/602), but a `.php` restore is refused when the site check cannot run, and the response gives the backup path for a manual copy. File tools are off by default.
 - **Other one-way actions.** Deleting a menu, importing content, the security incident tools (ending sessions, rotating salts), and other plugins' abilities run through the abilities bridge (`execute-site-ability`).
 - **Snapshot history depth.** History keeps the last 20 operations by default, so older writes can no longer be undone (see [Known limitations](#known-limitations)).
 
@@ -90,15 +100,27 @@ Rollback bugs are tracked as open issues in this repo.
 
 ## Installation
 
-wpmcp is not yet on the wp.org plugin directory (planned). For now, install from source:
+Download [wpmcp.zip](https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip) (always the latest release), upload it under **Plugins > Add New > Upload Plugin**, and activate it. On activation WordPress shows an optional opt-in for update and security emails; **Skip** works and the plugin runs the same either way. The free plugin is complete on its own, and Pro unlocks in the same plugin when you add a licence: there is nothing else to install.
+
+With WP-CLI:
 
 ```bash
-git clone https://github.com/wpmcp/wpmcp.git wp-content/plugins/wpmcp
+wp plugin install https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip --activate
+```
+
+If your host refuses the upload for size (the zip is about 4.5 MB and some hosts cap uploads at 2 MB), use the WP-CLI line above, or unzip it into `wp-content/plugins/` so you have `wp-content/plugins/wpmcp/wpmcp.php`.
+
+Every [release](https://github.com/wpmcp/wordpress-mcp/releases) also carries `safe-mcp-for-woocommerce.zip` (Safe MCP for WooCommerce, store tools and the safety core only) and `wpmcp-directory-<version>.zip` (the wordpress.org directory edition, without the licensing SDK or Pro). wpmcp is not yet on the wp.org plugin directory (planned).
+
+### From source (developers)
+
+```bash
+git clone https://github.com/wpmcp/wordpress-mcp.git wp-content/plugins/wpmcp
 cd wp-content/plugins/wpmcp
 composer install --no-dev
 ```
 
-Then activate **wpmcp** from the Plugins screen in wp-admin.
+Then activate **wpmcp** from the Plugins screen in wp-admin. The folder must be named `wpmcp`.
 
 ## Connect your AI client
 
@@ -394,7 +416,7 @@ Credentials are already wired: `wpmcp.php` defines `WPMCP_FS_ID` and `WPMCP_FS_P
 
 ## Known limitations
 
-Snapshot history keeps the last 20 operations by default; raise it with the `wpmcp_snapshot_history_limit` filter (minimum 1). Pro keeps unlimited history while the licence is active. Pruning works on whole sessions: single writes in the `default` session are pruned one by one to the limit, but a named session (a bulk run such as a background optimize-media run, a product import or a multi-call database cleanup) is kept or dropped whole, never cut. The newest session and the newest session larger than the limit (the last bulk run) are always kept, so the table holds at most the limit plus those two sessions. A session that has been dropped makes `rollback-session` refuse with the reason rather than undo part of it. A post snapshot captures the full post row (including excerpt, parent, slug, dates and menu order), its meta, terms and, for a force-delete, its comments. Deleting media without `MEDIA_TRASH` backs up the attachment's files first, so rollback restores both the record and the file bytes ([#24](https://github.com/wpmcp/wpmcp/issues/24)); a file that cannot be copied at delete time is left out of the backup. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
+Snapshot history keeps the last 20 operations by default; raise it with the `wpmcp_snapshot_history_limit` filter (minimum 1). Pro keeps unlimited history while the licence is active. Pruning works on whole sessions: single writes in the `default` session are pruned one by one to the limit, but a named session (a bulk run such as a background optimize-media run, a product import or a multi-call database cleanup) is kept or dropped whole, never cut. The newest session and the newest session larger than the limit (the last bulk run) are always kept, so the table holds at most the limit plus those two sessions. A session that has been dropped makes `rollback-session` refuse with the reason rather than undo part of it. A post snapshot captures the full post row (including excerpt, parent, slug, dates and menu order), its meta, terms and, for a force-delete, its comments. Deleting media without `MEDIA_TRASH` backs up the attachment's files first, so rollback restores both the record and the file bytes ([#24](https://github.com/wpmcp/wordpress-mcp/issues/24)); a file that cannot be copied at delete time is left out of the backup. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
 
 ## Development
 

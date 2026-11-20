@@ -258,7 +258,7 @@ Owner decisions are marked D1 to D6 with a recommendation.
 6. **D6, timing.** Submit when ready (recommended) or hold the submission until
    after Black Friday so support load does not overlap. Either way, no wp.org
    effect on Black Friday.
-7. After D1 to D6: open GitHub issues for the strip work (wpmcp/wpmcp,
+7. After D1 to D6: open GitHub issues for the strip work (wpmcp/wordpress-mcp,
    `wporg-compliance` label) and implement via policy.php plus strip.php
    exact-string edits, ability-description and readme scrubs, and tests in
    tests/free/Flavors.

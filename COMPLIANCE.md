@@ -160,7 +160,7 @@ wporg-free engine, every pack, exactly as the directory build does.
 | ID | Evidence | Fix |
 |---|---|---|
 | ENG-1 | `phpcs.xml.dist:8-16` is PSR-12 only | This is why 135 escaping errors, 19 SQL errors and 11 sanitization warnings were invisible. Add `wp-coding-standards/wpcs` and a second ruleset mirroring `phpcs-rulesets/plugin-review.xml`, and add a Plugin Check job to CI. The compliance engine covers the guideline layer that Plugin Check cannot; it is not a substitute for the sniff layer. |
-| ENG-2 | `.github/workflows/ci.yml`, `compliance` job | **Resolved (issue #186).** Neither check step carries `continue-on-error`; the job is a gate. The distribution-profile step runs the engine on the source tree and fails on any blocker, and the wporg-free step fails through `scripts/build-wporg-release.sh`, which runs the engine on the built zip as its last step. Removing the flag exposed five source-tree blockers under the distribution profile, cleared in the same change: three `fclose()` sites and one `curl_setopt()` site by justified annotation (B-22), and the `Build_Page.php` pay-to-unlock copy by the profile option (B-18). The gate was verified red on the first run with the flag gone (https://github.com/wpmcp/wpmcp/actions/runs/33296218275) and green once those sites were cleared. |
+| ENG-2 | `.github/workflows/ci.yml`, `compliance` job | **Resolved (issue #186).** Neither check step carries `continue-on-error`; the job is a gate. The distribution-profile step runs the engine on the source tree and fails on any blocker, and the wporg-free step fails through `scripts/build-wporg-release.sh`, which runs the engine on the built zip as its last step. Removing the flag exposed five source-tree blockers under the distribution profile, cleared in the same change: three `fclose()` sites and one `curl_setopt()` site by justified annotation (B-22), and the `Build_Page.php` pay-to-unlock copy by the profile option (B-18). The gate was verified red on the first run with the flag gone (https://github.com/wpmcp/wordpress-mcp/actions/runs/33296218275) and green once those sites were cleared. |
 | ENG-3 | `tools/compliance/src/Source_File.php`, `has_phpcs_ignore()` | The engine honours a justified `phpcs:ignore` in both profiles, the way PHPCS and Plugin Check do, in `Forbidden_Functions_Rule`, `Input_Sanitization_Rule` and `Output_Escaping_Rule`. The annotation must carry a justification after `--` (a bare one suppresses nothing), must sit on the call line or stand alone on the line above (a trailing annotation on the line above belongs to that line), and must name the exact message code PHPCS would emit for that call, or a whole-segment ancestor of it: an ignore written for `file_system_operations_fopen` does not cover the `fclose()` beside it, and `WordPress.WP.Alt` covers nothing. Calls a second WordPressCS sniff also reports (`ini_set()` under `WordPress.PHP.IniSet`, `dl()` and `str_rot13()` under `WordPress.PHP.DiscouragedPHPFunctions`) accept either code. `phpcs.xml.dist` is still PSR-12 only (ENG-1), so the engine is the only thing in CI that reads these codes. |
 
 ---
@@ -278,7 +278,7 @@ Against the built zip, which is the run that matters for submission:
 ```bash
 bash scripts/build-wporg-release.sh
 rm -rf build/wporg && mkdir -p build/wporg
-unzip -q dist/wpmcp-*.zip -d build/wporg
+unzip -q dist/wpmcp-directory-*.zip -d build/wporg
 php tools/compliance/bin/compliance.php --profile=wporg-free --artifact --path=build/wporg/wpmcp
 ```
 

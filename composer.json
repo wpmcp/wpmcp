@@ -38,7 +38,8 @@
     "compliance:wporg": "php tools/compliance/bin/compliance.php --profile=wporg-free --no-artifact",
     "check:flavors": "bash bin/check-flavors.sh",
     "build:wporg": "bash scripts/build-wporg-release.sh",
-    "build:woo": "bash scripts/build-woo-release.sh"
+    "build:woo": "bash scripts/build-woo-release.sh",
+    "build:elementor": "bash scripts/build-elementor-release.sh"
   },
   "config": {
     "allow-plugins": { "*": true },

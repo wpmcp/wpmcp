@@ -128,6 +128,35 @@ class CronLifecycleTest extends \WP_UnitTestCase
         $this->assertSame([], $this->plugin_events());
     }
 
+    /**
+     * Deactivating the build that booted while another WP MCP build stays
+     * active hands the site to that one on the next request, and it runs on
+     * the same events and jobs, so deactivation leaves them all.
+     */
+    public function test_deactivation_keeps_every_event_while_another_build_is_active(): void
+    {
+        $slug = 'wpmcp-sibling-' . wp_generate_password(6, false, false);
+        $dir  = WP_PLUGIN_DIR . '/' . $slug;
+        wp_mkdir_p($dir);
+        file_put_contents($dir . '/safe-mcp-for-elementor.php', "<?php\n/**\n * Plugin Name: sibling fixture\n * WPMCP Flavor: elementor\n */\n");
+        $active = get_option('active_plugins', []);
+        update_option('active_plugins', array_merge((array) $active, [ $slug . '/safe-mcp-for-elementor.php' ]));
+
+        try {
+            $ids    = $this->schedule_everything();
+            $before = $this->plugin_events();
+
+            Deactivator::deactivate(false);
+
+            $this->assertSame($before, $this->plugin_events());
+            $this->assertNotSame('canceled', Backup_Job_Store::get($ids['backup'])['status'] ?? null);
+        } finally {
+            update_option('active_plugins', $active);
+            @unlink($dir . '/safe-mcp-for-elementor.php');
+            @rmdir($dir);
+        }
+    }
+
     public function test_deactivation_leaves_other_events_alone(): void
     {
         wp_schedule_event(time() + 60, 'hourly', 'wpmcp_test_site_hook');

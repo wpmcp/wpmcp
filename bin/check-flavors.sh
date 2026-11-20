@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # composer check:flavors
 #
-# Runs the strip and the class-reference guard for BOTH release flavors (the
-# wp.org build and the WooCommerce vertical) without zipping or running Plugin
-# Check. It calls the build scripts' own --check-only path, so it can never
+# Runs the strip and the class-reference guard for the two wp.org flavors (the
+# directory build and the WooCommerce vertical), and the header, readme and
+# guard gates of the GitHub-only Elementor flavor, without zipping or running
+# Plugin Check. It calls the build scripts' own --check-only path, so it can never
 # disagree with the CI "compliance" and "plugin-check" jobs. Takes seconds.
 # Each build script stages into its own mktemp dir and removes it on exit,
 # including on failure and Ctrl-C (bash runs the EXIT trap on INT/TERM).
@@ -12,7 +13,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 trap 'exit 130' INT TERM
 
 status=0
-for script in build-wporg-release.sh build-woo-release.sh; do
+for script in build-wporg-release.sh build-woo-release.sh build-elementor-release.sh; do
   if ! bash "$ROOT/scripts/$script" --check-only; then
     status=1
   fi
