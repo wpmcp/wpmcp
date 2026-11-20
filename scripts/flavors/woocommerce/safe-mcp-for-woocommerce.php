@@ -26,11 +26,8 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 // not defined yet at this point.
 require_once __DIR__ . '/src/flavor-guard.php';
 if ( wpmcp_flavor_should_defer( __FILE__, 'woocommerce', defined( 'WPMCP_VERSION' ) ) ) {
-	// The full plugin only loads its own domain, so the notice below loads
-	// this one (issue #184).
-	add_action( 'init', function () {
-		load_plugin_textdomain( 'safe-mcp-for-woocommerce', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
-	} );
+	// No translation loader here (issue #1147): WordPress.org loads this
+	// slug's language packs just in time for the notice below.
 	add_action( 'admin_notices', function () {
 		echo '<div class="notice notice-warning"><p>';
 		echo esc_html__( 'Safe MCP for WooCommerce is inactive because another WP MCP build that already includes all of its tools is active on this site.', 'safe-mcp-for-woocommerce' );

@@ -757,21 +757,25 @@ final class Amelia_Rows_Snapshot
         }
 
         // column IN (SELECT a FROM t1 WHERE b IN (SELECT c FROM t2 WHERE d = id)), innermost last.
-        $sql  = 'SELECT * FROM %i WHERE %i';
         $vars = [ $table, $check($column) ];
         foreach ($hops as $hop) {
-            $hop   = array_map('strval', (array) $hop);
-            $sql  .= ' IN (SELECT %i FROM %i WHERE %i';
+            $hop = array_map('strval', (array) $hop);
             array_push($vars, $check($hop[1]), self::table($hop[0]), $check($hop[2]));
         }
-        $sql   .= ' = %d' . str_repeat(')', count($hops));
-        $vars[] = (int) ($set['id'] ?? 0);
-        foreach ((array) ($set['where'] ?? []) as $name => $value) {
-            $sql .= ' AND %i = %s';
+        $vars[]  = (int) ($set['id'] ?? 0);
+        $filters = (array) ($set['where'] ?? []);
+        foreach ($filters as $name => $value) {
             array_push($vars, $check((string) $name), (string) $value);
         }
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- a snapshot must read the live rows of Amelia's own tables; $sql holds only placeholders, and every table and column is allowlisted.
-        $rows = $wpdb->get_results($wpdb->prepare($sql . ' ORDER BY id ASC', ...$vars), ARRAY_A);
+        // One " IN (SELECT %i FROM %i WHERE %i" and one ")" per hop, one
+        // " AND %i = %s" per filter: the whole query is a literal of
+        // placeholders handed straight to prepare() (issue #1147).
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- a snapshot must read the live rows of Amelia's own tables; every table and column is allowlisted and bound with %i.
+        $rows = $wpdb->get_results($wpdb->prepare(
+            'SELECT * FROM %i WHERE %i' . implode('', array_fill(0, count($hops), ' IN (SELECT %i FROM %i WHERE %i')) . ' = %d' . implode('', array_fill(0, count($hops), ')'))
+                . implode('', array_fill(0, count($filters), ' AND %i = %s')) . ' ORDER BY id ASC',
+            ...$vars
+        ), ARRAY_A);
         if (! is_array($rows)) {
             throw new Mutation_Failed('Could not read the Amelia rows of ' . esc_html((string) $set['table']) . '.');
         }

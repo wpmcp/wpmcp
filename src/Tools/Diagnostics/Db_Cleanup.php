@@ -3,7 +3,7 @@
 // phpcs:disable Squiz.Classes.ValidClassName.NotCamelCaps -- WP-style snake_case class name is intentional (matches the rest of WPMCP\Tools).
 // phpcs:disable PSR1.Methods.CamelCapsMethodName.NotCamelCaps -- WP-style snake_case method names are intentional (matches the rest of WPMCP\Tools).
 // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- cleanup reads and counts core table rows no WP API enumerates (orphans, revisions past N, expired transient rows); nothing here is worth caching, and every delete goes through Db_Cleanup_Snapshot.
-// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- only $wpdb core table names, integer id lists and this class's fixed SQL fragments are concatenated in; every value is a prepare() placeholder, bound through self::prepare() or a spread whose count the sniff cannot follow.
+// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- only $wpdb core table names, integer id lists and this class's fixed SQL fragments are concatenated in; every value is a prepare() placeholder, bound through a spread whose count the sniff cannot follow, and every table and column a segment picks is bound with %i (issue #1147).
 
 namespace WPMCP\Tools\Diagnostics;
 
@@ -163,14 +163,6 @@ class Db_Cleanup
         return array_keys(array_filter(self::SEGMENTS, static fn (string $c): bool => in_array($c, $categories, true)));
     }
 
-    /** prepare() only when there is something to bind: it refuses a query with no placeholders. */
-    private static function prepare(string $sql, array $values): string
-    {
-        global $wpdb;
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- a query without values holds no placeholders and nothing user-supplied.
-        return [] === $values ? $sql : (string) $wpdb->prepare($sql, ...$values);
-    }
-
     // ------------------------------------------------------------------
     // Dry run
     // ------------------------------------------------------------------
@@ -244,42 +236,48 @@ class Db_Cleanup
 
         if (isset(self::META[ $segment ])) {
             [ $meta, , $owner_col, $owner, $owner_pk ] = self::META[ $segment ];
-            $row = $wpdb->get_row(
-                "SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(m.meta_key) + COALESCE(LENGTH(m.meta_value), 0)), 0) AS b
-                 FROM {$wpdb->$meta} m LEFT JOIN {$wpdb->$owner} o ON o.{$owner_pk} = m.{$owner_col} WHERE o.{$owner_pk} IS NULL",
-                ARRAY_A
-            );
+            $row = $wpdb->get_row($wpdb->prepare(
+                'SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(m.meta_key) + COALESCE(LENGTH(m.meta_value), 0)), 0) AS b
+                 FROM %i m LEFT JOIN %i o ON o.%i = m.%i WHERE o.%i IS NULL',
+                $wpdb->$meta,
+                $wpdb->$owner,
+                $owner_pk,
+                $owner_col,
+                $owner_pk
+            ), ARRAY_A);
             return [ (int) ($row['n'] ?? 0), (int) ($row['b'] ?? 0), 0 ];
         }
 
         if (in_array($segment, [ 'auto_drafts', 'trash_posts' ], true)) {
-            [ $where, $values ] = $this->post_where($segment);
-            $all = (int) $wpdb->get_var(self::prepare("SELECT COUNT(*) FROM {$wpdb->posts} p WHERE {$where}", $values));
-            $row = $wpdb->get_row(self::prepare(
+            [ $variant, $values ] = $this->post_where($segment);
+            $where = (0 === $variant ? self::WHERE_AUTO_DRAFTS : (1 === $variant ? self::WHERE_TRASH_POSTS : self::WHERE_AGED_TRASH_POSTS));
+            $all   = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i p WHERE {$where}", ...array_merge([ $wpdb->posts ], $values)));
+            $row   = $wpdb->get_row($wpdb->prepare(
                 "SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(p.post_content) + LENGTH(p.post_title) + LENGTH(p.post_excerpt)), 0) AS b
-                 FROM {$wpdb->posts} p WHERE {$where} AND " . self::post_eligible(),
-                $values
+                 FROM %i p WHERE {$where} AND " . self::POST_ELIGIBLE,
+                ...array_merge([ $wpdb->posts ], $values, [ $wpdb->posts ])
             ), ARRAY_A);
-            $meta = (int) $wpdb->get_var(self::prepare(
+            $meta = (int) $wpdb->get_var($wpdb->prepare(
                 "SELECT COALESCE(SUM(LENGTH(m.meta_key) + COALESCE(LENGTH(m.meta_value), 0)), 0)
-                 FROM {$wpdb->postmeta} m JOIN {$wpdb->posts} p ON p.ID = m.post_id WHERE {$where} AND " . self::post_eligible(),
-                $values
+                 FROM %i m JOIN %i p ON p.ID = m.post_id WHERE {$where} AND " . self::POST_ELIGIBLE,
+                ...array_merge([ $wpdb->postmeta, $wpdb->posts ], $values, [ $wpdb->posts ])
             ));
             $n = (int) ($row['n'] ?? 0);
             return [ $n, (int) ($row['b'] ?? 0) + $meta, $all - $n ];
         }
 
-        [ $where, $values ] = $this->comment_where($segment);
-        $all = (int) $wpdb->get_var(self::prepare("SELECT COUNT(*) FROM {$wpdb->comments} c WHERE {$where}", $values));
-        $row = $wpdb->get_row(self::prepare(
+        [ $variant, $values ] = $this->comment_where($segment);
+        $where = (0 === $variant ? self::WHERE_SPAM_COMMENTS : (1 === $variant ? self::WHERE_TRASH_COMMENTS : self::WHERE_AGED_TRASH_COMMENTS));
+        $all   = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM %i c WHERE {$where}", ...array_merge([ $wpdb->comments ], $values)));
+        $row   = $wpdb->get_row($wpdb->prepare(
             "SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(c.comment_content) + LENGTH(c.comment_author) + LENGTH(c.comment_author_email)), 0) AS b
-             FROM {$wpdb->comments} c WHERE {$where} AND " . self::comment_eligible(),
-            $values
+             FROM %i c WHERE {$where} AND " . self::COMMENT_ELIGIBLE,
+            ...array_merge([ $wpdb->comments ], $values, [ $wpdb->comments ])
         ), ARRAY_A);
-        $meta = (int) $wpdb->get_var(self::prepare(
+        $meta = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COALESCE(SUM(LENGTH(m.meta_key) + COALESCE(LENGTH(m.meta_value), 0)), 0)
-             FROM {$wpdb->commentmeta} m JOIN {$wpdb->comments} c ON c.comment_ID = m.comment_id WHERE {$where} AND " . self::comment_eligible(),
-            $values
+             FROM %i m JOIN %i c ON c.comment_ID = m.comment_id WHERE {$where} AND " . self::COMMENT_ELIGIBLE,
+            ...array_merge([ $wpdb->commentmeta, $wpdb->comments ], $values, [ $wpdb->comments ])
         ));
         $n = (int) ($row['n'] ?? 0);
         return [ $n, (int) ($row['b'] ?? 0) + $meta, $all - $n ];
@@ -517,9 +515,16 @@ class Db_Cleanup
         [ $meta, $pk, $owner_col, $owner, $owner_pk ] = self::META[ $segment ];
         while (true) {
             $rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT m.* FROM {$wpdb->$meta} m LEFT JOIN {$wpdb->$owner} o ON o.{$owner_pk} = m.{$owner_col}
-                 WHERE o.{$owner_pk} IS NULL AND m.{$pk} > %d ORDER BY m.{$pk} LIMIT %d",
+                'SELECT m.* FROM %i m LEFT JOIN %i o ON o.%i = m.%i
+                 WHERE o.%i IS NULL AND m.%i > %d ORDER BY m.%i LIMIT %d',
+                $wpdb->$meta,
+                $wpdb->$owner,
+                $owner_pk,
+                $owner_col,
+                $owner_pk,
+                $pk,
                 $after,
+                $pk,
                 self::BATCH
             ), ARRAY_A);
             if (empty($rows)) {
@@ -532,68 +537,78 @@ class Db_Cleanup
         }
     }
 
-    /** Eligibility of a post for deletion: the snapshot restores everything its delete changes. */
-    private static function post_eligible(): string
-    {
-        global $wpdb;
-        return "p.post_type <> 'attachment' AND NOT EXISTS (SELECT 1 FROM {$wpdb->posts} ch WHERE ch.post_parent = p.ID AND ch.post_type <> 'revision')";
-    }
+    /*
+     * The SQL fragments below are fixed literals, so every query that uses
+     * them is visibly prepared (issue #1147): a table they name is a %i
+     * placeholder, bound by the caller, never interpolated.
+     */
 
-    /** Eligibility of a comment: no replies would be orphaned. */
-    private static function comment_eligible(): string
-    {
-        global $wpdb;
-        return "NOT EXISTS (SELECT 1 FROM {$wpdb->comments} r WHERE r.comment_parent = c.comment_ID)";
-    }
+    /** Eligibility of a post p for deletion: the snapshot restores everything its delete changes. %i: posts. */
+    private const POST_ELIGIBLE = "p.post_type <> 'attachment' AND NOT EXISTS (SELECT 1 FROM %i ch WHERE ch.post_parent = p.ID AND ch.post_type <> 'revision')";
 
-    /** @return array{0: string, 1: array} a WHERE over posts p (and its values). */
+    /** Eligibility of a comment c: no replies would be orphaned. %i: comments. */
+    private const COMMENT_ELIGIBLE = 'NOT EXISTS (SELECT 1 FROM %i r WHERE r.comment_parent = c.comment_ID)';
+
+    /** When post p was trashed, or NULL. %i: postmeta. */
+    private const POST_TRASHED_AT = "(SELECT MAX(CAST(tm.meta_value AS UNSIGNED)) FROM %i tm WHERE tm.post_id = p.ID AND tm.meta_key = '_wp_trash_meta_time')";
+
+    /** When comment c was trashed, or NULL. %i: commentmeta. */
+    private const COMMENT_TRASHED_AT = "(SELECT MAX(CAST(tm.meta_value AS UNSIGNED)) FROM %i tm WHERE tm.comment_id = c.comment_ID AND tm.meta_key = '_wp_trash_meta_time')";
+
+    /*
+     * The WHEREs over posts p and comments c, one per variant post_where()
+     * and comment_where() pick. Each caller maps the variant to its constant
+     * with a ternary, because Plugin Check cannot follow a constant array
+     * index into a query.
+     */
+    private const WHERE_AUTO_DRAFTS         = "p.post_status = 'auto-draft' AND p.post_date < %s";
+    private const WHERE_TRASH_POSTS         = "p.post_status = 'trash'";
+    private const WHERE_AGED_TRASH_POSTS    = "p.post_status = 'trash' AND IF(" . self::POST_TRASHED_AT . ' IS NULL, p.post_modified_gmt < %s, ' . self::POST_TRASHED_AT . ' < %d)';
+    private const WHERE_SPAM_COMMENTS       = "c.comment_approved = 'spam'";
+    private const WHERE_TRASH_COMMENTS      = "c.comment_approved = 'trash'";
+    private const WHERE_AGED_TRASH_COMMENTS = "c.comment_approved = 'trash' AND IF(" . self::COMMENT_TRASHED_AT . ' IS NULL, c.comment_date_gmt < %s, ' . self::COMMENT_TRASHED_AT . ' < %d)';
+
+    /** @return array{0: int, 1: array} the WHERE variant for a post segment (0 auto-drafts, 1 trash, 2 aged trash), and the values it binds. */
     private function post_where(string $segment): array
     {
         global $wpdb;
 
         if ('auto_drafts' === $segment) {
             $cutoff = gmdate('Y-m-d H:i:s', (int) strtotime(current_time('mysql')) - self::AUTO_DRAFT_DAYS * DAY_IN_SECONDS);
-            return [ "p.post_status = 'auto-draft' AND p.post_date < %s", [ $cutoff ] ];
+            return [ 0, [ $cutoff ] ];
         }
         if (0 === $this->days) {
-            return [ "p.post_status = 'trash'", [] ];
+            return [ 1, [] ];
         }
         $cutoff = time() - $this->days * DAY_IN_SECONDS;
-        $when   = "(SELECT MAX(CAST(tm.meta_value AS UNSIGNED)) FROM {$wpdb->postmeta} tm WHERE tm.post_id = p.ID AND tm.meta_key = '_wp_trash_meta_time')";
-        return [
-            "p.post_status = 'trash' AND IF({$when} IS NULL, p.post_modified_gmt < %s, {$when} < %d)",
-            [ gmdate('Y-m-d H:i:s', $cutoff), $cutoff ],
-        ];
+        return [ 2, [ $wpdb->postmeta, gmdate('Y-m-d H:i:s', $cutoff), $wpdb->postmeta, $cutoff ] ];
     }
 
-    /** @return array{0: string, 1: array} a WHERE over comments c (and its values). */
+    /** @return array{0: int, 1: array} the WHERE variant for a comment segment (0 spam, 1 trash, 2 aged trash), and the values it binds. */
     private function comment_where(string $segment): array
     {
         global $wpdb;
 
         if ('spam_comments' === $segment) {
-            return [ "c.comment_approved = 'spam'", [] ];
+            return [ 0, [] ];
         }
         if (0 === $this->days) {
-            return [ "c.comment_approved = 'trash'", [] ];
+            return [ 1, [] ];
         }
         $cutoff = time() - $this->days * DAY_IN_SECONDS;
-        $when   = "(SELECT MAX(CAST(tm.meta_value AS UNSIGNED)) FROM {$wpdb->commentmeta} tm WHERE tm.comment_id = c.comment_ID AND tm.meta_key = '_wp_trash_meta_time')";
-        return [
-            "c.comment_approved = 'trash' AND IF({$when} IS NULL, c.comment_date_gmt < %s, {$when} < %d)",
-            [ gmdate('Y-m-d H:i:s', $cutoff), $cutoff ],
-        ];
+        return [ 2, [ $wpdb->commentmeta, gmdate('Y-m-d H:i:s', $cutoff), $wpdb->commentmeta, $cutoff ] ];
     }
 
     private function post_units(string $segment, int $after): \Generator
     {
         global $wpdb;
 
-        [ $where, $values ] = $this->post_where($segment);
+        [ $variant, $values ] = $this->post_where($segment);
+        $where = (0 === $variant ? self::WHERE_AUTO_DRAFTS : (1 === $variant ? self::WHERE_TRASH_POSTS : self::WHERE_AGED_TRASH_POSTS));
         while (true) {
             $ids = $wpdb->get_col($wpdb->prepare(
-                "SELECT p.ID FROM {$wpdb->posts} p WHERE {$where} AND " . self::post_eligible() . ' AND p.ID > %d ORDER BY p.ID LIMIT %d',
-                ...array_merge($values, [ $after, self::BATCH ])
+                "SELECT p.ID FROM %i p WHERE {$where} AND " . self::POST_ELIGIBLE . ' AND p.ID > %d ORDER BY p.ID LIMIT %d',
+                ...array_merge([ $wpdb->posts ], $values, [ $wpdb->posts, $after, self::BATCH ])
             ));
             if (empty($ids)) {
                 return;
@@ -609,11 +624,12 @@ class Db_Cleanup
     {
         global $wpdb;
 
-        [ $where, $values ] = $this->comment_where($segment);
+        [ $variant, $values ] = $this->comment_where($segment);
+        $where = (0 === $variant ? self::WHERE_SPAM_COMMENTS : (1 === $variant ? self::WHERE_TRASH_COMMENTS : self::WHERE_AGED_TRASH_COMMENTS));
         while (true) {
             $ids = $wpdb->get_col($wpdb->prepare(
-                "SELECT c.comment_ID FROM {$wpdb->comments} c WHERE {$where} AND " . self::comment_eligible() . ' AND c.comment_ID > %d ORDER BY c.comment_ID LIMIT %d',
-                ...array_merge($values, [ $after, self::BATCH ])
+                "SELECT c.comment_ID FROM %i c WHERE {$where} AND " . self::COMMENT_ELIGIBLE . ' AND c.comment_ID > %d ORDER BY c.comment_ID LIMIT %d',
+                ...array_merge([ $wpdb->comments ], $values, [ $wpdb->comments, $after, self::BATCH ])
             ));
             if (empty($ids)) {
                 return;
@@ -637,25 +653,25 @@ class Db_Cleanup
     {
         global $wpdb;
 
-        $in    = implode(',', array_map('intval', $ids));
-        $posts = $wpdb->get_results(
-            $whole
-                ? "SELECT * FROM {$wpdb->posts} WHERE ID IN ({$in}) OR (post_parent IN ({$in}) AND post_type = 'revision') ORDER BY ID"
-                : "SELECT * FROM {$wpdb->posts} WHERE ID IN ({$in}) ORDER BY ID",
-            ARRAY_A
-        );
-        $all  = implode(',', array_map(static fn (array $r): int => (int) $r['ID'], (array) $posts) ?: [ 0 ]);
-        $rows = [
+        // One %d per id, bound through prepare() (issue #1147).
+        $ids   = array_map('intval', $ids);
+        $in    = implode(',', array_fill(0, count($ids), '%d'));
+        $posts = $whole
+            ? $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE ID IN ({$in}) OR (post_parent IN ({$in}) AND post_type = 'revision') ORDER BY ID", ...array_merge([ $wpdb->posts ], $ids, $ids)), ARRAY_A)
+            : $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE ID IN ({$in}) ORDER BY ID", ...array_merge([ $wpdb->posts ], $ids)), ARRAY_A);
+        $all      = array_map('intval', array_column((array) $posts, 'ID')) ?: [ 0 ];
+        $all_list = implode(',', array_fill(0, count($all), '%d'));
+        $rows     = [
             'posts'    => (array) $posts,
-            'postmeta' => (array) $wpdb->get_results("SELECT * FROM {$wpdb->postmeta} WHERE post_id IN ({$all}) ORDER BY meta_id", ARRAY_A),
+            'postmeta' => (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE post_id IN ({$all_list}) ORDER BY meta_id", ...array_merge([ $wpdb->postmeta ], $all)), ARRAY_A),
         ];
         if ($whole) {
-            $rows['term_relationships'] = (array) $wpdb->get_results(
-                "SELECT r.* FROM {$wpdb->term_relationships} r JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = r.term_taxonomy_id
-                 WHERE r.object_id IN ({$all}) AND tt.taxonomy <> 'link_category' ORDER BY r.object_id, r.term_taxonomy_id",
-                ARRAY_A
-            );
-            $comments = $wpdb->get_col("SELECT comment_ID FROM {$wpdb->comments} WHERE comment_post_ID IN ({$all})");
+            $rows['term_relationships'] = (array) $wpdb->get_results($wpdb->prepare(
+                "SELECT r.* FROM %i r JOIN %i tt ON tt.term_taxonomy_id = r.term_taxonomy_id
+                 WHERE r.object_id IN ({$all_list}) AND tt.taxonomy <> 'link_category' ORDER BY r.object_id, r.term_taxonomy_id",
+                ...array_merge([ $wpdb->term_relationships, $wpdb->term_taxonomy ], $all)
+            ), ARRAY_A);
+            $comments = $wpdb->get_col($wpdb->prepare("SELECT comment_ID FROM %i WHERE comment_post_ID IN ({$all_list})", ...array_merge([ $wpdb->comments ], $all)));
             if (! empty($comments)) {
                 $rows = array_merge($rows, $this->comment_rows(array_map('intval', $comments)));
             }
@@ -671,10 +687,11 @@ class Db_Cleanup
     {
         global $wpdb;
 
-        $in = implode(',', array_map('intval', $ids));
+        $ids = array_map('intval', $ids);
+        $in  = implode(',', array_fill(0, count($ids), '%d'));
         return array_filter([
-            'comments'    => (array) $wpdb->get_results("SELECT * FROM {$wpdb->comments} WHERE comment_ID IN ({$in}) ORDER BY comment_ID", ARRAY_A),
-            'commentmeta' => (array) $wpdb->get_results("SELECT * FROM {$wpdb->commentmeta} WHERE comment_id IN ({$in}) ORDER BY meta_id", ARRAY_A),
+            'comments'    => (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE comment_ID IN ({$in}) ORDER BY comment_ID", ...array_merge([ $wpdb->comments ], $ids)), ARRAY_A),
+            'commentmeta' => (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM %i WHERE comment_id IN ({$in}) ORDER BY meta_id", ...array_merge([ $wpdb->commentmeta ], $ids)), ARRAY_A),
         ]);
     }
 

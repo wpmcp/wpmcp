@@ -38,7 +38,7 @@ The difference: **every mutating operation takes a snapshot first.** A wrong bul
 
 = What this plugin does not do =
 
-It has no tool to read, list, search, write, edit, delete or quarantine files, run SQL or write database rows directly, search and replace across the whole site, store or create code snippets, move a site to or from another server, reinstall core files, or rewrite wp-config.php. An agent that asks for one of those tools by name is told it is not in this build.
+It has no tool to read, list, search, write, edit, delete or quarantine files, run SQL or write database rows directly, search and replace across the whole site, store or create code snippets, move a site to or from another server, restore the whole site from a backup archive, reinstall core files, or rewrite wp-config.php. An agent that asks for one of those tools by name is told it is not in this build.
 
 = Looking for more? =
 
@@ -134,7 +134,7 @@ No. Snapshots are fine-grained, per-operation undo, not full-site backups. Keep 
 
 = Where are site backup archives stored? =
 
-In wp-content/uploads/wpmcp-site-backups by default, behind a deny rule that Apache honours. On nginx and other servers that ignore .htaccess, define WPMCP_BACKUP_DIR in wp-config.php with a folder outside the web root, for example define( 'WPMCP_BACKUP_DIR', '/home/example/wpmcp-backups' ); archives then go to its wpmcp-site-backups subfolder, and archives made earlier are moved there after the next backup. When the folder is under the web root, trigger-backup and get-backup-status request a test file placed in it from this site's own URL (at most once a day) and warn on the Dashboard if the server returns it; get-backup-status reports the folder in use and the last result.
+In wp-content/uploads/wpmcp-site-backups by default, behind a deny rule that Apache honours. On nginx and other servers that ignore .htaccess, define WPMCP_BACKUP_DIR in wp-config.php with a folder outside the web root, for example define( 'WPMCP_BACKUP_DIR', '/home/example/wpmcp-backups' ); archives then go to its wpmcp-site-backups subfolder, and archives made earlier are moved there after the next backup. This build makes and manages these archives but has no tool to restore one over the site; restore an archive with your host's tools. When the folder is under the web root, trigger-backup and get-backup-status request a test file placed in it from this site's own URL (at most once a day) and warn on the Dashboard if the server returns it; get-backup-status reports the folder in use and the last result.
 
 = How is this different from the full WP MCP plugin? =
 

@@ -119,6 +119,61 @@ class WooNarrowingTest extends \WP_UnitTestCase
         }
     }
 
+    /**
+     * Issue #1147, owner decision (a): whole-site restore and the SQL
+     * importer leave the listing, taking backups does not.
+     */
+    public function test_restore_leaves_and_backup_creation_stays(): void
+    {
+        $stage      = self::stage();
+        $registered = self::registered($stage);
+
+        $this->assertNotContains('wpmcp/restore-site-backup', $registered);
+        foreach (
+            [
+                'wpmcp/trigger-backup', 'wpmcp/get-backup-status', 'wpmcp/list-backup-jobs',
+                'wpmcp/cancel-backup-job', 'wpmcp/get-backup-manifest', 'wpmcp/delete-backup-archive',
+            ] as $kept
+        ) {
+            $this->assertContains($kept, $registered, "$kept left the narrowed build");
+        }
+        foreach (['Run_Backup_Job', 'Db_Dumper', 'Site_Archive_Builder', 'Backup_Job_Store', 'Restore_Files'] as $class) {
+            $this->assertFileExists($stage . '/src/Tools/Backup/' . $class . '.php', "$class must stay");
+        }
+
+        // No shipped string sends an agent to the tool, in any spelling.
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($stage . '/src', \FilesystemIterator::SKIP_DOTS));
+        foreach ($iterator as $file) {
+            if ('php' !== $file->getExtension() || 'Not_In_Build.php' === $file->getFilename()) {
+                continue;
+            }
+            foreach (token_get_all((string) file_get_contents($file->getPathname())) as $token) {
+                if (is_array($token) && in_array($token[0], [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)) {
+                    $this->assertStringNotContainsString('restore-site-backup', $token[1], $file->getPathname() . ':' . $token[2]);
+                }
+            }
+            $this->assertSame(0, self::lint($file->getPathname()), $file->getPathname());
+        }
+
+        // The refusal names what is left out.
+        self::load_refusal();
+        $error = \WPMCP\MCP\Not_In_Build::refusal('wpmcp/restore-site-backup', ['job_id' => 1, 'dry_run' => false]);
+        $this->assertInstanceOf(\WP_Error::class, $error);
+        $this->assertSame('not_in_this_build', $error->get_error_code());
+        $this->assertStringContainsString('whole-site restore from a backup archive', $error->get_error_message());
+    }
+
+    public function test_the_guard_fails_when_the_sql_importer_comes_back(): void
+    {
+        $copy = self::copy_of_stage();
+        copy(self::repo_root() . '/src/Tools/Backup/Sql_Importer.php', $copy . '/src/Tools/Backup/Sql_Importer.php');
+
+        [$code, $output] = self::guard($copy);
+
+        $this->assertSame(1, $code, $output);
+        $this->assertStringContainsString('Sql_Importer', $output);
+    }
+
     public function test_the_guard_fails_when_a_stripped_tool_class_creeps_back(): void
     {
         $copy = self::copy_of_stage();
@@ -238,7 +293,7 @@ class WooNarrowingTest extends \WP_UnitTestCase
         $this->assertNull(\WPMCP\MCP\Not_In_Build::refusal('wpmcp/get-post'));
         $this->assertNull(\WPMCP\MCP\Not_In_Build::refusal(''));
 
-        foreach (['wpmcp/read-file', 'wpmcp/list-directory', 'wpmcp/search-files', 'wpmcp/rewrite-site-urls', 'wpmcp/find-replace-content'] as $name) {
+        foreach (['wpmcp/read-file', 'wpmcp/list-directory', 'wpmcp/search-files', 'wpmcp/rewrite-site-urls', 'wpmcp/find-replace-content', 'wpmcp/restore-site-backup'] as $name) {
             $this->assertSame('not_in_this_build', \WPMCP\MCP\Not_In_Build::refusal($name)->get_error_code(), $name);
         }
     }
