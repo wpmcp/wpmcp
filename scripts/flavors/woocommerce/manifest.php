@@ -65,6 +65,11 @@ return [
         'wpmcp/insert-row',
         'wpmcp/update-rows',
         'wpmcp/delete-rows',
+        // Whole-site restore from a backup archive replays the archive's SQL
+        // dump through Sql_Importer (owner decision (a), 20 Nov 2026, issue
+        // #1147). Taking backups stays: trigger-backup and the job tools
+        // keep working, only putting an archive back over this site goes.
+        'wpmcp/restore-site-backup',
     ],
 
     /*
@@ -154,6 +159,31 @@ return [
                     \'overwrite\'       => [ \'type\' => \'boolean\' ],
                     \'unchecked\'       => [ \'type\' => \'boolean\' ],
 ', '', 1],
+            // The restore engine leaves (issue #1147, owner decision (a), 20
+            // Nov 2026): its cron executor and the handler instance of the
+            // restore-site-backup registration removed above. prune_unused_imports()
+            // then drops the two `use` lines nothing names any more.
+            [
+                "            // The executor for a restore queued by restore-site-backup\n"
+                    . "            // (issue #727). See Run_Restore_Job's docblock.\n"
+                    . "            add_action(Run_Restore_Job::HOOK, [new Run_Restore_Job(), 'handle']);\n",
+                '',
+                1,
+            ],
+            ["        \$restore_site_backup   = new Restore_Site_Backup();\n", '', 1],
+            [
+                "     * restore-site-backup is the exception and is deliberately NOT routed\n"
+                    . "     * through Safe_Mutation either: a whole-database replace is outside the\n"
+                    . "     * per-object model Snapshot_Store captures, so a snapshot could not\n"
+                    . "     * undo it. Its rollback mechanism is the pre-restore database safety\n"
+                    . "     * archive it takes, unconditionally, before writing anything (issue\n"
+                    . "     * #190); a failed import is rolled back from that archive\n"
+                    . "     * automatically. It is registered with destructive=true and dry_run\n"
+                    . "     * defaulting to true, so an unconfirmed call only ever returns the\n"
+                    . "     * compatibility report.\n",
+                "     * This build ships no whole-site restore (issue #1147).\n",
+                1,
+            ],
         ],
         'src/Activator.php' => [
             [
@@ -425,6 +455,120 @@ return [
     }
 ', 1],
         ],
+
+        /*
+         * Issue #1147, owner decision (a), 20 Nov 2026: no restore engine
+         * ships (Restore_Site_Backup, Run_Restore_Job and the SQL importer
+         * go by path below), so no restore can run in this build. The backup
+         * code that asks about a restore keeps the same answers it gives on
+         * a site where none is running: a job of type 'restore' (only ever
+         * left behind by the full plugin) is still never run or canceled as
+         * a backup, and the restore-only signals read as "none".
+         */
+        // Restore_Site_Backup::JOB_TYPE is 'restore'.
+        'src/Tools/Backup/Run_Backup_Job.php' => [
+            ["Restore_Site_Backup::JOB_TYPE === (\$job['type'] ?? null)", "'restore' === (\$job['type'] ?? null)", 2],
+        ],
+        'src/Tools/Backup/Cancel_Backup_Job.php' => [
+            ["Restore_Site_Backup::JOB_TYPE === (\$job['type'] ?? null)", "'restore' === (\$job['type'] ?? null)", 1],
+            // Run_Restore_Job::HOOK, so a queued restore record left by the
+            // full plugin still has its event cleared.
+            ["wp_clear_scheduled_hook(Run_Restore_Job::HOOK, [\$job_id]);", "wp_clear_scheduled_hook('wpmcp_run_restore_job', [\$job_id]);", 1],
+        ],
+        // A live restore is one whose progress file is on disk; without the
+        // engine there is none to report.
+        'src/Tools/Backup/Get_Backup_Status.php' => [
+            [
+                "        \$progress = Restore_Site_Backup::progress();\n"
+                    . "        if (null === \$progress || \$job_id !== (int) (\$progress['state']['restore_job_id'] ?? 0)) {\n"
+                    . "            return null;\n"
+                    . "        }\n"
+                    . "\n"
+                    . "        // A finished record is the outcome; a leftover progress file does\n"
+                    . "        // not override it.\n"
+                    . "        \$finished = is_array(\$job) && Restore_Site_Backup::JOB_TYPE === (\$job['type'] ?? null)\n"
+                    . "            && in_array(\$job['status'] ?? null, ['completed', 'failed', 'canceled'], true);\n"
+                    . "        if (\$finished && ! \$progress['running']) {\n"
+                    . "            return null;\n"
+                    . "        }\n"
+                    . "\n"
+                    . "        \$base = is_array(\$job) && Restore_Site_Backup::JOB_TYPE === (\$job['type'] ?? null)\n"
+                    . "            ? \$job\n"
+                    . "            : [\n"
+                    . "                'id'         => \$job_id,\n"
+                    . "                'type'       => Restore_Site_Backup::JOB_TYPE,\n"
+                    . "                'scope'      => '',\n"
+                    . "                'created_at' => Backup_Job_Store::now(),\n"
+                    . "                'updated_at' => Backup_Job_Store::now(),\n"
+                    . "            ];\n"
+                    . "\n"
+                    . "        \$stopped = Restore_Site_Backup::stopped_fields(\$progress['state']);\n"
+                    . "\n"
+                    . "        if (\$progress['running']) {\n"
+                    . "            return array_merge(\$base, \$stopped, ['status' => 'running', 'error' => null]);\n"
+                    . "        }\n"
+                    . "\n"
+                    . "        return array_merge(\$base, \$stopped);\n",
+                "        // This build ships no restore engine (issue #1147), so no\n"
+                    . "        // restore progress file is ever written here.\n"
+                    . "        unset(\$job);\n"
+                    . "\n"
+                    . "        return null;\n",
+                1,
+            ],
+        ],
+        // Restore_Site_Backup::stopped_run() decides only for restore jobs;
+        // with no restore engine a leftover restore record keeps the
+        // time-based stale limit every other job has.
+        'src/Tools/Backup/Backup_Job_Store.php' => [
+            [
+                "        if (Restore_Site_Backup::JOB_TYPE !== (\$job['type'] ?? null)) {\n"
+                    . "            return null;\n"
+                    . "        }\n"
+                    . "\n"
+                    . "        return Restore_Site_Backup::stopped_run(\$job);\n",
+                "        // This build ships no restore engine (issue #1147).\n"
+                    . "        unset(\$job);\n"
+                    . "\n"
+                    . "        return null;\n",
+                1,
+            ],
+        ],
+        // Restore_Site_Backup::is_running() is false where no restore can
+        // run; the wpmcp_maintenance option still drives both.
+        'src/Maintenance/Maintenance_Guard.php' => [
+            ["use WPMCP\\Tools\\Backup\\Restore_Site_Backup;\n", '', 1],
+            [
+                "        if (! \$on && ! Restore_Site_Backup::is_running()) {\n",
+                "        if (! \$on) {\n",
+                1,
+            ],
+            [
+                " * restored site. Restore_Site_Backup::is_running() (its progress file plus\n"
+                    . " * its MySQL lock) covers that window.\n",
+                " * restored site. This build ships no restore engine (issue #1147), so\n"
+                    . " * only the option applies here.\n",
+                1,
+            ],
+        ],
+        'src/Maintenance/Site_Gate.php' => [
+            ["use WPMCP\\Tools\\Backup\\Restore_Site_Backup;\n", '', 1],
+            ["        \$restore = Restore_Site_Backup::is_running();\n", "        \$restore = false;\n", 1],
+        ],
+        // The core update's undo advice named restore-site-backup; the
+        // archive it insists on is still taken and its job id still returned.
+        'src/Tools/Packages/Manage_Updates.php' => [
+            [
+                "'Core update failed: %s. Restore backup job %d with restore-site-backup if the site is broken.',",
+                "'Core update failed: %s. Backup job %d holds the full-site archive taken first; restore it with your host\\'s tools if the site is broken.',",
+                1,
+            ],
+            [
+                "'Core changes cannot be snapshot-rolled-back. To revert, restore backup job %d with restore-site-backup (include_files).',",
+                "'Core changes cannot be snapshot-rolled-back. Backup job %d holds the full-site archive taken first; this build cannot restore it.',",
+                1,
+            ],
+        ],
     ],
 
     'removed_paths' => [
@@ -494,5 +638,21 @@ return [
         // The cloud announcements feed and the cloud client (decision D4).
         'src/Admin/Announcements.php',
         'src/Cloud',
+        // Whole-site restore and the SQL importer it replays a dump through
+        // (issue #1147, owner decision (a), 20 Nov 2026). Restore_Session and
+        // Restore_Logs serve only the restore; Sql_Import_Policy and
+        // Sql_Statement_Reader serve only the importer. Safety_Archive's
+        // callers (the migration tools) left in #1140, and its one message
+        // pointed at restore-site-backup. Restore_Files, Restore_Maintenance
+        // and Url_Rewriter stay: the archive builder, the data registry and
+        // the maintenance guard use them.
+        'src/Tools/Backup/Restore_Site_Backup.php',
+        'src/Tools/Backup/Run_Restore_Job.php',
+        'src/Tools/Backup/Restore_Session.php',
+        'src/Tools/Backup/Restore_Logs.php',
+        'src/Tools/Backup/Sql_Importer.php',
+        'src/Tools/Backup/Sql_Import_Policy.php',
+        'src/Tools/Backup/Sql_Statement_Reader.php',
+        'src/Tools/Backup/Safety_Archive.php',
     ],
 ];

@@ -61,6 +61,7 @@ return [
         'wpmcp/create-code-snippet'    => 'code snippet creation',
         'wpmcp/push-site-archive'      => 'site migration',
         'wpmcp/receive-site-archive'   => 'site migration',
+        'wpmcp/restore-site-backup'    => 'whole-site restore from a backup archive',
     ],
 
     'classes' => [
@@ -104,6 +105,16 @@ return [
         'WPMCP\\Cloud\\Gateway_Consent',
         'WPMCP\\Cloud\\Token_Refresher',
         'WPMCP\\Cloud\\Settings_Sync',
+        // Whole-site restore and the SQL importer (issue #1147, owner
+        // decision (a), 20 Nov 2026).
+        'WPMCP\\Tools\\Backup\\Restore_Site_Backup',
+        'WPMCP\\Tools\\Backup\\Run_Restore_Job',
+        'WPMCP\\Tools\\Backup\\Restore_Session',
+        'WPMCP\\Tools\\Backup\\Restore_Logs',
+        'WPMCP\\Tools\\Backup\\Sql_Importer',
+        'WPMCP\\Tools\\Backup\\Sql_Import_Policy',
+        'WPMCP\\Tools\\Backup\\Sql_Statement_Reader',
+        'WPMCP\\Tools\\Backup\\Safety_Archive',
     ],
 
     'paths' => [

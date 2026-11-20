@@ -48,6 +48,7 @@ final class Not_In_Build
         'wpmcp/create-code-snippet'    => 'code snippet creation',
         'wpmcp/push-site-archive'      => 'site migration',
         'wpmcp/receive-site-archive'   => 'site migration',
+        'wpmcp/restore-site-backup'    => 'whole-site restore from a backup archive',
     ];
 
     /** ability name => [action => what it is] for actions a kept tool loses */
