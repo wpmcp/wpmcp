@@ -66,7 +66,7 @@ class WooNarrowingTest extends \WP_UnitTestCase
             [
                 'wpmcp/rollback-operation', 'wpmcp/rollback-session', 'wpmcp/list-operations',
                 'wpmcp/create-post', 'wpmcp/update-post', 'wpmcp/upload-media',
-                'wpmcp/list-tables', 'wpmcp/describe-table', 'wpmcp/read-file',
+                'wpmcp/list-tables', 'wpmcp/describe-table', 'wpmcp/scan-security',
                 'wpmcp/incident-response',
             ] as $kept
         ) {
@@ -91,13 +91,32 @@ class WooNarrowingTest extends \WP_UnitTestCase
         }
     }
 
-    public function test_rotate_salts_leaves_incident_response(): void
+    public function test_incident_response_keeps_only_its_credential_and_session_actions(): void
     {
         $source = (string) file_get_contents(self::stage() . '/src/Tools/Security/Incident_Response.php');
 
-        $this->assertStringNotContainsString('rotate-salts', $source);
-        $this->assertStringNotContainsString('Salt_Rotator', $source);
-        $this->assertStringContainsString("'quarantine-file',", $source, 'the other incident-response actions must stay');
+        foreach (array_keys(self::narrowed()['actions']['wpmcp/incident-response']) as $action) {
+            $this->assertStringNotContainsString("'$action'", $source);
+        }
+        foreach (['Salt_Rotator', 'Core_File_Repair', 'File_Quarantine'] as $class) {
+            $this->assertStringNotContainsString($class, $source);
+        }
+        foreach (['list-app-passwords', 'revoke-app-password', 'list-sessions', 'end-sessions'] as $kept) {
+            $this->assertStringContainsString("'$kept',", $source, "$kept must stay");
+        }
+        $this->assertSame(0, self::lint(self::stage() . '/src/Tools/Security/Incident_Response.php'));
+    }
+
+    public function test_the_security_scan_hints_name_no_stripped_tool(): void
+    {
+        foreach (['Compromise_Audit.php', 'Malware_Audit.php'] as $file) {
+            $source = (string) file_get_contents(self::stage() . '/src/Tools/Security/' . $file);
+            foreach (['read-file', 'search-files', 'delete-file', 'quarantine-file', 'search-content'] as $tool) {
+                $this->assertStringNotContainsString("$tool'", $source, "$file still points at $tool");
+                $this->assertStringNotContainsString("with $tool", $source, "$file still points at $tool");
+            }
+            $this->assertSame(0, self::lint(self::stage() . '/src/Tools/Security/' . $file));
+        }
     }
 
     public function test_the_guard_fails_when_a_stripped_tool_class_creeps_back(): void
@@ -184,6 +203,20 @@ class WooNarrowingTest extends \WP_UnitTestCase
         $this->assertStringContainsString('wpmcp/query', $output);
     }
 
+    public function test_the_guard_fails_when_a_refused_action_drifts_from_the_list(): void
+    {
+        $copy    = self::copy_of_stage();
+        $refusal = $copy . '/src/MCP/Not_In_Build.php';
+        $source  = (string) file_get_contents($refusal);
+        $this->assertSame(1, substr_count($source, "            'quarantine-file'"), 'could not find the entry to drop');
+        file_put_contents($refusal, preg_replace("/\n            'quarantine-file'[^\n]*/", '', $source));
+
+        [$code, $output] = self::guard($copy);
+
+        $this->assertSame(1, $code, $output);
+        $this->assertStringContainsString('wpmcp/incident-response quarantine-file', $output);
+    }
+
     public function test_a_stripped_tool_called_by_name_gets_the_build_refusal(): void
     {
         self::load_refusal();
@@ -204,6 +237,35 @@ class WooNarrowingTest extends \WP_UnitTestCase
 
         $this->assertNull(\WPMCP\MCP\Not_In_Build::refusal('wpmcp/get-post'));
         $this->assertNull(\WPMCP\MCP\Not_In_Build::refusal(''));
+
+        foreach (['wpmcp/read-file', 'wpmcp/list-directory', 'wpmcp/search-files', 'wpmcp/rewrite-site-urls', 'wpmcp/find-replace-content'] as $name) {
+            $this->assertSame('not_in_this_build', \WPMCP\MCP\Not_In_Build::refusal($name)->get_error_code(), $name);
+        }
+    }
+
+    public function test_a_stripped_action_of_a_kept_tool_gets_the_build_refusal(): void
+    {
+        self::load_refusal();
+        $tool = \WPMCP\MCP\Stdio_Transport::tool_name('wpmcp/incident-response');
+
+        foreach (['rotate-salts', 'quarantine-file', 'reinstall-core-files', 'restore-quarantined-file'] as $action) {
+            $error = \WPMCP\MCP\Not_In_Build::refusal($tool, ['action' => $action, 'confirm' => true]);
+            $this->assertInstanceOf(\WP_Error::class, $error, $action);
+            $this->assertSame('not_in_this_build', $error->get_error_code());
+            $this->assertStringContainsString('"' . $action . '" action', $error->get_error_message());
+        }
+        $this->assertStringContainsString(
+            'wp-config.php',
+            \WPMCP\MCP\Not_In_Build::refusal('wpmcp/incident-response', ['action' => 'rotate-salts'])->get_error_message()
+        );
+        // The actions it keeps, and a call with no action, pass through.
+        $this->assertNull(\WPMCP\MCP\Not_In_Build::refusal($tool, ['action' => 'list-sessions']));
+        $this->assertNull(\WPMCP\MCP\Not_In_Build::refusal($tool));
+        $this->assertNull(\WPMCP\MCP\Not_In_Build::for_message(['method' => 'tools/list']));
+        $this->assertInstanceOf(
+            \WP_Error::class,
+            \WPMCP\MCP\Not_In_Build::for_message(['method' => 'tools/call', 'params' => ['name' => $tool, 'arguments' => ['action' => 'rotate-salts']]])
+        );
     }
 
     public function test_both_transports_answer_with_the_build_refusal(): void
@@ -211,11 +273,11 @@ class WooNarrowingTest extends \WP_UnitTestCase
         $stage = self::stage();
 
         $this->assertStringContainsString(
-            'Not_In_Build::refusal($name) ?? ',
+            '$not_in_build = Not_In_Build::for_message($message);',
             (string) file_get_contents($stage . '/src/MCP/Hidden_Tool_Refusal.php')
         );
         $this->assertStringContainsString(
-            'Not_In_Build::refusal($tool_name) ?? ',
+            '$not_in_build = Not_In_Build::refusal($tool_name, ',
             (string) file_get_contents($stage . '/src/MCP/Stdio_Transport.php')
         );
     }
@@ -239,7 +301,7 @@ class WooNarrowingTest extends \WP_UnitTestCase
 
     // ---------------------------------------------------------- helpers
 
-    /** @return array{abilities: array<string,string>, classes: string[], paths: string[], methods: string[], literals: string[]} */
+    /** @return array{abilities: array<string,string>, classes: string[], paths: string[], methods: string[], actions: array<string,array<string,string>>} */
     private static function narrowed(): array
     {
         return require self::repo_root() . '/' . self::NARROWED;
@@ -261,6 +323,15 @@ class WooNarrowingTest extends \WP_UnitTestCase
         }
 
         return array_keys($names);
+    }
+
+    private static function lint(string $file): int
+    {
+        $output = [];
+        $code   = 1;
+        exec(escapeshellarg(PHP_BINARY) . ' -l ' . escapeshellarg($file) . ' 2>&1', $output, $code);
+
+        return $code;
     }
 
     /** @return array{0:int,1:string} exit code and combined output */
@@ -299,7 +370,7 @@ class WooNarrowingTest extends \WP_UnitTestCase
         $root   = self::repo_root();
         $flavor = $root . '/scripts/flavors/woocommerce';
         $parent = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-woo-narrow-' . uniqid('', true);
-        $stage  = $parent . '/wp-mcp-for-woocommerce';
+        $stage  = $parent . '/safe-mcp-for-woocommerce';
         if (! mkdir($stage, 0777, true)) {
             self::fail('could not create the staging directory');
         }
@@ -307,7 +378,7 @@ class WooNarrowingTest extends \WP_UnitTestCase
             copy($root . '/' . $file, $stage . '/' . $file);
         }
         self::copy_tree($root . '/src', $stage . '/src');
-        foreach (['wp-mcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
+        foreach (['safe-mcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
             file_put_contents(
                 $stage . '/' . $rendered,
                 str_replace('{{VERSION}}', '0.0.0-test', (string) file_get_contents($flavor . '/' . $rendered))

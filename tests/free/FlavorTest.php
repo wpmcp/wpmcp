@@ -282,9 +282,9 @@ class FlavorTest extends \WP_UnitTestCase
 
         try {
             $needed = [];
-            // Registrations the manifest deletes by name (issue #1140) never
-            // reach the zip, so their pruned handlers are not a divergence.
-            $removed = (require $root . '/scripts/flavors/woocommerce/manifest.php')['removed_abilities'];
+            // Registrations the narrowing deletes (issue #1140) never reach
+            // the zip, so their pruned handlers are not a divergence.
+            $removed = array_keys((require $root . '/scripts/flavors/woocommerce/narrowed.php')['abilities']);
             foreach ($this->registered_names('woocommerce') as $name) {
                 if (in_array($name, $removed, true)) {
                     continue;
@@ -345,10 +345,10 @@ class FlavorTest extends \WP_UnitTestCase
     private function stripped_woo_src(): string
     {
         $root  = dirname(__DIR__, 2);
-        $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-woo-prune-' . uniqid('', true) . '/wp-mcp-for-woocommerce';
+        $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-woo-prune-' . uniqid('', true) . '/safe-mcp-for-woocommerce';
         $this->assertTrue(mkdir($stage, 0777, true), 'could not create the staging directory');
         $this->copy_tree($root . '/src', $stage . '/src');
-        foreach (['wp-mcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
+        foreach (['safe-mcp-for-woocommerce.php', 'readme.txt'] as $rendered) {
             file_put_contents(
                 $stage . '/' . $rendered,
                 str_replace('{{VERSION}}', '0.0.0', (string) file_get_contents($root . '/scripts/flavors/woocommerce/' . $rendered))

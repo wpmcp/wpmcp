@@ -86,7 +86,7 @@ class FlavorGuardTest extends \WP_UnitTestCase
     }
 
     /**
-     * Issue #1140: the wp.org vertical ships as wp-mcp-for-woocommerce/,
+     * Issue #1140: the wp.org vertical ships as safe-mcp-for-woocommerce/,
      * whose main file is not named wpmcp*.php. The guard filters only the
      * other active plugins on that prefix, so the vertical still finds and
      * defers to the full plugin, and the full plugin, which never defers to
@@ -94,9 +94,9 @@ class FlavorGuardTest extends \WP_UnitTestCase
      */
     public function test_the_wporg_slug_vertical_defers_to_the_full_plugin_and_the_full_plugin_boots(): void
     {
-        $self = $this->install('wp-mcp-for-woocommerce/wp-mcp-for-woocommerce.php', self::WOO);
+        $self = $this->install('safe-mcp-for-woocommerce/safe-mcp-for-woocommerce.php', self::WOO);
         $full = $this->install('wpmcp/wpmcp.php', self::FULL);
-        update_option('active_plugins', ['wp-mcp-for-woocommerce/wp-mcp-for-woocommerce.php', 'wpmcp/wpmcp.php']);
+        update_option('active_plugins', ['safe-mcp-for-woocommerce/safe-mcp-for-woocommerce.php', 'wpmcp/wpmcp.php']);
 
         $this->assertTrue(wpmcp_flavor_should_defer($self, self::WOO, false));
         $this->assertFalse(wpmcp_flavor_should_defer($full, self::FULL, false));
@@ -244,7 +244,7 @@ class FlavorGuardTest extends \WP_UnitTestCase
         $files = [
             $root . '/wpmcp.php'                                                => self::FULL,
             $root . '/scripts/flavors/wporg/wpmcp.php'                          => self::WPORG,
-            $root . '/scripts/flavors/woocommerce/wp-mcp-for-woocommerce.php'   => self::WOO,
+            $root . '/scripts/flavors/woocommerce/safe-mcp-for-woocommerce.php'   => self::WOO,
         ];
 
         foreach ($files as $file => $expected_flavor) {

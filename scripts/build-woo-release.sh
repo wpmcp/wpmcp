@@ -32,13 +32,14 @@ VERSION="$(sed -n "s/^define( 'WPMCP_VERSION', '\([0-9.]*\)' );/\1/p" "$ROOT/wpm
 [ -n "$VERSION" ] || { echo "could not read WPMCP_VERSION from wpmcp.php" >&2; exit 1; }
 
 # The wp.org slug, and so the zip's directory, the main file and the i18n
-# text domain (issue #1140: "wpmcp-for-woocommerce" was never submitted, and
-# "mcp-for-woocommerce" belongs to another author). The compliance engine
+# text domain (issue #1140, owner decision 20 Nov 2026: "Safe MCP for
+# WooCommerce"; "mcp-for-woocommerce" belongs to another author, and a "wp"
+# prefix draws Plugin Check's trademarked_term warning). The compliance engine
 # derives the slug from the main file's name, as wp.org's text-domain check
 # expects them to agree. src/flavor-guard.php reads only main files named
 # wpmcp*.php, so a full or directory build never reads this one; that is
 # harmless, because a higher-ranked build never defers to this flavor.
-SLUG="wp-mcp-for-woocommerce"
+SLUG="safe-mcp-for-woocommerce"
 MAIN="$SLUG.php"
 STAGE_PARENT="$(mktemp -d)"
 STAGE="$STAGE_PARENT/$SLUG"

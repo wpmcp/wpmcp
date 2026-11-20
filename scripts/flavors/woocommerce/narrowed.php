@@ -27,9 +27,10 @@
  *              referenced anywhere in the staged tree.
  *   paths      staged paths that must not exist.
  *   methods    'Class::method' pairs that must not be declared.
- *   literals   PHP string literals that must not appear in shipped code (an
- *              action of a kept ability, which has no class or name of its
- *              own to check).
+ *   actions    ability name => [action => category] for actions a kept
+ *              ability loses. Each action name must not appear as a PHP
+ *              string literal or in a shipped document, and the refusal's
+ *              ACTIONS must match.
  */
 
 declare(strict_types=1);
@@ -39,10 +40,15 @@ return [
         'wpmcp/write-file'             => 'file writes',
         'wpmcp/edit-file'              => 'file writes',
         'wpmcp/delete-file'            => 'file writes',
+        'wpmcp/read-file'              => 'file access',
+        'wpmcp/list-directory'         => 'file access',
+        'wpmcp/search-files'           => 'file access',
         'wpmcp/query'                  => 'raw SQL',
         'wpmcp/insert-row'             => 'database writes',
         'wpmcp/update-rows'            => 'database writes',
         'wpmcp/delete-rows'            => 'database writes',
+        'wpmcp/rewrite-site-urls'      => 'site-wide search and replace',
+        'wpmcp/find-replace-content'   => 'site-wide search and replace',
         'wpmcp/create-php-snippet'     => 'the PHP snippet store',
         'wpmcp/list-php-snippets'      => 'the PHP snippet store',
         'wpmcp/get-php-snippet'        => 'the PHP snippet store',
@@ -61,6 +67,9 @@ return [
         'WPMCP\\Tools\\Filesystem\\Write_File',
         'WPMCP\\Tools\\Filesystem\\Edit_File',
         'WPMCP\\Tools\\Filesystem\\Delete_File',
+        'WPMCP\\Tools\\Filesystem\\Read_File',
+        'WPMCP\\Tools\\Filesystem\\List_Directory',
+        'WPMCP\\Tools\\Filesystem\\Search_Files',
         'WPMCP\\Tools\\Database\\Query',
         'WPMCP\\Tools\\Database\\Insert_Row',
         'WPMCP\\Tools\\Database\\Update_Rows',
@@ -82,7 +91,11 @@ return [
         'WPMCP\\Tools\\Migration\\Incoming_Archive_Store',
         'WPMCP\\Tools\\Migration\\Migration_Target_Client',
         'WPMCP\\Tools\\Migration\\Migration_Guard',
+        'WPMCP\\Tools\\Migration\\Rewrite_Site_Urls',
+        'WPMCP\\Tools\\Migration\\Find_Replace_Content',
         'WPMCP\\Tools\\Security\\Salt_Rotator',
+        'WPMCP\\Tools\\Security\\Core_File_Repair',
+        'WPMCP\\Tools\\Security\\File_Quarantine',
         'WPMCP\\Admin\\Announcements',
         'WPMCP\\Cloud\\Cloud_Client',
         'WPMCP\\Cloud\\Cloud_Config',
@@ -94,6 +107,7 @@ return [
     ],
 
     'paths' => [
+        'src/Tools/Migration',
         'src/Cloud',
         'src/Admin/Announcements.php',
         'src/Skills/library/wpmcp-safe-database-work',
@@ -101,10 +115,18 @@ return [
 
     'methods' => [
         'WPMCP\\Tools\\Security\\Incident_Response::rotate_salts',
+        'WPMCP\\Tools\\Security\\Incident_Response::reinstall_core_files',
+        'WPMCP\\Tools\\Security\\Incident_Response::quarantine_action',
     ],
 
-    'literals' => [
-        // incident-response's wp-config.php salt rotation.
-        'rotate-salts',
+    'actions' => [
+        'wpmcp/incident-response' => [
+            'rotate-salts'             => 'salt rotation (it rewrites wp-config.php)',
+            'reinstall-core-files'     => 'file changes',
+            'quarantine-file'          => 'file changes',
+            'list-quarantine'          => 'file changes',
+            'restore-quarantined-file' => 'file changes',
+            'purge-quarantined-file'   => 'file changes',
+        ],
     ],
 ];

@@ -191,7 +191,7 @@ class FlavorBuildBlockersTest extends Compliance_Test_Case
             exec(
                 escapeshellarg(PHP_BINARY) . ' '
                     . escapeshellarg(self::repo_root() . '/scripts/flavors/woocommerce/text-domain.php') . ' '
-                    . escapeshellarg($stage) . ' wp-mcp-for-woocommerce 2>&1',
+                    . escapeshellarg($stage) . ' safe-mcp-for-woocommerce 2>&1',
                 $output,
                 $code
             );
@@ -212,8 +212,8 @@ class FlavorBuildBlockersTest extends Compliance_Test_Case
     {
         $root  = self::repo_root();
         // The vertical's directory and main file carry its wp.org slug (#1140).
-        $slug  = 'woocommerce' === $flavor ? 'wp-mcp-for-woocommerce' : 'wpmcp';
-        $main  = 'woocommerce' === $flavor ? 'wp-mcp-for-woocommerce.php' : 'wpmcp.php';
+        $slug  = 'woocommerce' === $flavor ? 'safe-mcp-for-woocommerce' : 'wpmcp';
+        $main  = 'woocommerce' === $flavor ? 'safe-mcp-for-woocommerce.php' : 'wpmcp.php';
         $stage = rtrim(sys_get_temp_dir(), '/') . '/wpmcp-flavor-' . $flavor . '-' . uniqid('', true) . '/' . $slug;
         if (! mkdir($stage, 0777, true)) {
             self::fail('could not create the staging directory');

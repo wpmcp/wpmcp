@@ -36,6 +36,10 @@ return [
         // Reached only from register_code_abilities() and from each other.
         'register_snippet_store_abilities',
         'register_bundle_abilities',
+        // Site migration and site-wide search and replace: every ability in
+        // the 'migration' group leaves (owner decision, 20 Nov 2026). Its
+        // $groups entry is edited out below.
+        'register_migration_abilities',
     ],
 
     /*
@@ -48,24 +52,26 @@ return [
      * narrowed.php is the gate's independent list of what must not ship.
      */
     'removed_abilities' => [
-        // File writes. read-file, list-directory and search-files stay.
+        // File writes, and the read-only file tools too (owner decision,
+        // 20 Nov 2026: the FAQ names file managers).
         'wpmcp/write-file',
         'wpmcp/edit-file',
         'wpmcp/delete-file',
+        'wpmcp/read-file',
+        'wpmcp/list-directory',
+        'wpmcp/search-files',
         // Raw SQL and DB writes. list-tables and describe-table stay.
         'wpmcp/query',
         'wpmcp/insert-row',
         'wpmcp/update-rows',
         'wpmcp/delete-rows',
-        // Site migration: accepting or sending a whole-site archive.
-        'wpmcp/push-site-archive',
-        'wpmcp/receive-site-archive',
     ],
 
     /*
-     * A direct call to a stripped tool is told it is not in this build
-     * rather than "Tool not found" (src/MCP/Not_In_Build.php, wired into
-     * both transports below).
+     * A direct call to a stripped tool, or to a stripped action of a kept
+     * one, is told it is not in this build rather than "Tool not found" or
+     * the input schema's "is not one of" (src/MCP/Not_In_Build.php, consulted
+     * first by both transports below).
      */
     'added_files' => [
         'src/MCP/Not_In_Build.php' => 'overlay/Not_In_Build.php',
@@ -74,15 +80,23 @@ return [
     'edits' => [
         'src/MCP/Hidden_Tool_Refusal.php' => [
             [
-                '        $error     = Plugin::instance()->registrar()->plugin_inactive_for_tool($name, $arguments);',
-                '        $error     = Not_In_Build::refusal($name) ?? Plugin::instance()->registrar()->plugin_inactive_for_tool($name, $arguments);',
+                "    private static function rewrite(array \$message, array \$answer): array\n    {\n",
+                "    private static function rewrite(array \$message, array \$answer): array\n    {\n"
+                    . "        \$not_in_build = Not_In_Build::for_message(\$message);\n"
+                    . "        if (null !== \$not_in_build) {\n"
+                    . "            return [ 'jsonrpc' => '2.0', 'id' => \$answer['id'] ?? null, 'result' => self::result(\$not_in_build) ];\n"
+                    . "        }\n",
                 1,
             ],
         ],
         'src/MCP/Stdio_Transport.php' => [
             [
-                '                $inactive  = \WPMCP\Plugin::instance()->registrar()->plugin_inactive_for_tool($tool_name, $arguments);',
-                '                $inactive  = Not_In_Build::refusal($tool_name) ?? \WPMCP\Plugin::instance()->registrar()->plugin_inactive_for_tool($tool_name, $arguments);',
+                "        \$ability_name = self::ability_for_tool(\$tool_name);\n",
+                "        \$ability_name = self::ability_for_tool(\$tool_name);\n"
+                    . "        \$not_in_build = Not_In_Build::refusal(\$tool_name, is_array(\$params['arguments'] ?? null) ? \$params['arguments'] : []);\n"
+                    . "        if (null !== \$not_in_build) {\n"
+                    . "            return self::result_response(\$id, Hidden_Tool_Refusal::result(\$not_in_build));\n"
+                    . "        }\n",
                 1,
             ],
         ],
@@ -99,6 +113,7 @@ return [
                 1,
             ],
             ["            'code'           => fn () => \$this->register_code_abilities(\$registrar),\n", '', 1],
+            ["            'migration'      => fn () => \$this->register_migration_abilities(\$registrar),\n", '', 1],
             // The handler instances of the registrations removed above.
             [
                 "        \$query          = new Query();\n"
@@ -109,15 +124,12 @@ return [
                 1,
             ],
             [
-                "        \$write_file     = new Write_File();\n"
+                "        \$read_file      = new Read_File();\n"
+                    . "        \$list_directory = new List_Directory();\n"
+                    . "        \$search_files   = new Search_Files();\n"
+                    . "        \$write_file     = new Write_File();\n"
                     . "        \$edit_file      = new Edit_File();\n"
                     . "        \$delete_file    = new Delete_File();\n",
-                '',
-                1,
-            ],
-            [
-                "        \$push_site_archive    = new Push_Site_Archive();\n"
-                    . "        \$receive_site_archive = new Receive_Site_Archive();\n",
                 '',
                 1,
             ],
@@ -142,19 +154,17 @@ return [
                 '',
                 1,
             ],
-            // rotate-salts writes wp-config.php; the action leaves
-            // incident-response (Incident_Response.php below), so its
-            // description stops offering it.
-            [
-                "end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files",
-                'end-sessions (user_id or all); reinstall-core-files',
-                1,
-            ],
-            [
-                'Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords).',
-                'Cannot be undone: revoke, end-sessions.',
-                1,
-            ],
+            // incident-response keeps its credential and session actions
+            // (Incident_Response.php below), so its description and schema
+            // stop offering the file and salt actions.
+            ['\'list-app-passwords (no secrets); revoke-app-password (uuid or all); list-sessions (one user, masked, no tokens); end-sessions (user_id or all); rotate-salts (wp-config.php, backup kept; refused if unwritable or defined elsewhere); reinstall-core-files (files scan-security flags, from the checksum-verified official package, never wp-content; undo: rollback-operation); quarantine-file (path, reason: moves it to a private folder; not core, wp-config or WP MCP files; undo: rollback-operation); list-quarantine; restore-quarantined-file (id, overwrite); purge-quarantined-file (id). Quarantine needs the wpmcp_enable_fs_writes opt-in. Writes need confirm:true. Cannot be undone: revoke, end-sessions, rotate-salts (logs out everyone, your cookie session too, not app passwords). Your session and app password stay unless include_current. Other users take edit_users\',', '\'list-app-passwords (no secrets); revoke-app-password (uuid or all); list-sessions (one user, masked, no tokens); end-sessions (user_id or all). Writes need confirm:true and cannot be undone. Your session and app password stay unless include_current. Other users take edit_users\',', 1],
+            ['                    \'paths\'           => [ \'type\' => \'array\', \'items\' => [ \'type\' => \'string\' ] ],
+                    \'path\'            => [ \'type\' => \'string\' ],
+                    \'reason\'          => [ \'type\' => \'string\' ],
+                    \'id\'              => [ \'type\' => \'string\' ],
+                    \'overwrite\'       => [ \'type\' => \'boolean\' ],
+                    \'unchecked\'       => [ \'type\' => \'boolean\' ],
+', '', 1],
         ],
         'src/Activator.php' => [
             [
@@ -216,21 +226,22 @@ return [
                 1,
             ],
         ],
-        // Quarantine stays and keeps the same fs-writes opt-in, read from
-        // the filter directly now that Delete_File is not in the zip.
-        'src/Tools/Security/File_Quarantine.php' => [
-            [
-                "        if (! Delete_File::is_enabled()) {\n",
-                "        if (! (bool) apply_filters('wpmcp_enable_fs_writes', false)) {\n",
-                1,
-            ],
-        ],
-        // scan-security's compromise checks pointed at delete-file. The
-        // file-removal path this build keeps is incident-response
-        // quarantine-file, which is undoable the same way.
+        // scan-security's compromise checks pointed at read-file,
+        // search-files and delete-file. None ships here, so the hints point
+        // at the site's own file access (SFTP or the host's file manager)
+        // and the next_step keys naming those tools go.
         'src/Tools/Security/Compromise_Audit.php' => [
-            ['with delete-file (undoable)', 'with incident-response quarantine-file (undoable)', 6],
-            ["'next_step' => 'wpmcp/delete-file'", "'next_step' => 'wpmcp/incident-response'", 2],
+            [", 'next_step' => 'wpmcp/read-file']", ']', 5],
+            [", 'next_step' => 'wpmcp/search-files']", ']', 2],
+            [", 'next_step' => 'wpmcp/delete-file']", ']', 2],
+            ['Read the file with read-file. If it is not yours, remove it with delete-file (undoable), remove the hook', 'Inspect the file over SFTP or in your hosting file manager. If it is not yours, remove it there, remove the hook', 1],
+            ['Read it with read-file. If your host or a plugin you trust did not put it there, remove it with delete-file (undoable).', 'Inspect it over SFTP or in your hosting file manager. If your host or a plugin you trust did not put it there, remove it there.', 1],
+            ['Read each with read-file and remove any you do not recognise with delete-file (undoable).', 'Inspect each over SFTP or in your hosting file manager and remove any you do not recognise.', 1],
+            ['and inspect the other with search-files and read-file.', 'and inspect the other over SFTP or in your hosting file manager.', 1],
+            ['Read it with read-file and remove it with delete-file (undoable) unless you know what it is.', 'Inspect it over SFTP or in your hosting file manager and remove it unless you know what it is.', 1],
+            ['or remove it with delete-file (undoable)', 'or remove it over SFTP or in your hosting file manager', 2],
+            ['Read each with read-file and compare it with a fresh copy of its plugin or theme.', 'Compare each, over SFTP or in your hosting file manager, with a fresh copy of its plugin or theme.', 1],
+            ['for the spam domain with search-files and search-content, remove', 'for the spam domain over SFTP or in your hosting file manager, remove', 1],
         ],
         // The bundled playbooks may not name a tool this build lacks.
         'src/Skills/library/wpmcp-governance/SKILL.md' => [
@@ -253,60 +264,177 @@ return [
                 1,
             ],
         ],
-        // rotate-salts leaves incident-response with Salt_Rotator.
+        // incident-response keeps its credential and session actions only;
+        // salt rotation, core-file reinstall and the quarantine family leave
+        // with Salt_Rotator, Core_File_Repair and File_Quarantine.
         'src/Tools/Security/Incident_Response.php' => [
-            [" *  - rotate-salts: Salt_Rotator.\n", '', 1],
-            [
-                " * and sessions take core's own meta capabilities (edit_user), salts take\n"
-                    . " * manage_network_options on multisite, core files take update_core, and both\n",
-                " * and sessions take core's own meta capabilities (edit_user), core files\n"
-                    . " * take update_core, and both\n",
-                1,
-            ],
-            [
-                " * revoke-all or end-sessions unless include_current:true. Salt rotation cannot\n"
-                    . " * spare anyone: it invalidates every cookie session, the caller's included,\n"
-                    . " * but never an application password.\n",
-                " * revoke-all or end-sessions unless include_current:true.\n",
-                1,
-            ],
-            ["        'rotate-salts',\n", '', 1],
-            ["    private ?Salt_Rotator \$salts;\n", '', 1],
-            [
-                "    public function __construct(?Salt_Rotator \$salts = null, ?Core_File_Repair \$core = null, ?File_Quarantine \$quarantine = null)\n"
-                    . "    {\n"
-                    . "        \$this->salts      = \$salts;\n",
-                "    public function __construct(?Core_File_Repair \$core = null, ?File_Quarantine \$quarantine = null)\n"
-                    . "    {\n",
-                1,
-            ],
-            [
-                "                case 'rotate-salts':\n"
-                    . "                    return \$this->rotate_salts();\n",
-                '',
-                1,
-            ],
-            [
-                "    private function rotate_salts(): array\n"
-                    . "    {\n"
-                    . "        if (! current_user_can(is_multisite() ? 'manage_network_options' : 'manage_options')) {\n"
-                    . "            throw new \\RuntimeException('Rotating the salts takes manage_options (manage_network_options on multisite).');\n"
-                    . "        }\n"
-                    . "        \$this->require_file_mods();\n"
-                    . "\n"
-                    . "        \$result = (\$this->salts ?? new Salt_Rotator())->rotate();\n"
-                    . "\n"
-                    . "        Governance_Audit_Log::record_quietly(self::ABILITY, true, 'rotate-salts:rotated=' . count(\$result['rotated']));\n"
-                    . "\n"
-                    . "        return \$result + [\n"
-                    . "            'recoverable' => false,\n"
-                    . "            'note'        => 'Every login session is now invalid, yours included; application passwords still work. The previous wp-config.php is kept as the backup file next to it.',\n"
-                    . "        ];\n"
-                    . "    }\n"
-                    . "\n",
-                '',
-                1,
-            ],
+            [' *  - rotate-salts: Salt_Rotator.
+ *  - reinstall-core-files: Core_File_Repair.
+ *  - quarantine-file, list-quarantine, restore-quarantined-file,
+ *    purge-quarantined-file: File_Quarantine (issue #844), behind the
+ *    wpmcp_enable_fs_writes opt-in like the other file-changing tools.
+', '', 1],
+            [' * and sessions take core\'s own meta capabilities (edit_user), salts take
+ * manage_network_options on multisite, core files take update_core, and both
+ * file writes honor DISALLOW_FILE_MODS.
+', ' * and sessions take core\'s own meta capabilities (edit_user).
+', 1],
+            [' * revoke-all or end-sessions unless include_current:true. Salt rotation cannot
+ * spare anyone: it invalidates every cookie session, the caller\'s included,
+ * but never an application password.
+', ' * revoke-all or end-sessions unless include_current:true.
+', 1],
+            ['        \'rotate-salts\',
+        \'reinstall-core-files\',
+        \'quarantine-file\',
+        \'list-quarantine\',
+        \'restore-quarantined-file\',
+        \'purge-quarantined-file\',
+', '', 1],
+            ['    private ?Salt_Rotator $salts;
+    private ?Core_File_Repair $core;
+    private ?File_Quarantine $quarantine;
+
+    public function __construct(?Salt_Rotator $salts = null, ?Core_File_Repair $core = null, ?File_Quarantine $quarantine = null)
+    {
+        $this->salts      = $salts;
+        $this->core       = $core;
+        $this->quarantine = $quarantine;
+    }
+
+', '', 1],
+            ['        if (\'list-quarantine\' === $action) {
+            $result = $this->quarantine()->list();
+            Governance_Audit_Log::record_quietly(self::ABILITY, true, \'list-quarantine:count=\' . $result[\'count\']);
+            return $result;
+        }
+
+', '', 1],
+            ['                false !== strpos($action, \'quarantine\') ? \'%s requires confirm:true.\' : \'%s cannot be undone in full and requires confirm:true.\',
+', '                \'%s cannot be undone in full and requires confirm:true.\',
+', 1],
+            ['                case \'end-sessions\':
+                    return $this->end_sessions($args);
+                case \'rotate-salts\':
+                    return $this->rotate_salts();
+                case \'quarantine-file\':
+                case \'restore-quarantined-file\':
+                case \'purge-quarantined-file\':
+                    return $this->quarantine_action($action, $args);
+                default:
+                    return $this->reinstall_core_files($args);
+', '                default:
+                    return $this->end_sessions($args);
+', 1],
+            ['    // -----------------------------------------------------------------
+    // salts and core files
+    // -----------------------------------------------------------------
+
+    private function rotate_salts(): array
+    {
+        if (! current_user_can(is_multisite() ? \'manage_network_options\' : \'manage_options\')) {
+            throw new \\RuntimeException(\'Rotating the salts takes manage_options (manage_network_options on multisite).\');
+        }
+        $this->require_file_mods();
+
+        $result = ($this->salts ?? new Salt_Rotator())->rotate();
+
+        Governance_Audit_Log::record_quietly(self::ABILITY, true, \'rotate-salts:rotated=\' . count($result[\'rotated\']));
+
+        return $result + [
+            \'recoverable\' => false,
+            \'note\'        => \'Every login session is now invalid, yours included; application passwords still work. The previous wp-config.php is kept as the backup file next to it.\',
+        ];
+    }
+
+    private function reinstall_core_files(array $args): array
+    {
+        if (! current_user_can(\'update_core\')) {
+            throw new \\RuntimeException(\'Reinstalling core files takes update_core.\');
+        }
+        $this->require_file_mods();
+
+        $paths  = isset($args[\'paths\']) && is_array($args[\'paths\']) ? array_values($args[\'paths\']) : [];
+        $result = ($this->core ?? new Core_File_Repair())->repair($paths, $args);
+
+        Governance_Audit_Log::record_quietly(
+            self::ABILITY,
+            true,
+            sprintf(\'reinstall-core-files:repaired=%d:skipped=%d\', count($result[\'repaired\']), count($result[\'skipped\']))
+        );
+
+        return $result;
+    }
+
+    private function quarantine(): File_Quarantine
+    {
+        return $this->quarantine ??= new File_Quarantine();
+    }
+
+    private function quarantine_action(string $action, array $args): array
+    {
+        $quarantine = $this->quarantine();
+        if (\'quarantine-file\' === $action) {
+            $result = $quarantine->quarantine($args);
+            $detail = \'id=\' . $result[\'entry\'][\'id\'];
+        } elseif (\'restore-quarantined-file\' === $action) {
+            $result = $quarantine->restore($args);
+            $detail = \'id=\' . $result[\'id\'];
+        } else {
+            $result = $quarantine->purge($args);
+            $detail = \'id=\' . $result[\'id\'];
+        }
+        Governance_Audit_Log::record_quietly(self::ABILITY, true, $action . \':\' . $detail);
+        return $result;
+    }
+
+    private function require_file_mods(): void
+    {
+        if (! wp_is_file_mod_allowed(\'wpmcp_incident_response\')) {
+            throw new \\RuntimeException(\'File changes are disabled on this site (DISALLOW_FILE_MODS).\');
+        }
+    }
+
+', '', 1],
+        ],
+        // The quarantine suggestion leaves with quarantine-file.
+        'src/Tools/Security/Malware_Audit.php' => [
+            ['    /**
+     * Pure: give each malware finding that names a file the next step an
+     * agent can chain (issue #844): incident-response quarantine-file for
+     * that path, with the finding id as the reason. Informational findings
+     * and findings without a single location are left as they are.
+     *
+     * @param array[] $findings
+     * @return array[]
+     */
+    public function with_suggested_actions(array $findings): array
+    {
+        foreach ($findings as $i => $finding) {
+            $location = $finding[\'value\'][\'location\'] ?? null;
+            if (\'malware\' !== ($finding[\'category\'] ?? \'\') || \'info\' === ($finding[\'status\'] ?? \'\') || ! is_string($location) || \'\' === $location) {
+                continue;
+            }
+            $path = (string) preg_replace(\'/:\\d+$/\', \'\', $location);
+            $findings[ $i ][\'suggested_action\'] = [
+                \'ability\'   => \'wpmcp/incident-response\',
+                \'arguments\' => [\'action\' => \'quarantine-file\', \'path\' => $path, \'reason\' => (string) ($finding[\'id\'] ?? \'\')],
+            ];
+        }
+        return $findings;
+    }
+', '    /**
+     * Pure: this build ships no file tool to chain a malware finding to, so
+     * findings carry no suggested action (issue #1140).
+     *
+     * @param array[] $findings
+     * @return array[]
+     */
+    public function with_suggested_actions(array $findings): array
+    {
+        return $findings;
+    }
+', 1],
         ],
     ],
 
@@ -363,12 +491,14 @@ return [
         'src/Tools/Database/Insert_Row.php',
         'src/Tools/Database/Update_Rows.php',
         'src/Tools/Database/Delete_Rows.php',
-        'src/Tools/Migration/Push_Site_Archive.php',
-        'src/Tools/Migration/Receive_Site_Archive.php',
-        'src/Tools/Migration/Incoming_Archive_Store.php',
-        'src/Tools/Migration/Migration_Target_Client.php',
-        'src/Tools/Migration/Migration_Guard.php',
+        'src/Tools/Filesystem/Read_File.php',
+        'src/Tools/Filesystem/List_Directory.php',
+        'src/Tools/Filesystem/Search_Files.php',
+        // Migration push and receive, and site-wide search and replace.
+        'src/Tools/Migration',
         'src/Tools/Security/Salt_Rotator.php',
+        'src/Tools/Security/Core_File_Repair.php',
+        'src/Tools/Security/File_Quarantine.php',
         // The playbook for raw SQL work: every tool it teaches beyond the
         // two schema readers is gone from this build.
         'src/Skills/library/wpmcp-safe-database-work',

@@ -4,8 +4,8 @@ Everything here is prepared up to the upload. **Nothing has been
 submitted.** The submission itself needs the owner's go. Nothing in this
 document should be read as "filed" or "in review".
 
-**Lead listing (owner decision, 20 Nov 2026): WP MCP for WooCommerce**, slug
-`wp-mcp-for-woocommerce`, from `scripts/build-woo-release.sh`. Section 0 is
+**Lead listing (owner decision, 20 Nov 2026): Safe MCP for WooCommerce**, slug
+`safe-mcp-for-woocommerce`, from `scripts/build-woo-release.sh`. Section 0 is
 its runbook. The general `wpmcp` listing (sections 1 to 7) waits until the
 WooCommerce listing is approved: the Plugin Developer FAQ allows generally one
 plugin in review at a time.
@@ -16,13 +16,13 @@ you build.
 
 ---
 
-## 0. Lead listing: WP MCP for WooCommerce (issue #1140)
+## 0. Lead listing: Safe MCP for WooCommerce (issue #1140)
 
 Plan and owner decisions:
 `docs/superpowers/specs/2026-11-20-wporg-submission-plan.md`.
 
 **What the zip is.** `composer build:woo` writes
-`dist/wp-mcp-for-woocommerce-<version>.zip`: the shared directory strip
+`dist/safe-mcp-for-woocommerce-<version>.zip`: the shared directory strip
 (section 1 applies to it unchanged), the WooCommerce flavor whitelist, and a
 narrowing to store tools plus the safety core. The Plugin Developer FAQ
 (updated 10 Nov 2026) does not accept new plugins that allow arbitrary code
@@ -31,14 +31,18 @@ AI tools that generate code" intended to run on the site. The compliance
 engine does not encode that rule, so the flavor does. Left out of this zip,
 kept in the direct download and Pro:
 
-* file writes: `write-file`, `edit-file`, `delete-file`
+* file tools: `write-file`, `edit-file`, `delete-file`, and the read-only
+  `read-file`, `list-directory`, `search-files` (the FAQ names file managers)
 * raw SQL and database writes: `query`, `insert-row`, `update-rows`,
   `delete-rows` (the read-only `list-tables` and `describe-table` stay)
 * the PHP snippet store tools and `validate-php-snippet`
 * code snippet creation (`create-code-snippet`, Elementor custom code)
-* site migration: `push-site-archive`, `receive-site-archive`
-* the `rotate-salts` action of `incident-response` (it rewrites
-  `wp-config.php`)
+* site migration and site-wide search and replace: `push-site-archive`,
+  `receive-site-archive`, `rewrite-site-urls`, `find-replace-content`
+* the file and salt actions of `incident-response`: `rotate-salts` (it
+  rewrites `wp-config.php`), `reinstall-core-files`, and the quarantine family
+  (`quarantine-file`, `list-quarantine`, `restore-quarantined-file`,
+  `purge-quarantined-file`); its credential and session actions stay
 * the cloud announcements feed and the cloud client (`src/Cloud`)
 * the upgrade banner (none in the first submission; a dismissible banner on
   WP MCP's own screens is planned for the first update after approval)
@@ -46,24 +50,25 @@ kept in the direct download and Pro:
 `scripts/flavors/woocommerce/narrowed.php` lists all of it and
 `scripts/flavors/woocommerce/assert-narrowed.php` fails the build, over the
 stage and again over the extracted zip, if any of it comes back. An agent that
-calls one of those tools by name gets a `not_in_this_build` refusal
-(`src/MCP/Not_In_Build.php`, added to this zip only) rather than "Tool not
-found".
+calls one of those tools, or one of those actions, by name gets a
+`not_in_this_build` refusal (`src/MCP/Not_In_Build.php`, added to this zip
+only) rather than "Tool not found" or a schema error.
 
 **Account:** `fahdi` on wordpress.org (owner decision D1: submit from it as
 it is). The flavor readme's `Contributors:` line is `fahdi`.
 
-**Slug to request:** `wp-mcp-for-woocommerce`. Free on the plugins API on
-20 Nov 2026; `mcp-for-woocommerce` belongs to another author, so expect the
+**Slug to request:** `safe-mcp-for-woocommerce` (owner decision, 20 Nov
+2026, replacing `wp-mcp-for-woocommerce`, whose "wp" prefix drew Plugin
+Check's `trademarked_term` warning). Free on the plugins API on 20 Nov 2026; `mcp-for-woocommerce` belongs to another author, so expect the
 similar-name warning at submission. The zip's directory and the text domain
-are both `wp-mcp-for-woocommerce`, and so is the main file,
-`wp-mcp-for-woocommerce.php` (the compliance engine reads the slug from the
+are both `safe-mcp-for-woocommerce`, and so is the main file,
+`safe-mcp-for-woocommerce.php` (the compliance engine reads the slug from the
 main file's name and checks the text domain against it).
 
 **Listing name** (the `Plugin Name` header and the readme title):
 
 ```
-WP MCP for WooCommerce
+Safe MCP for WooCommerce
 ```
 
 **Listing tags:** `ecommerce, mcp, ai, ai agent, automation`
@@ -73,14 +78,12 @@ WP MCP for WooCommerce
 place of `composer build:wporg`, and the slug above on the confirmation
 screen. Run Plugin Check on a live install with WooCommerce active first.
 
-**Reviewer question to expect:** "Can this edit files, run SQL or execute
-code?" No. The zip has no tool that writes arbitrary files, no SQL console,
-no database row writes, no snippet store, no migration import and no
-`eval`/`proc_open` (token gate, section 5.4). File changes that remain are
-WordPress's own: media uploads, plugin and theme installs and updates from
-WordPress.org slugs (section 5.5), and `incident-response`'s quarantine and
-checksum-verified core-file reinstall, the quarantine behind the
-`wpmcp_enable_fs_writes` opt-in.
+**Reviewer question to expect:** "Can this read or edit files, run SQL or
+execute code?" No. The zip has no file browser or editor, no SQL console, no
+database row writes, no site-wide search and replace, no snippet store, no
+migration import and no `eval`/`proc_open` (token gate, section 5.4). File
+changes that remain are WordPress's own: media uploads, and plugin and theme
+installs and updates from WordPress.org slugs (section 5.5).
 
 ---
 
