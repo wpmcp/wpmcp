@@ -452,4 +452,30 @@ class FlavorTest extends \WP_UnitTestCase
 
         $this->fail('ability not registered: ' . $name);
     }
+
+    /**
+     * Issue #1142: boot() runs on every request in every flavor, and the
+     * WooCommerce build ships no src/Integrations. A bare static call or
+     * `new` on an Integrations class in boot() fataled every request on
+     * that build, so each one must sit inside a class_exists() guard on the
+     * same class.
+     */
+    public function test_boot_names_no_integrations_class_without_a_class_exists_guard(): void
+    {
+        $src = (string) file_get_contents(dirname(__DIR__, 2) . '/src/Plugin.php');
+        $this->assertSame(1, preg_match('/public function boot\(\): void\s*\{(.*?)\n    \}\n/s', $src, $m), 'boot() not found in src/Plugin.php');
+        $body = $m[1];
+
+        preg_match_all('/(?:new\s+|(?<![\w\\\\]))\\\\?WPMCP\\\\Integrations\\\\(\w+)(?=::\w+\(|\s*\()/', $body, $uses, PREG_OFFSET_CAPTURE);
+        $unguarded = [];
+        foreach ($uses[1] as [$class, $offset]) {
+            $before = substr($body, max(0, $offset - 200), 200);
+            $guard  = 'class_exists(\\WPMCP\\Integrations\\' . $class . '::class)';
+            if (false === strpos($before, $guard)) {
+                $unguarded[] = $class;
+            }
+        }
+
+        $this->assertSame([], $unguarded, 'boot() calls Integrations classes the WooCommerce build does not ship, without a class_exists() guard.');
+    }
 }
