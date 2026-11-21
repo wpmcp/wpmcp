@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the wp.org vertical zip: dist/wpmcp-for-woocommerce-<version>.zip
+# Build the wp.org vertical zip: dist/safe-mcp-for-woocommerce-<version>.zip
 #
 # Same tree as the directory cut, flavor-gated at runtime (WPMCP_FLAVOR in the
 # main file, see Plugin::FLAVOR_GROUPS) and pruned at build time. Guideline 5
@@ -279,6 +279,11 @@ esac
 # inheritance edge, the always-loaded safety core names a pruned class, or a
 # hook callback does (class_ref_gates, defined after the strip above).
 class_ref_gates
+
+# wp.org rejects a non-wordpress.org Update URI; only the full build carries one.
+# shellcheck source=scripts/lib/release-flavors.sh
+. "$ROOT/scripts/lib/release-flavors.sh"
+assert_no_update_uri "$STAGE/$SLUG.php" || exit 1
 
 mkdir -p "$ROOT/dist"
 ZIP="$ROOT/dist/$SLUG-$VERSION.zip"

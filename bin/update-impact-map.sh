@@ -19,7 +19,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REPO=wpmcp/wpmcp
+REPO=wpmcp/wordpress-mcp
 TMP_ROOT=${TMPDIR:-/tmp}
 PREFIX=wpmcp-impact-map
 

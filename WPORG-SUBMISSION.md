@@ -270,7 +270,7 @@ to 3 below assume its version and header boxes are already ticked.
    `Tested up to` names (CI's `plugin-check` job runs it against the same zip
    on every push, but not on a live site).
 3. Sign in at <https://wordpress.org/plugins/developers/add/>.
-4. Upload `dist/wpmcp-<version>.zip`. The whole plugin is examined before approval,
+4. Upload `dist/wpmcp-directory-<version>.zip`. The whole plugin is examined before approval,
    which is why the zip is required and why a placeholder submission would be
    rejected under guideline 16.
 5. **On the confirmation screen, check the derived slug** and change it to
@@ -439,7 +439,7 @@ independent things assert this rather than one:
 pruned manifest with the licensing SDK removed, so it matches what is actually
 vendored. `composer.lock` is a development artifact and is not in the zip. The
 build tooling and the full source are public at
-<https://github.com/wpmcp/wpmcp>, which is the readme link guideline 4 asks for.
+<https://github.com/wpmcp/wordpress-mcp>, which is the readme link guideline 4 asks for.
 
 ### 5.8 "Why does the name start with WP?"
 
@@ -483,7 +483,7 @@ cd /tmp/wpmcp-svn
 
 # trunk is the working copy of the current release
 rm -rf trunk/*
-unzip -q /path/to/dist/wpmcp-<version>.zip -d /tmp/unpacked
+unzip -q /path/to/dist/wpmcp-directory-<version>.zip -d /tmp/unpacked
 cp -R /tmp/unpacked/wpmcp/. trunk/
 
 svn add --force trunk

@@ -61,9 +61,18 @@ gate rather than substitute for one:
 
 - [ ] Full test suite green on every WordPress version and on the latest released MCP Adapter plugin (`bin/test-local.sh --all`; its summary names the adapter version).
 - [ ] All three artifacts built, each from the readme it ships:
-      - `scripts/build-wporg-release.sh` (wp.org free, `scripts/flavors/wporg/readme.txt`)
-      - `scripts/build-woo-release.sh` (WooCommerce, `scripts/flavors/woocommerce/readme.txt`)
-      - `scripts/build-release.sh` (general zip, root `readme.txt`)
+      - `scripts/build-release.sh` (the plugin, root `readme.txt`):
+        `dist/wpmcp-<version>.zip`, the headline GitHub download and the
+        Freemius deploy, with the upgrade banner and `Update URI`
+      - `scripts/build-woo-release.sh` (WooCommerce, `scripts/flavors/woocommerce/readme.txt`):
+        `dist/safe-mcp-for-woocommerce-<version>.zip`
+      - `scripts/build-wporg-release.sh` (wp.org directory, `scripts/flavors/wporg/readme.txt`):
+        `dist/wpmcp-directory-<version>.zip`
+- [ ] `scripts/release-assets.sh stage <version>`: adds the stable-name
+      copies `dist/wpmcp.zip` and `dist/safe-mcp-for-woocommerce.zip`, checks
+      that the headline zip is the banner build with `Update URI` and that
+      neither wp.org zip carries `Update URI` or the licensing SDK, and prints
+      the upload list.
 - [ ] Plugin Check clean on each built zip (CI's `plugin-check` job runs it
       against the wp.org zip on every push; the other two are manual).
 - [ ] Smoke pass on the target WordPress version for each artifact: activate,
@@ -81,6 +90,15 @@ gate rather than substitute for one:
 ## Publish
 
 - [ ] Tag the release on GitHub.
+- [ ] Publish the GitHub release with every file `release-assets.sh stage`
+      listed (five: the three versioned zips plus `wpmcp.zip` and
+      `safe-mcp-for-woocommerce.zip`), and end the notes with the output of
+      `scripts/release-assets.sh notes <version>` (free plugin first; it is
+      not labelled Pro).
+- [ ] `scripts/release-assets.sh verify v<version>`. It fails when either
+      stable name is missing, which would break
+      `https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip`
+      (the README's install link) and its WooCommerce twin.
 - [ ] Push the matching SVN tag for the free plugin (a GitHub release
       without the SVN tag is the known failure mode).
 
