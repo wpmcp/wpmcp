@@ -33,6 +33,9 @@ cp -R "$ROOT/src" "$STAGE/src"
 # src/Freemius/Bootstrap.php pins the connect-screen icon to assets/, so the
 # self-hosted zip has to carry that directory (#164).
 cp -R "$ROOT/assets" "$STAGE/assets"
+# assets/readme/ holds the GitHub README images (demo GIF, screenshots); the
+# plugin never loads them, so they stay out of the zip.
+rm -rf "$STAGE/assets/readme"
 
 # Ship the translation directory the Domain Path header points at (issue #184).
 mkdir -p "$STAGE/languages"

@@ -1,484 +1,102 @@
 <div align="center">
 
-<img src="assets/wpmcp-icon.svg" width="112" alt="wpmcp logo">
+<img src="assets/wpmcp-icon.svg" width="112" alt="WP MCP, the WordPress MCP server plugin, logo">
 
 # WordPress MCP Server Plugin (WP MCP)
 
 WP MCP is a free WordPress MCP plugin that turns your site into an MCP server, so Claude, ChatGPT, Cursor and other AI agents can manage WordPress and WooCommerce, with undo for every supported write.
 
-### [Download wpmcp.zip](https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip)
+Built for site owners, agencies and developers who want an AI agent working on a live WordPress site without the risk of an edit they cannot take back.
 
-Free, latest release, installs like any other plugin. **Docs and Pro: [wpmcp-pro.com](https://wpmcp-pro.com/)**
+[Docs](https://wpmcp-pro.com/docs) · [Integrations](https://wpmcp-pro.com/integrations) · [Changelog](https://wpmcp-pro.com/changelog) · [Pricing](https://wpmcp-pro.com/pricing) · [WooCommerce edition](https://github.com/wpmcp/wordpress-mcp-for-woocommerce)
 
-407 abilities (274 in the free plugin) across 61 domains, page builder support from Gutenberg to Elementor, and a snapshot before every supported write with one-click rollback in the core.
-
-[![CI](https://github.com/wpmcp/wordpress-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/wpmcp/wordpress-mcp/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/wpmcp/wordpress-mcp?label=release)](https://github.com/wpmcp/wordpress-mcp/releases/latest)
+[![GitHub stars](https://img.shields.io/github/stars/wpmcp/wordpress-mcp?style=social)](https://github.com/wpmcp/wordpress-mcp/stargazers)
 [![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2%2B-blue.svg)](LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-%3E%3D8.1-8892BF.svg)](https://php.net)
 [![WordPress](https://img.shields.io/badge/WordPress-%3E%3D6.9-21759B.svg)](https://wordpress.org)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+### [Download wpmcp.zip](https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip)
 
 </div>
-
-**Install in a minute**
 
 1. Download [wpmcp.zip](https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip).
 2. In wp-admin, go to **Plugins > Add New > Upload Plugin**, choose the zip, click **Install Now**, then **Activate**.
 3. Open **wpmcp > Connection** and connect Claude, ChatGPT or Cursor.
 
-If it saves you a rollback, [star it on GitHub](https://github.com/wpmcp/wordpress-mcp) so other WordPress builders can find it.
+Requires WordPress 6.9+ and PHP 8.1+.
 
----
+<p align="center">
+  <img src="assets/readme/undo-demo.gif" width="900" alt="WordPress MCP server demo: an AI agent changes a page heading over MCP, then one click on Restore in the WP MCP History screen puts the original back">
+</p>
 
-Give an AI agent (Claude, Cursor, or any MCP client) the keys to your WordPress site and the real risk is a bad edit on a live client site that you cannot take back. **wpmcp is built on the assumption that the agent will sometimes get it wrong, so every supported write can be undone.**
+> **WP MCP Pro, 10% off for GitHub users:** use code `WPMCPGIT` at [wpmcp-pro.com/pricing](https://wpmcp-pro.com/pricing?coupon=WPMCPGIT&utm_source=github&utm_medium=readme)
 
-Every supported write is snapshotted before it happens. If a post-write check fails (for example, block markup that no longer parses), the change rolls back on its own. If you do not like what the agent did, you undo one operation, or the agent's entire session, from the AI or with one click in wp-admin. A few kinds of change cannot be snapshotted, and this README lists them in [What cannot be undone](#what-cannot-be-undone) instead of leaving you to find out.
+## What the WordPress MCP server does
 
-> **Status:** for WordPress 6.9 to 7.1 and PHP 8.1 or later. The pre-push test gate runs the PHPUnit suite on the minimum and the current WordPress, on multisite, and against real installs of the third-party plugins wpmcp integrates with. Known bugs are tracked as open issues in this repo. What is next is in the [Roadmap](#roadmap).
+**A WordPress AI agent with undo.** Every supported write is snapshotted before it runs, checked after, and rolled back on its own if the check fails. Undo one change or a whole agent session from the AI, or any single change with one click on the History screen in wp-admin. The free plugin keeps your last 20 undo points; Pro keeps unlimited history while the licence is active. The few things that cannot be undone are [listed](docs/reference/safety-model.md#what-cannot-be-undone), and each says so in its response.
 
-**What is in it.** 407 abilities (MCP tools) across 61 domains: 274 in the free plugin and 133 Pro. Which abilities a site has depends on which integrations are active: tools for optional plugins (ACF, SEO and translation plugins, form plugins and the other integrations) register only where that plugin is active, and a single site with none of them sees about 350, about 240 of them free. `list-tool-catalog` lists exactly what your site has. The count is pinned by the ability manifest (`tests/support/ability-manifest.php`), which the test suite checks on every run.
+**Build pages in Gutenberg, Elementor and other builders.** The free plugin reads and edits Gutenberg blocks, inserts patterns and converts HTML to blocks, verifying the markup after every edit. Pro adds Elementor MCP editing of the full element tree, plus Bricks, Divi, Beaver Builder, Breakdance, Oxygen, WPBakery, Avada and other builders. [Builder details](docs/reference/page-builders.md).
 
-## Page builder support
+**Run the site.** Posts, pages, media, menus, users, settings, plugins and themes, plus cache clearing, performance and security scans and backups. Risky tools (raw database writes, file edits, package updates, code execution) ship switched off until you opt in.
 
-| Builder | Free | Pro |
-| --- | --- | --- |
-| **Gutenberg** (block editor) | Read, add, update, move, duplicate and remove blocks, insert patterns, convert HTML to blocks; block markup is verified after every edit | Kadence Blocks, GenerateBlocks, Spectra, Otter Blocks, Blocksy, Stackable and Ultimate Blocks blocks; Kadence Blocks and Spectra plugin settings and generated page CSS; Otter Blocks feature switches, settings and generated page CSS (settings writes opt in with `wpmcp_enable_otter_settings_write`); a custom block builder |
-| **Elementor** | Widget list and schemas, global settings, CSS regeneration, and search across Elementor element text | Deep editing of the element tree: add, update, move, duplicate and remove widgets and containers, batch updates, global colors, typography, classes and variables, theme builder templates and conditions, popups, dynamic tags, custom CSS, brand kits, custom widgets, and Elementor 4 atomic elements |
-| **Bricks, Divi, Beaver Builder, Breakdance, Oxygen, Oxygen Classic, WPBakery, Avada, Thrive Architect, Cornerstone, BeTheme (BeBuilder)** | Bricks element text is covered by site-wide search | Detect the builder, read its content, and edit it (`detect-builder`, `get-builder-content`, `update-builder-content`), each edit snapshotted; Divi 5 pages edited element by element (update, add, remove, move by path, refused if the page changed since it was read), plus Divi Library and Theme Builder layouts and the Divi 5 module catalog; Bricks and Breakdance design systems (classes, variables, palettes); WPBakery saved templates, element catalog, design options, revisions, publish and hash-guarded edits; Avada element catalog, library (save to and add from saved templates and elements, Layouts read), global colors, typography and options, and hash-guarded page edits; Oxygen 6 hash-guarded node edits, templates and Components (add from, save as), revisions restore and publish; Thrive Architect hash-guarded element edits, user templates (add from, save as), revisions restore, publish, element catalog and global colors and styles; Cornerstone (Themeco) hash-guarded element edits saved and rendered through Cornerstone, section and page templates (add from), revisions restore, publish, element catalog with each element's values, and global colors and fonts; BeTheme BeBuilder hash-guarded section, wrap and item edits by uid (local styles rebuilt by the theme), add from BeBuilder templates, publish, item catalog and theme options (read only) |
+**Run your store as a WooCommerce MCP server.** Products and variations, bulk price changes, orders, coupons and stock, each write undoable. Pro adds WooCommerce Subscriptions, Bookings and Memberships. Prefer a store-only build? See the [WooCommerce edition](https://github.com/wpmcp/wordpress-mcp-for-woocommerce).
 
-**Theme add-ons (Pro).** While Astra, Kadence or GeneratePress is the active theme, the theme tools list, read, create and edit that theme's premium layouts (Astra Pro Custom Layouts, Kadence Pro Elements, GP Premium Elements): their content, the hook they are placed on and their display rules, plus the add-on's hook catalog. Writes are off until the site enables theme writes, and every one is snapshotted or recorded so rollback undoes it. Code layouts (PHP or raw script) are never read or written. Whatever the theme, Ultimate Addons for Elementor's header, before-footer, footer and custom block templates get the same ops (plus a delete that moves a template to the trash), with their display rules and the Elementor Canvas switch; their Elementor content is edited with the Elementor tools.
+**Works with your plugins.** Integrations for ACF, Yoast SEO and Rank Math, form, LMS, membership and other plugins register only while that plugin is active, so your AI client sees tools for what your site actually runs. Built on the WordPress Abilities API and the official WordPress MCP Adapter. [All integrations](https://wpmcp-pro.com/integrations).
 
-Because snapshots are taken at the WordPress data layer, rollback works the same for every builder in the table. Docs and Pro are at [wpmcp-pro.com](https://wpmcp-pro.com/).
+<p align="center">
+  <img src="assets/readme/history.png" width="900" alt="WP MCP History screen in wp-admin listing WordPress MCP agent operations, each with a one-click Restore button">
+</p>
 
-## Why wpmcp
-
-- **Recoverable by design.** Every supported write goes through one wrapper that snapshots first. This is enforced in code, not by convention, and the writes that cannot be snapshotted are [listed](#what-cannot-be-undone) and say so in their response.
-- **Builder-agnostic safety.** Snapshots are taken at the WordPress data layer (post content, meta, options), so rollback works for any page builder without parsing its format.
-- **Runs inside WordPress.** A single plugin on the official [WordPress Abilities API](https://developer.wordpress.org/), not a separate local proxy process. One install, works with any MCP client.
-- **Free and open.** GPL-2.0. The whole safety engine and the Gutenberg tooling are free.
-
-## How it works
-
-Every snapshotted write routes through one orchestrator, `Safe_Mutation::run()`:
+## How undo works
 
 ```
 snapshot (before)  ->  apply the change  ->  verify  ->  ok?
      |                                          |         |
- stored in                              on failure:    return
- wp_wpmcp_snapshots                     auto-rollback   operation id
- (keyed by operation + session)         + raise error
+ stored by                              on failure:    return
+ operation and                          auto-rollback   operation id
+ agent session                          + raise error
 ```
 
-1. **Snapshot.** Before any write, wpmcp captures the target's before-image (post content, title, status, and all meta) and stores it, compressed, in a dedicated table keyed by an operation id and an agent session id.
-2. **Apply.** The tool performs its edit.
-3. **Verify.** A lightweight check runs (for Gutenberg, the block markup must still parse). If it fails, the change is rolled back immediately and an error is raised.
-4. **Rollback, on demand.** Undo a single operation, or unwind an agent's entire session back to its pre-session state, including purging any meta the agent added.
+Snapshots are taken at the WordPress data layer (post content, meta, terms, options, users), so rollback works the same for every page builder.
+Each write returns an operation id: `rollback-operation` undoes one, `rollback-session` unwinds a whole agent run, and the History screen restores any single operation with one click.
+Free keeps the last 20 operations; Pro keeps every one while the licence is active. Read the full list of [what cannot be undone](docs/reference/safety-model.md#what-cannot-be-undone).
 
-You can drive rollback from the AI (the `rollback-operation` and `rollback-session` tools) or from the **wpmcp** screen in wp-admin, where every agent operation is listed with a one-click Restore button.
+## Connect your AI client: Claude Code, Claude Desktop, ChatGPT, Cursor
 
-**Audit Log** in wp-admin has two tabs. *Mutations* lists agent writes with Restore. *Requests* is the MCP request outcome log: one row per tool call, reads included, with the calling client, ok or the error code, how long it took, and, when the call took a snapshot, a link straight to that operation's undo point in History. It is a capped ring buffer (200 rows by default, `wpmcp_request_log_cap`), and tool arguments are not recorded unless you switch on the `wpmcp_request_log_capture_args` option or filter, which still redacts secret-looking values and truncates long ones.
+Open **wpmcp > Connection** in wp-admin. It creates an application password and shows the config for your client, filled in and ready to paste (Claude Desktop gets a one-click `wpmcp.mcpb` bundle). The endpoint is `https://your-site.com/wp-json/mcp/wpmcp-server`.
 
-## What cannot be undone
+Step-by-step guides: [Claude Desktop and claude.ai](https://wpmcp-pro.com/wordpress-mcp-claude) · [Claude Code](https://wpmcp-pro.com/wordpress-mcp-claude-code) · [ChatGPT](https://wpmcp-pro.com/wordpress-mcp-chatgpt) · [Cursor](https://wpmcp-pro.com/wordpress-mcp-cursor) · [All clients](https://wpmcp-pro.com/docs/connecting-clients)
 
-Snapshots cover WordPress data: posts and their content, meta and terms, options, users, and the plugin data the integrations snapshot. Some changes fall outside that, and wpmcp tells you rather than claiming an undo it cannot do. Most of these are off by default, and each says so in its response (`recoverable: false`, `files_recoverable: false` or `reversible: false`):
+Stuck? Each guide ends with the common snags, and [Verifying the connection](https://wpmcp-pro.com/docs/connecting-clients#verifying-the-connection) shows how to check it end to end. OAuth sign-in (custom connectors, ChatGPT) is off by default; the [client reference](docs/reference/connecting-clients.md) covers it.
 
-- **Package updates and deletes.** `update-plugin`, `update-theme`, the core update in `manage-updates`, `delete-plugin` and `delete-theme` do not back up package files. Off by default, and each needs `confirm: true`.
-- **Raw database row writes.** `update-rows` and `delete-rows` write a before-image to a capped audit log, not a restorable snapshot. Off by default.
-- **A `.php` file undo whose site check cannot run.** File writes and deletes are undoable since [#602](https://github.com/wpmcp/wordpress-mcp/issues/602), but a `.php` restore is refused when the site check cannot run, and the response gives the backup path for a manual copy. File tools are off by default.
-- **Other one-way actions.** Deleting a menu, importing content, the security incident tools (ending sessions, rotating salts), and other plugins' abilities run through the abilities bridge (`execute-site-ability`).
-- **Snapshot history depth.** History keeps the last 20 operations by default, so older writes can no longer be undone (see [Known limitations](#known-limitations)).
+## Sample prompts
 
-Rollback bugs are tracked as open issues in this repo.
+Paste-once blueprints in [prompts/](prompts/), each ending with an undo step:
 
-## Requirements
-
-| Dependency | Version |
-| --- | --- |
-| WordPress | >= 6.9 (bundles the Abilities API) |
-| PHP | >= 8.1 |
-| Composer | for installing from source |
-
-## Installation
-
-Download [wpmcp.zip](https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip) (always the latest release), upload it under **Plugins > Add New > Upload Plugin**, and activate it. On activation WordPress shows an optional opt-in for update and security emails; **Skip** works and the plugin runs the same either way. The free plugin is complete on its own, and Pro unlocks in the same plugin when you add a licence: there is nothing else to install.
-
-With WP-CLI:
-
-```bash
-wp plugin install https://github.com/wpmcp/wordpress-mcp/releases/latest/download/wpmcp.zip --activate
-```
-
-If your host refuses the upload for size (the zip is about 4.5 MB and some hosts cap uploads at 2 MB), use the WP-CLI line above, or unzip it into `wp-content/plugins/` so you have `wp-content/plugins/wpmcp/wpmcp.php`.
-
-Every [release](https://github.com/wpmcp/wordpress-mcp/releases) also carries `safe-mcp-for-woocommerce.zip` (Safe MCP for WooCommerce, store tools and the safety core only) and `wpmcp-directory-<version>.zip` (the wordpress.org directory edition, without the licensing SDK or Pro). wpmcp is not yet on the wp.org plugin directory (planned).
-
-### From source (developers)
-
-```bash
-git clone https://github.com/wpmcp/wordpress-mcp.git wp-content/plugins/wpmcp
-cd wp-content/plugins/wpmcp
-composer install --no-dev
-```
-
-Then activate **wpmcp** from the Plugins screen in wp-admin. The folder must be named `wpmcp`.
-
-## Connect your AI client
-
-wpmcp exposes its tools over the Model Context Protocol. Authenticate with a WordPress [Application Password](https://make.wordpress.org/core/2020/11/05/application-passwords-integration-guide/) (Users -> Profile -> Application Passwords).
-
-Example for Claude Code, in your project's `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "wpmcp": {
-      "type": "http",
-      "url": "https://your-site.com/wp-json/mcp/wpmcp-server",
-      "headers": {
-        "Authorization": "Basic BASE64_OF_username:application-password"
-      }
-    }
-  }
-}
-```
-
-Generate the credential with:
-
-```bash
-echo -n "your-username:xxxx xxxx xxxx xxxx xxxx xxxx" | base64
-```
-
-The same endpoint works with Cursor and any MCP-compatible client that connects over HTTP. The wpmcp -> Connection screen in wp-admin creates the application password and shows every snippet filled in; the `get-connection-info` tool returns the same snippets with a placeholder.
-
-### Claude Desktop
-
-Claude Desktop does not read `url` entries from `claude_desktop_config.json`: that file only runs local (stdio) servers, and an entry with `"type": "http"`, `"url"` or `"headers"` is skipped with "not valid MCP server configurations". Use one of these instead:
-
-- **Desktop bundle (easiest).** On wpmcp -> Connection, create an application password and download `wpmcp.mcpb`. Double-click it and enter the username and password when asked. The bundle contains no credentials and needs nothing else installed.
-- **Config file.** Add an `mcp-remote` bridge entry under `mcpServers` (needs Node.js), then fully quit and reopen Claude Desktop:
-
-```json
-{
-  "mcpServers": {
-    "wpmcp": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://your-site.com/wp-json/mcp/wpmcp-server", "--header", "Authorization:${WPMCP_AUTH_HEADER}"],
-      "env": { "WPMCP_AUTH_HEADER": "Basic BASE64_OF_username:application-password" }
-    }
-  }
-}
-```
-
-Keep `Authorization:${WPMCP_AUTH_HEADER}` without a space; the value with its space goes in `env`.
-
-- **Custom connector (needs OAuth).** Settings -> Connectors -> "Add custom connector" in Claude Desktop or on claude.ai, with the endpoint as the URL. This route signs in with OAuth and cannot send an application password. See the next section.
-
-**If a Claude Desktop chat reports 0 WP MCP tools** while Settings lists them (issue #582): update the plugin first. Before this fix, `tools/list` on MCP `2026-07-28` sent no-argument tools with `"properties":[]` (#586, #591), in compact mode too (`get-site-context` and `get-connection-info` are two of its five tools), and a client that validates the whole list can drop all of it. If it persists on a fixed version, the cause is on the client side: check the web server log for requests from Claude while the chat lists tools (if none arrive, the app is not asking the site), and note the Claude Desktop version when reporting it. The desktop bundle and the `mcp-remote` entry above are a working route meanwhile: Claude Desktop listed and called all tools through `mcp-remote` in the #582 test.
-
-### OAuth and the custom connector
-
-OAuth 2.1 (with dynamic client registration) is **off by default**, and stays off until the site owner opts in. Clients that use an application password do not need it. The Claude Desktop and claude.ai custom connector does: with OAuth off, the discovery addresses (`/.well-known/oauth-protected-resource/...`, `/.well-known/oauth-authorization-server`) return 404, the endpoint's 401 carries no `WWW-Authenticate` header, and the connector fails with "Couldn't register with WP MCP's sign-in service".
-
-Switch OAuth on from wp-admin: **WP MCP, Connection, Allow OAuth sign-in** (issue #842). Developers can also use either of these, which win over the switch:
-
-```php
-// wp-config.php, above "That's all, stop editing!"
-define('WPMCP_OAUTH_ENABLED', true);
-```
-
-```php
-// a plugin or mu-plugin
-add_filter('wpmcp_oauth_enabled', '__return_true');
-```
-
-Then add the connector: Settings -> Connectors (under Customize in current versions) -> "Add custom connector", enter `https://your-site.com/wp-json/mcp/wpmcp-server`, leave the OAuth Client ID and secret empty, click Connect, and approve the sign-in in the browser. The wpmcp -> Connection screen and the `get-connection-info` tool (`clients.custom-connector`) show whether OAuth is on and repeat these steps.
-
-ChatGPT signs in the same way: switch OAuth on, then add the endpoint as a custom MCP connector in ChatGPT's Developer mode. See [docs/connect-chatgpt.md](docs/connect-chatgpt.md); `get-connection-info` returns the steps under `clients.chatgpt`.
-
-### Protocol revisions and the MCP adapter
-
-Both transports (the HTTP endpoint above and `wp mcp-stdio serve`) speak MCP `2026-07-28` and `2025-11-25`. A `2025-11-25` client runs the usual `initialize` session; a `2026-07-28` client calls the sessionless `server/discover` and then tags each request with the revision, with no session at all. `server/discover` lists both revisions and returns the same handshake instructions `initialize` does.
-
-Clients that advertise the newer protocol features get them; everyone else keeps the existing contract:
-
-- **Elicitation.** A destructive tool's `confirm: true` gate asks the person instead of refusing when the client supports form elicitation: on `2026-07-28` (both transports) as an `input_required` result the client answers and retries, and on a `2025-11-25` stdio session as an `elicitation/create` request mid-call. The answer is bound to that exact call. Without the capability, and on a `2025-11-25` HTTP session (the adapter's HTTP transport has no server-to-client channel), `confirm: true` works as before, and an agent that passes it is not asked again.
-- **Tasks.** With the `io.modelcontextprotocol/tasks` extension on `2026-07-28`, `trigger-backup` and `dispatch-cli-job` return a task handle, polled with `tasks/get` and withdrawn with `tasks/cancel`. Tasks are the existing job records, so they survive the stateless HTTP route and reconnects.
-- **Output schemas.** Every tool declares an `outputSchema`: the backup and CLI job tools a detailed one, the rest the JSON-object contract every `structuredContent` result meets.
-- **Tool list changes.** A `wp mcp-stdio serve` session advertises `tools.listChanged: true` and sends one `notifications/tools/list_changed` when the tools this site can offer change (a plugin activated or deactivated, a WP MCP Pro license added or lapsed, a governance or compact-mode toggle). The HTTP route is stateless and keeps `listChanged: false`. Which clients act on the notification, and when a reconnect is needed instead, is in [docs/mcp-clients.md](docs/mcp-clients.md).
-
-The HTTP route is mounted by the official [WordPress MCP adapter](https://github.com/WordPress/mcp-adapter). wpmcp bundles adapter 0.6.x so it works on its own, and prefers the canonical MCP Adapter plugin when that is active: the bundled copy is only a fallback and never shadows another copy's classes (see `src/adapter-guard.php`). Adapter 0.7.0 and later answer `2026-07-28` requests natively; with the bundled 0.6.x, wpmcp answers them itself, so clients see the same behavior either way.
-
-## Available tools
-
-The table covers the core tools. The full reference for all 407 is at [wpmcp-pro.com](https://wpmcp-pro.com/), and `list-tool-catalog` or `list-tools` lists what your own site registers.
-
-| Tool | Type | What it does |
-| --- | --- | --- |
-| `get-page` | read | Read a page's title, content, and whether it is an Elementor page |
-| `update-blocks` | write (safe) | Replace a page's Gutenberg block markup, snapshotted and verified |
-| `list-operations` | safety | List recent agent operations (no snapshot payload leaked); an undone one reports `rollback_available: false` and its `rolled_back_at` |
-| `rollback-operation` | safety | Undo a single operation by id; one that was already undone is refused with the reason and nothing changes |
-| `rollback-session` | safety | Unwind an entire agent session to its pre-session state; undo points already undone are skipped, never applied twice |
-| `list-post-types` | read | List registered post types (posts, pages, custom post types) |
-| `list-taxonomies` | read | List registered taxonomies (categories, tags, custom taxonomies) |
-| `create-post` | write | Create a post, page, or custom post type, with terms and meta |
-| `get-post` | read | Read a post's full content, status, terms, meta, and featured image |
-| `update-post` | write (safe) | Partially update a post's fields, terms, meta, or featured image |
-| `delete-post` | write (safe) | Trash a post by default, or permanently delete with `force: true`; both return an `operation_id`, and undoing a trash takes the post back out of the trash with its earlier status, slug and comments |
-| `list-posts` | read | Search/list posts by type, status, search text, author, or parent |
-| `set-post-terms` | write (safe) | Assign taxonomy terms to a post: replace, append, or remove |
-| `search-content` | read | Search all of the site's text at once, including copy `post_content` search cannot see: Elementor/Bricks element settings, Gutenberg block attributes, template parts, reusable blocks, and nav menus. Every hit returns an addressable location (block path, element id, menu item id) plus a snippet |
-| `get-page-snapshot` | read | One-call normalized page digest: structure summary with counts, content outline in document order, media and link inventory, builder detection, and SEO-lite signals, so understanding a page costs one call instead of a chain of reads. Heavy sections (`global_tokens`, `responsive_overrides`) are opt-in via `sections`; a `content_coverage` block says which sections the stored content could not answer for Elementor/Bricks/Divi pages, and the response is bounded by item, string, and byte caps, the last of which is applied after the overlay filter and can drop whole sections (reported in `sections.dropped`) |
-| `get-rendered-html` | read | The rendered front-end HTML a logged-out visitor receives for a published post (`post_id`) or a path/URL on this site, so an agent can check what visitors actually see after an edit. Returns status code, final URL, total size, chunk count, a sha256 `content_hash` of the served document and `next_offset` plus one chunk (`chunk` or byte `offset`, `chunk_size` bounded to 1000 to 50000 bytes), so a caller can continue and detect a page that changed between reads; `strip_scripts` drops script and style blocks and `text_only` returns visible text. Only this site's own host and port are fetched: other hosts, IP literals, non-http(s) schemes, credentials and redirects off the site are refused before any request, every hop is pinned to the site's resolved address, no cookies or auth headers are sent, the body is capped at 1 MB, a `post_id` must be readable by the caller, and drafts, private and password-protected posts are refused rather than fetched with elevated auth |
-| `reindex-search` | write (index only) | Build or rebuild the content search index. Cursor-based (`batch_size`/`offset`/`next_offset`) so large sites rebuild across bounded calls; the index is otherwise maintained incrementally on every save |
-| `get-media` | read | Read a Media Library attachment's full detail: sizes, dimensions, metadata, alt text, caption, description |
-| `update-media` | write (safe) | Update an attachment's title, alt text, caption, and/or description |
-| `delete-media` | write (safe) | Delete a Media Library attachment. Disabled by default, requires `confirm: true` |
-| `sideload-image` | write | Download an image from a URL, or generate one from a prompt with the AI provider the site configured (WordPress 7.0+), into the Media Library as a new attachment |
-| `get-settings` | read | Read site settings (general, reading, writing, discussion, media, permalinks) with group/type/writable metadata |
-| `update-settings` | write (safe) | Update allowlisted site settings; validates/coerces each value and applies the valid subset even if some keys fail |
-| `list-users` | read | List users as safe summary rows (id, username, display name, email, roles); display name and email are masked (`masked: true`) because a list goes to the AI provider, so use `get-user` for one user in full; never returns password hashes |
-| `get-user` | read | Read one user's profile detail plus an `is_admin` flag derived from live capabilities; never returns the password hash |
-| `create-user` | write (safe) | Create a non-admin user; auto-generates a strong password (never returned) and emails the user; rejects admin and unknown roles. Undo (needs `delete_users`) deletes the user only while it has no content and is unchanged |
-| `update-user` | write (safe) | Update a non-admin user's profile fields; refuses admin-capable users; never changes role or password |
-| `list-plugins` | read | List installed plugins with active status, protected-package flag, and pending update info; `updates: true` lists available core, plugin and theme updates with auto-update state |
-| `activate-plugin` | write (safe) | Activate an installed plugin; snapshots the prior `active_plugins` option. On multisite it stays on the current site (a network-only plugin is refused) unless a network admin passes `network_wide: true`, which also snapshots `active_sitewide_plugins` |
-| `deactivate-plugin` | write (safe) | Deactivate a plugin; refuses protected packages (wpmcp, Elementor); snapshots the prior `active_plugins` option. On multisite a network-active plugin is only deactivated network-wide, by a network admin passing `network_wide: true` (also snapshots `active_sitewide_plugins`) |
-| `install-plugin` | write | Install a plugin from wordpress.org by slug, optionally activating it |
-| `search-plugins` | read | Search the wordpress.org plugin directory by keyword, with optional tag/author filters and a capped `per_page` |
-| `get-plugin-info` | read | Fetch full wordpress.org plugin directory info for a slug: version, rating, installs, homepage, download link, and compatibility |
-| `update-plugin` | write (irreversible) | Update an installed plugin from wordpress.org. Disabled by default, requires `confirm: true`; not rollback-able |
-| `manage-updates` | write (core: irreversible) | `type: core` applies the offered WordPress core update (or a pending database upgrade); requires `confirm: true` and a completed full-site backup under an hour old (`wpmcp_core_update_backup_max_age` filter), refuses when `expected_version` no longer matches, and cannot be snapshot-rolled-back (restore the backup instead). `type: plugin` or `theme` with `item` and `enabled` toggles auto-updates, snapshotted and undoable |
-| `delete-plugin` | write (irreversible) | Permanently delete an installed plugin's files. Disabled by default, requires `confirm: true`; refuses protected or active plugins; not rollback-able |
-| `list-themes` | read | List installed themes with active status, parent theme, and pending update info |
-| `switch-theme` | write (safe) | Activate (switch to) an installed theme; snapshots the prior `template`/`stylesheet` options |
-| `install-theme` | write | Install a theme from wordpress.org by slug, optionally activating it |
-| `search-themes` | read | Search the wordpress.org theme directory by keyword, with optional tag/author filters and a capped `per_page` |
-| `update-theme` | write (irreversible) | Update an installed theme from wordpress.org. Disabled by default, requires `confirm: true`; not rollback-able |
-| `delete-theme` | write (irreversible) | Permanently delete an installed theme's files. Disabled by default, requires `confirm: true`; refuses the active theme (or its active parent); not rollback-able |
-| `list-tables` | read | List database tables with estimated row counts and sizes |
-| `describe-table` | read | Return the columns, types, and keys of a database table |
-| `query` | read | Run a read-only SQL query (`SELECT`/`SHOW`/`DESCRIBE`/`EXPLAIN`/`WITH`); writes, DDL, stacked statements, and file-access SQL are rejected before execution; results are capped |
-| `insert-row` | write | Insert a row into a table via `$wpdb->insert()`. Disabled by default; refuses protected tables |
-| `update-rows` | write (irreversible) | Update rows matching a mandatory equality WHERE via `$wpdb->update()`. Disabled by default; refuses protected tables; captures a before-image to the write audit log but is honest that it is not rollback-able (`recoverable: false`) |
-| `delete-rows` | write (irreversible) | Delete rows matching a mandatory equality WHERE via `$wpdb->delete()`. Disabled by default, requires `confirm: true`; refuses protected tables; captures a before-image to the write audit log but is honest that it is not rollback-able (`recoverable: false`) |
-| `read-file` | read | Read a file inside the WordPress install (core, plugins, themes, uploads); path confined to the install root |
-| `list-directory` | read | List a directory's entries (files/dirs with size and mtime); optional bounded recursive listing |
-| `search-files` | read | Search file contents for a substring across a directory tree; filterable by extension, results capped |
-| `write-file` | write (safe) | Create or overwrite a file. Disabled by default; backs up an existing file first and returns an `operation_id`: `rollback-operation` restores the previous file, or removes a file the call created. A `.php` file must parse, and is reverted automatically if the site then hits a fatal error. `encoding: base64` writes a binary file (font, image, archive) byte for byte and returns its `sha256`; it takes strict base64, at most 5 MB decoded, and refuses PHP, CGI, script and server-config names (`.php`, `.phtml`, `.phar`, `shell.php.png`, `.ini`, `.htaccess`, `web.config`). Undo works the same way |
-| `edit-file` | write (safe) | Replace an exact string in a file (must match once unless `replace_all`). Disabled by default; backs up the original first and returns an `operation_id` that `rollback-operation` restores. `.php` edits get the same checks as `write-file` |
-| `delete-file` | write (safe) | Delete a file. Disabled by default, requires `confirm: true`; backs up the file first and returns an `operation_id` that `rollback-operation` restores byte for byte |
-| `analyze-performance` | read | Scan server config, WordPress internals (database size, autoloaded options, cron backlog, object cache, OPcache, plugin count), and a target page (defaults to the frontpage) for performance issues; returns a scored report (0-100, graded A-F) with ranked recommendations |
-| `get-cache-status` | read | Report which caching layers are active: persistent object cache backend, OPcache, and any active page-cache plugin (WP Rocket, W3 Total Cache, WP Super Cache, LiteSpeed Cache, WP Fastest Cache) |
-| `clear-cache` | write (safe) | Flush the object cache, delete all transients, reset OPcache when enabled, and clear any detected page-cache plugin; returns a per-layer summary. Safe and idempotent, so not snapshotted |
-| `regenerate-elementor-css` | write (safe) | Rebuild one Elementor page's generated CSS and drop its render cache (`post_id`), or purge Elementor's generated CSS and render caches site-wide (`confirm: true`, requires `manage_options`). A cache operation, not a content write, so not snapshotted |
-| `get-connection-info` | read | Return this site's MCP endpoint URL and ready-to-paste connection snippets for Claude Code, Cursor, and Claude Desktop, each using an Application Password placeholder (never a real credential) |
-| `list-tool-catalog` | read | List every wpmcp ability registered on this site, grouped by domain, with each entry's tier, operation, capability, and read-only/destructive hints, plus a per-domain summary count. `search` keeps the tools whose name, description or operation names contain the term, so an integration that lives as operations inside a read/write pair (Pods and TablePress in `plugin-data-read`/`-write`, Redirection in `theme-read`/`-write`) is found as that pair, with the matching operations in `matched_operations` |
-| `list-tools` | read | List every registered tool with a curated summary, domain, operation, and tier; `full: true` adds complete descriptions and MCP annotations, and `search` filters the same way `list-tool-catalog` does. The discovery entry point in compact mode |
-| `get-tool-schema` | read | Read one tool's full contract by name: the exact input schema it was registered with, its complete description, and its MCP annotations |
-| `call-tool` | dispatch | Invoke any wpmcp-registered tool by name with an arguments object. The target's own permission checks, rate limit, validation, and snapshot safety apply exactly as for a direct call |
-| `list-skills` | read | List the agent skills installed on this site (slug, name, one-line description, version, tags), filterable by search or tag. Bodies are never included; skills whose required tools are not registered here are hidden unless `include_unavailable` is set |
-| `get-skill` | read | Load one skill's full instructions by slug, returned exactly as written. Unknown slugs return a structured error listing the installed slugs |
-| `memory-recall` | read | Read this site's approved project memory: published facts, conventions, and guardrails, published session summaries, and the currently enforced block rules. Pending proposals are never returned, only counted |
-| `memory-propose` | write | Propose one durable memory entry. Always stored pending and inert until an administrator publishes it |
-| `memory-save-summary` | write | File a pending session summary whose factual part the server computes from that session's snapshot rows, plus optional takeaways as individual pending proposals |
-
-Every write tool is wrapped in the safety engine, except `sideload-image`, `install-plugin`, `install-theme`, and `insert-row`: each only ever creates a brand new object, so there is nothing pre-existing to snapshot or roll back. `sideload-image` still records the attachment it adds and returns an `operation_id`, so `rollback-operation` deletes it and its files again. `create-post`, `duplicate-post`, `create-custom-widget`, and `create-custom-block` also have no prior state, but they record a creation row under the caller's `session_id` and return an `operation_id`, so a session-derived change set lists what they created and `rollback-operation` / `rollback-session` undo them without deleting anything: a created post moves to the trash (restore it from there), and a created widget or block spec is deactivated. `create-menu`, `add-menu-item`, and `create-user` record a creation row the same way and return an `operation_id` (issue #598), and `list-operations` and the Mutations tab list them. Undoing `add-menu-item` removes the item, as `remove-menu-item` does. Undoing `create-menu` deletes the menu only while it is unchanged since: same name, slug and description, no items, and assigned to no menu location; otherwise the undo is refused with the reason (`rollback-session` removes the items the session added first). Undoing `create-user` takes `delete_users` and deletes the user only while it has no content (no post of any type or status, comment or link) and its account is unchanged since (no new password, login, or profile, role or settings change) and, on a network, it belongs to this site only; otherwise the undo is refused with the reason, and nothing is deleted or reassigned. `delete-post` is snapshotted on both paths (issue #589): undoing a trash takes the post back out of the trash the way `wp_untrash_post()` does, with its earlier status, its slug and its comments. `duplicate-post` with `publish_stage` is the exception: it writes a staged draft copy over its original (same ID, URL and comments), so it snapshots the original first and its `operation_id` restores it exactly; a staged copy stays a noindex draft until then. The exemption covers the install step only: `install-plugin` and `install-theme` called with `activate: true` do overwrite prior state (`active_plugins`, or `template`/`stylesheet`), so that step snapshots it and returns rollbackable operation id(s) (`operation_id` from `install-plugin`, `operation_ids` from `install-theme`, one per option), and additionally requires the `activate_plugins` / `switch_themes` capability the equivalent wp-admin screen requires. Reads and rollbacks are gated by the `edit_posts` capability. `create-user` and `update-user` are additionally gated by the `create_users` and `edit_users` capabilities; the package tools are gated by their matching WordPress capability (`activate_plugins`, `install_plugins`, `update_plugins`, `delete_plugins`, `switch_themes`, `install_themes`, `update_themes`, `delete_themes`); all six database tools (reads included) are gated by `manage_options`, since raw table/row access is equivalent to phpMyAdmin-level access to the site. `delete-media` additionally requires a site to opt in via the `wpmcp_enable_delete_media` filter before it will run at all; `update-plugin`, `delete-plugin`, `update-theme`, and `delete-theme` are similarly disabled by default via their own `wpmcp_enable_*` filters and always require `confirm: true`, since updating or deleting package files is not rollback-able (no backup of the package files is taken) and each response says so honestly (`files_recoverable: false`). `update-settings` snapshots each changed option individually, `update-user` snapshots the user's profile fields and usermeta, and `activate-plugin`/`deactivate-plugin`/`switch-theme` snapshot the option(s) they change (the safety engine's snapshot/rollback supports WordPress options and users as well as posts), so any subset of a batch write can be undone via `rollback-operation`. There is deliberately no delete-user or role-change tool. `insert-row`, `update-rows`, and `delete-rows` are disabled by default via the `wpmcp_enable_db_writes` filter; `update-rows` and `delete-rows` additionally require a non-empty `where` (and `delete-rows` requires `confirm: true`) and refuse the `wp_users`/`wp_usermeta` tables (extend via the `wpmcp_db_protected_tables` filter). Because a generic arbitrary-table rollback is out of scope for the safety engine's snapshot/restore logic, these two capture a before-image to a capped audit log instead and report `recoverable: false` rather than claiming an undo they cannot perform. All six filesystem tools (reads included) are gated by `manage_options`, same reasoning as the database tools: raw filesystem access is at least as sensitive as raw table access. Every filesystem path is confined to the WordPress install root (`ABSPATH`) via `Filesystem_Guard::resolve_path()`, which canonicalizes through `realpath()` so path traversal (`../`), a symlink pointing outside the root, a null byte, and an absolute path escaping the root are all rejected the same way; `wp-config.php` and `.htaccess` are refused for every write/edit/delete regardless of path (extend via the `wpmcp_fs_protected_paths` filter). `write-file`, `edit-file`, and `delete-file` are disabled by default via the `wpmcp_enable_fs_writes` filter, additionally require the `edit_files` capability, and honor `DISALLOW_FILE_EDIT`; unlike the database write tools, each filesystem write is recorded as an undoable operation (issue #602): the file's current bytes are copied into that operation's own backup directory (as `before.bak`, never under a `.php` name, and pruned with the undo point), the undo point is saved under the caller's `session_id`, and the response returns an `operation_id`. That operation is listed by `list-operations` and on the Mutations tab like every other write, and `rollback-operation` (or `rollback-session` for the whole run) restores the file byte for byte, binary files included, or removes a file `write-file` created; so `recoverable: true` names a restore path an agent can actually call. Undoing a file write takes `manage_options` and `edit_files`, what the write itself takes, not the rollback tools' `edit_posts`. A `.php` restore goes through the same checks as a `.php` write: the restored bytes must parse, the site is checked before and after, a restore that breaks the site is reverted and reported as not restored, and a restore whose site check cannot run is refused with the backup path for a manual restore (a write made with `unchecked: true` is restored unchecked). A `.php` write or edit also has to survive a site check before the call returns: the new content must parse (`token_get_all()` in parse mode; a failure is refused with the parser's message and line and nothing is written), and after saving, the front end (as a visitor) and wp-admin are requested with core's scrape key and nonce, the loopback the theme and plugin file editor uses to detect a fatal error. An MCP call has no browser session to forward, so the wp-admin request signs in as the calling user with auth cookies on a session of its own that lasts only for the check and is destroyed when it ends; those cookies go only to `admin_url()` and never appear in a response or log. A fatal, or a site that stops answering that check, restores the previous version (or removes a new file) in the same call and reports the error. Only one PHP edit runs at a time per site, wpmcp's own files are refused, and a file in an inactive plugin or theme gets the syntax check only. When the loopback cannot run at all, the write is refused unless the caller passes `unchecked: true`, and the response then reports the file as unchecked rather than safe. `analyze-performance` is read-only and gated by `manage_options`, same reasoning as the database and filesystem tools: it exposes server, database, and page internals. Its optional page fetch is SSRF-safe: the target must resolve to this site's own host, any hostname whose resolved IP falls in a private, loopback, link-local, or reserved range is refused before any HTTP request is attempted, and the actual request goes through `wp_safe_remote_get()` as a second layer of defense. `get-cache-status` and `clear-cache` are gated by `manage_options`. `clear-cache` is deliberately not routed through the safety engine and does not touch the safety core: clearing a cache has no meaningful before-image to restore (the data is regenerated on demand) and the operation is safe and idempotent, so it carries `destructiveHint: false` rather than being treated as a destructive write. Each third-party page-cache plugin is detected by its signature functions/constants and cleared only through its own public API (`rocket_clean_domain()`, `w3tc_flush_all()`, `wp_cache_clear_cache()`, the `litespeed_purge_all` action, `wpfc_clear_all_cache()`), every call guarded by `function_exists`/`defined` so an absent plugin never fatals. `get-connection-info` and `list-tool-catalog` are both read-only, gated by `manage_options`, and never touch the safety core: the former only ever emits placeholder credential text (never a real Application Password), and the latter only reads metadata already public on each registered `Ability` object, never invoking a tool's handler. `get-connection-info` does not build the one-click `.mcpb` bundle for Claude Desktop itself; it points to the Connection screen, which does, and gives the manual `claude_desktop_config.json` entry (an `mcp-remote` bridge, since that file only runs local servers). `get-page-snapshot` is gated by `edit_posts` and then re-checks the caller per post: `read_post` whenever the post is not published, and `edit_post` whenever its post type is not viewable (a published entry of an internal CPT, such as an agent memory guardrail, is not site content and its own tools are gated far higher). A password-protected post's stored body is not read at all for a caller who cannot edit it: not by the extractor, not by the block parser, not by the builder-tree readers, and the overlay seam does not run either, so the digest cannot become a read-around for a draft, a private post, or a protected body. `search-content` is gated by `edit_posts` and then re-checks `read_post` for every result whose post is not published, so the index can never surface a draft or private post the caller could not have read directly: an index is a performance structure, never an authorization bypass. `reindex-search` is gated by `manage_options` because a rebuild walks every post on the site. Neither is routed through the safety engine, and both say why: the `wpmcp_search_index` table is derived state recomputed from posts, postmeta, and menus, so its only meaningful "undo" is another `reindex-search`, and a snapshot would protect nothing.
-
-WordPress core's own site identity, homepage and permalink settings live as operations on `theme-read` and `theme-write` rather than as tools of their own (`list-tool-catalog` with `search: permalink` or `search: logo` finds them): `get-site-identity`, `get-permalink-structure` and `test-url` (the rewrite rule and query vars a path resolves to) on the read half; `set-site-logo`, `set-site-icon`, `set-front-page`, `set-posts-page`, `set-permalink-structure` (needs `confirm: true`, with a before and after example URL in the preview) and `flush-rewrite-rules` on the write half. Every write snapshots the option(s) it changes so `rollback-operation` puts the setting back exactly; the rewrite rules are a side effect rather than a snapshot, so after undoing a structure change run `flush-rewrite-rules`. The writes are off until the site opts in with the `wpmcp_enable_core_site_write` filter. Name and tagline stay on `update-settings`.
-
-WordPress core's Font Library lives on the same pair (`list-tool-catalog` with `search: font` finds it): `list-font-families` and `get-font-family` on the read half, each saying whether the family is active in global styles; `install-google-font` (downloads the chosen faces of a family in core's Google Fonts collection to the site's fonts directory, so the site serves them itself), `install-font-from-upload` (one face from a woff2, woff, ttf or otf file sent as base64 or fetched from an https URL) and `delete-font-family` (needs `confirm: true`) on the write half. An install adds missing faces to an installed family with the same slug and does not activate it; activate it through `site-templates-write` with entity `global_styles`. Undoing an install deletes the posts and files it made; a delete backs up every face's files first, and `rollback-session` puts the family, its faces and their files back. The writes are off until the site opts in with the `wpmcp_enable_font_library_write` filter.
-
-The hardening fixes `scan-security` reports can be applied rather than only reported, again as operations on `theme-read` and `theme-write` rather than a tool of their own (`list-tool-catalog` with `search: hardening`). `get-hardening-status` lists each setting (`disable_xmlrpc`, `hide_wp_version`, `block_user_enumeration`, `hide_php_errors`, `disable_file_editor`, `security_headers`), whether it is on, whether wp-config.php, the server or another plugin already handles it, and the audit finding it answers. `set-hardening` takes `settings`, an object of those names set to true or false. WP MCP applies them with its own hooks on every request, with no edits to wp-config.php or .htaccess; user enumeration is blocked for logged-out visitors only, so the block editor keeps its author list, and the MCP endpoint is never touched. A setting another layer already handles is refused (`handled_elsewhere`) instead of applied twice. Each call is one snapshot, so `rollback-operation` puts every setting back. The writes are off until the site opts in with the `wpmcp_enable_hardening_write` filter (or the admin toggle).
-
-
-WordPress core's synced patterns (reusable blocks) are operations on the same pair (`list-tool-catalog` with `search: pattern` finds them): `list-synced-patterns`, `get-synced-pattern` (with a `content_hash` and a usage count) and `find-pattern-usage` on the read half; `create-synced-pattern`, `update-synced-pattern` and `detach-pattern-instance` on the write half. Detach replaces every placement of a pattern in up to 50 posts with the pattern's own blocks; each post is snapshotted under one `session_id`, so `rollback-session` puts them all back, and a post that does not round-trip through the block parser is refused before anything is written. A create is undone by trashing the pattern. The writes are off until the site opts in with the `wpmcp_enable_core_patterns_write` filter.
-
-WordPress core's personal data requests (Tools > Export Personal Data and Erase Personal Data) are paid-tier operations on the same pair (`list-tool-catalog` with `search: privacy` finds them): `list-privacy-requests` (emails masked) and `get-privacy-request` (one request in full, never its confirmation key) on the read half; `create-export-request`, `create-erasure-request` and `mark-request-complete` on the write half. A request is filed as confirmed, or with `send_email: true` the requester is mailed the confirmation link and it waits as pending. `create-erasure-request` needs `confirm: true` in its own arguments after a preview naming the email, the matching user and the registered erasers; it only files the request and erases nothing, since the erasure itself stays an administrator's action on the core screen. A created request is undone by trashing it (`rollback-session`; a sent email stays sent) and `mark-request-complete` is snapshotted (`rollback-operation`). The writes are off until the site opts in with the `wpmcp_enable_core_privacy_write` filter.
-
-The forms plugins (Contact Form 7, WPForms, Gravity Forms, Formidable, Fluent Forms, Ninja Forms, Forminator, SureForms, MetForm) share one opt-in, the `wpmcp_enable_forms_write` filter, for the writes that change what a form emails or deletes a submission; until a site returns true the call answers `opt_in_required` naming it. Notifications and confirmations (issue #674, on Contact Form 7, WPForms, Gravity Forms and Formidable): `list-confirmations` (Contact Form 7: `list-messages`), `update-notification` (enabled, subject, body, sender, reply-to), `update-confirmation` (type message, page or redirect, validated for its type; Contact Form 7: `update-messages`) and `set-notification-recipients`, which changes who the mail goes to, needs `confirm: true` and shows the recipients before and after (Gravity Forms: `to` and `bcc`; setting `to` switches the notification to send to that address list). On Gravity Forms a new redirect target is judged together with the confirmation's stored query string, whose merge tags would otherwise leave the site. Every one snapshots the form (or its action post) so `rollback-operation` restores it. Recipients are checked as addresses or the plugin's own merge tags, and a site can restrict domains with `wpmcp_forms_allowed_recipient_domains`. Entry deletes (issue #675): `delete-entry` needs `confirm: true`, and every plugin that offers it (Contact Form 7 with Flamingo, MetForm, Ninja Forms, Forminator, SureForms, Fluent Forms, Formidable, Gravity Forms) snapshots the entry and its meta rows first, so `rollback-operation` (one row or post) or `rollback-session` (several tables) brings it back. A delete is not an erasure: the snapshot keeps a verbatim copy until it is pruned. Uploaded files stay on disk. Fluent Forms, Formidable and Gravity Forms refuse an entry that has payment records. WPForms entry deletes are not offered yet (they need a WPForms Pro copy to verify against).
-
-WooCommerce Subscriptions lives as the `subscriptions` domain of `woo-ops`, `woo-read` and `woo-write` rather than as tools of its own (issue #658). Reads: `subscriptions.list` (status, customer and product filters), `subscriptions.get` (items, totals, billing period, schedule dates in UTC and related order counts, never order meta), `subscriptions.products` (subscription and variable subscription products with their price, period, trial and sign-up fee, and simple or variable products sold through subscription plans with each plan's period, interval, length, trial, sign-up fee and price) and `subscriptions.renewal-orders` (renewal, parent, switch or resubscribe orders). Writes: `subscriptions.update-status` (active or on-hold, by the plugin's own transition rules; it can email the customer, so it needs `confirm: true`), `subscriptions.update-next-payment` and `subscriptions.update-items` (line items, shipping and fees, refused when the payment method cannot change the recurring amount). Every write snapshots the whole subscription, its schedule included, so `rollback-operation` puts it back and Subscriptions reschedules its renewal from the restored dates. `subscriptions.cancel` (at the end of the prepaid term, or now with `immediately: true`) is destructive: off until the site enables it through the `wpmcp_woo_op_enabled` filter, needs `confirm: true`, and reports `recoverable: false`, because emails are sent and a gateway that keeps its own recurring profile cancels it; a rollback still restores the subscription on the site. Without the plugin active the domain is left out of `woo-ops` and a call answers `plugin_missing` (or `plugin_inactive` when it is installed) with the plugins screen link. Restoring a subscription snapshot takes `manage_woocommerce`.
-
-WooCommerce Bookings lives as the `bookings` domain of `woo-ops`, `woo-read` and `woo-write` rather than as tools of its own (issue #659). Times are the store's local time, as Bookings keeps them. Reads: `bookings.products` (bookable products with duration, costs, capacity, persons, resources and default availability), `bookings.list` (status, product, customer, resource and date filters), `bookings.get` (one booking, never order meta) and `bookings.availability` (a product's own availability rules and its bookable slots over at most 31 days, from Bookings' own slot calculation). Writes: `bookings.create` (a booking without an order, checked and priced by Bookings the way its booking form does), `bookings.update-status` (unpaid, pending-confirmation, confirmed, paid or complete) and `bookings.set-availability-rules` (replace a product's own rules). Create and status changes can email the customer, so they need `confirm: true`. Every write is snapshotted: `rollback-operation` deletes a created booking, puts a booking back with its order's status (Bookings moves an order holding only that booking along with it) and its scheduled reminder and completion, and restores a product's rules. `bookings.cancel` is destructive: off until the site enables it through the `wpmcp_woo_op_enabled` filter, needs `confirm: true`, and reports `recoverable: false`, because the cancellation emails are sent and a connected calendar removes the event; a rollback still restores the booking and its order on the site. Without the plugin active the domain is left out of `woo-ops` and a call answers `plugin_missing` (or `plugin_inactive` when it is installed) with the plugins screen link. Restoring a booking snapshot takes `manage_woocommerce`.
-
-Payment gateway health for WooCommerce Stripe, WooPayments and WooCommerce PayPal Payments is the read-only op `gateways.health` on `woo-read` (issue #661). Each row gives the gateway's provider, enabled state, test mode, whether it is connected (its credentials for the current mode are set, or its WooPayments account is linked, with that account's status, payments and past-due flags), its webhook status (Stripe: ok, failing or none received for the current mode, with the last success and failure times in UTC and whether a signing secret is set; PayPal Payments: registered or not, with the last event time; WooPayments: managed by its own servers) and the last error the plugin recorded. It reads the options the plugins store, never calls a payment provider, and never returns a key, secret, token, account id or merchant identity. Pass `gateway` to read one. Without any of the three gateways active the op is left out of `woo-ops` and a call answers `plugin_missing` (or `plugin_inactive`).
-
-WooCommerce Memberships lives as the `memberships` domain of `woo-ops`, `woo-read` and `woo-write` rather than as tools of its own (PR #573). Dates are UTC. Reads: `memberships.plans` (access method, length and dates, products, member counts by status and the plan's content, product and discount rules), `memberships.members` (by plan and status, with each member's email and name masked and `masked: true`; `get-user` gives one member in full) and `memberships.user` (every membership one user holds). Writes go through the plugin's own calls: `memberships.grant` (refused when the user already holds that plan), `memberships.pause`, `memberships.resume` and `memberships.extend` (a later end date, or none). Grant and resume can send the plugin's membership emails, so they need `confirm: true`; extend reschedules the expiry and reminder emails. Every write is snapshotted: `rollback-operation` deletes a granted membership and puts any other back exactly (status, plan, member and every meta key), without a status transition, then has Memberships reschedule its expiry. `memberships.cancel` is destructive: off until the site enables it through the `wpmcp_woo_op_enabled` filter, needs `confirm: true`, and reports `recoverable: false`, because access ends at once, the member may be emailed and a tied subscription may react; a rollback still restores the membership on the site. Without the plugin active the domain is left out of `woo-ops` and a call answers `plugin_missing` (or `plugin_inactive` when it is installed) with the plugins screen link. Restoring a membership snapshot takes `manage_woocommerce`.
-
-Personal data in list reads is masked before it reaches the AI provider (`masked: true`): `list-users`, the raw WooCommerce lists `orders.list`, `orders.notes`, `refunds.list` and `customers.list`, `memberships.members`, `memberpress-list-members` and the Paid Memberships Pro `list-members` and `list-orders` (order card, address, phone and notes are left out). Names, emails, phones, addresses, IPs, notes and custom meta values keep only their first character (`j***@example.com`, `J***`); ids, order numbers, statuses, totals, dates, countries and line items stay readable. The single reads stay full for an administrator: `get-user`, `orders.get` (the place to read one order's shipping address), `customers.get` and `refunds.get`. Wordfence IPs (block and unblock need the exact IP), the WXR export and Amelia employee names stay unmasked on purpose.
-
-## Refusal codes for switched-off features
-
-Two error codes mean a feature is switched off, and they ask for different fixes:
-
-- `opt_in_required`: the tool or operation ships off and this site has not opted in. Every such refusal uses this code: default-off tools (database, filesystem and package writes, WP-CLI, PHP execution, custom JS, the ability bridge, migrations, project memory), default-off integration operations (pack write switches such as `wpmcp_enable_memberpress_write`, `wpmcp_enable_learndash_learner_write` or `wpmcp_enable_theme_write`, and per-operation opt-ins), and destructive `woo-write` ops. The message names the exact filter (and the `wp-config.php` constant, where one exists) and the line of PHP that switches it on; `data.filter` carries the filter name.
-- `operation_disabled`: the operation is on by default and this site switched it off with `wpmcp_integration_op_enabled` or `wpmcp_woo_op_enabled`. Opting in is not the fix; removing that filter is.
-
-Before this split every default-off integration op and `woo-write` op answered `operation_disabled`, and some gates had codes of their own (`wpmcp_bridge_disabled`, `js_gate_closed`, `wpmcp_migration_receive_disabled`, `wpmcp_migration_send_disabled`, `wpmcp_memory_disabled`). They all answer `opt_in_required` now.
-
-## Compact tool surface
-
-wpmcp registers up to 407 tools, depending on licence and active plugins. Some MCP clients cap tool counts outright, and all of them pay token cost for every `tools/list`. **Compact mode** collapses the advertised surface to five tools: `list-tools`, `get-tool-schema`, `call-tool`, plus the connection basics `get-connection-info` and `get-site-context`, while every other tool stays reachable through `call-tool`.
-
-Compact mode is exposure-only and off by default. It never changes which abilities are registered and it is not a permission boundary: a dispatched call runs the target tool's own capability check, governance, identity scope, license check, rate limit, input validation, and snapshot/rollback behavior exactly as a direct call would (a conformance suite sweeps the entire surface in both modes to prove it). `call-tool` refuses abilities that were not registered by wpmcp.
-
-Choose the mode site-wide with the `wpmcp_tool_exposure_mode` option (`full` or `compact`), per scoped identity via the identity's `exposure` field (`create-identity` accepts it; it overrides the site setting for that agent), or in code via the `wpmcp_tool_exposure_mode` filter. The `wpmcp_compact_exposed_abilities` filter can add tools to the compact core (the three meta-tools are always included).
-
-Measured `tools/list` payload in the test environment (unlicensed, optional test plugins active): **full** about 136,000 bytes across 270 tools; **compact** about 2,200 bytes across 5 tools, a **98% reduction**. A checked-in budget test (`tests/free/MCP/ToolsListBudgetTest.php`) caps the compact payload and prints these numbers on every test run.
-
-## New tools after updates
-
-A tool that an update ships switched off stays off until an administrator turns it on. Site owners who want every new tool without visiting the Abilities screen can turn on **Switch on new tools after updates** there, or send `update-governance-settings` with `{"auto_enable_new_tools": true}` (`get-governance-settings` reports it). The setting is off by default, every change is written to the governance audit log, and the MCP change returns an `operation_id` that `rollback-operation` undoes.
-
-With the setting on, an update still leaves these off:
-
-- tools that run code, write files or database rows, or manage users, roles, plugins or themes, and every tool behind an execution opt-in filter;
-- any tool you switched off by hand.
-
-After an update that added tools, the Dashboard shows which ones and the state each arrived in, until an administrator dismisses the notice.
-
-## Pinning an identity to IP ranges
-
-A scoped identity can be pinned to the addresses your agents run from. Pass `allowed_ips` to `create-identity` as a list of IPv4 or IPv6 addresses and CIDR ranges (for example `["203.0.113.0/24", "2001:db8::/32"]`). A request acting as that identity from any other address is refused before any tool runs, with the same generic error as any other denial, and the refusal is recorded in the governance audit log as `identity/ip-refused` with the refused address. Overwriting the identity without `allowed_ips` clears the list. Identities without a list behave as before, the Connection screen shows each identity's list, and the admin screens are never restricted.
-
-The client address is `REMOTE_ADDR`. Forwarded headers are ignored unless you name your reverse proxies, so a client cannot claim another address:
-
-```php
-add_filter('wpmcp_trusted_proxies', function () {
-    return ['10.0.0.0/8']; // your load balancer or proxy addresses
-});
-```
-
-When `REMOTE_ADDR` is a listed proxy, `X-Forwarded-For` is read right to left and the first hop that is not a listed proxy is the client. A malformed hop, or no usable address, is refused. The WP-CLI stdio transport has no network peer and is not affected.
-
-## Agent project memory (enforced, not advisory)
-
-A site accumulates rules an agent should know: "the header is a reusable block", "never touch the homepage". wpmcp stores those as `wpmcp_memory` entries and puts a **trust gate** in front of them: everything an agent proposes lands `pending` and is completely inert. It is not injected into any future session, it is not enforced, and `memory-recall` will not read it back. An administrator publishing the entry in wp-admin is the single act that makes it live, and nothing on the agent-facing path can publish (`memory-propose` hard-codes the status and takes no parameter to override it).
-
-Published entries reach the agent through the existing MCP `initialize` instructions channel, so there is no separate discovery seam.
-
-The part that matters: an entry with `severity: block` is **enforced by the server, not suggested to the model**. Enforcement lives in `Registrar::is_permitted()`, the single gate every wpmcp ability passes through before it runs, so a rule denies uniformly across the whole surface, including tools written after the rule was created, with no per-tool opt-in and nothing for a future write path to remember to call. A rule names one or more targets:
-
-| Target | Matches |
-| --- | --- |
-| `tool:<ability>` | that ability by exact name (the `wpmcp/` prefix is optional), or by prefix with a single trailing `*` |
-| `post_id:<id>` | a call whose arguments name that post |
-| `post_type:<slug>` | a call that declares that post type, or that names the id of a post of that type |
-
-Every memory denial is written to the governance audit log with the blocking entry's id (`memory-block:<id>`), so "why was this refused" is answerable after the fact. Read-only abilities are never blocked: a guardrail restricts what an agent may change, and denying reads would break recall and diagnostics while protecting nothing. An untargeted `block` entry is rejected at validation time, because it would deny every write on the site.
-
-Honest limitation, stated rather than hidden: `post_id` and `post_type` targets can only match arguments the server can see, so a tool that addresses content some other way (a slug-only API, a bulk operation with no id list) is not caught by those two forms. `tool:` targets have no such gap and are the airtight form.
-
-Session summaries are a deterministic rollup of the session's snapshot rows, not an LLM summarization pass. wpmcp writes a before-image ahead of every mutation, so the rows are a complete server-side record of what actually changed; the digest is computed from them, which makes it reproducible, offline, free, and impossible for a summary to over- or under-claim.
-
-The three tools are Pro tier and off by default (`wpmcp_enable_memory`, default `false`). Enforcement is deliberately **not** gated on either: it is on by default (`wpmcp_memory_enforce`) and keeps working after the tools are switched off or a license lapses, because a guardrail that quietly stops guarding is worse than no guardrail. Pending proposals surface as a count bubble on the wpmcp admin menu.
-
-## Agent skills
-
-A safety-first tool surface only pays off if the agent uses it correctly, so the plugin ships the guidance itself. `list-skills` and `get-skill` serve versioned markdown playbooks (a `SKILL.md` per skill, with a validated frontmatter header) covering snapshots and rollback, governance and scoped identities, surgical Elementor editing, WooCommerce catalog and order work, and safe database work.
-
-Discovery is deliberately cheap: `list-skills` returns slug, name, a one-line description, version and tags for the whole library in well under 4 KB, and only `get-skill` pays for a body.
-
-- **Validated, not best-effort.** A `SKILL.md` missing a name, description, or `version`, or over the 64 KB cap, is not served at all: it is refused and named, with its error codes, on the **wpmcp -> Skills** admin screen. Because oversized documents are refused at discovery time, `get-skill` can promise the body exactly as written, never a truncation.
-- **Site-aware.** A skill may declare `requires` (ability names). Skills whose tools are not registered on this install (a vertical build, a governance-disabled domain, an absent plugin) are hidden from the default listing, so an agent is never handed a playbook it cannot execute. `include_unavailable: true` shows them with the missing ability names attached.
-- **Extensible.** Drop skills in `wp-content/wpmcp-skills/<slug>/SKILL.md`, or register any directory through the `wpmcp_skill_sources` filter. A later source overrides a bundled slug, so a site can replace a shipped playbook with its own house style.
-- **No path ever comes from input.** `get-skill` resolves a slug against the index built by scanning disk; a caller-supplied string is never concatenated into a filesystem path, and every discovered file must `realpath()` inside its declared source root.
-- **Tiering is per skill, not per surface.** Both tools and the starter library are free. A skill whose frontmatter says `tier: pro` stays listed but its body is withheld behind `Pro\Gate` until the site is licensed.
-- **Removable.** The checkbox on the Skills screen (option `wpmcp_skills_enabled`, or the filter of the same name) unregisters both abilities entirely, so a site that does not want them pays zero tokens for them in `tools/list`.
-
-### Prompts and resources
-
-The same content is also served through the MCP prompts and resources primitives, so clients that surface those natively (slash-command prompt pickers, attachable context) can use it without a tool call. The server advertises both capabilities on `initialize`, on the HTTP and the stdio transport alike.
-
-- **Prompts.** `prompts/list` offers every skill whose body this site can serve (available and not withheld), named by slug. `prompts/get` returns the skill body exactly as written, as a single user message.
-- **Resources.** `resources/list` offers `wpmcp://site/context` (the `get-site-context` payload) and `wpmcp://skills` (the `list-skills` catalog), both `application/json`. `resources/read` returns the same payload the tool would.
-- **Governed like the tools behind them.** Each primitive is backed by the live ability that serves the same data (`get-skill`, `get-site-context`, `list-skills`): the capability check, governance toggles, scoped identities, project-memory rules, audit log, rate limit and request log are that ability's own. When the backing ability is not registered (governance-disabled, skills switched off, exposure switch off) the primitive is absent. Every backing ability is a read, so nothing here writes.
+- [Claude WordPress prompt: rebuild a homepage hero with undo](prompts/claude-wordpress-homepage-hero-with-undo.md)
+- [WordPress AI agent prompt: bulk-fix SEO titles, then review in History](prompts/wordpress-ai-agent-bulk-seo-titles.md)
+- [WooCommerce MCP prompt: update prices with a one-step rollback](prompts/woocommerce-mcp-price-update-with-rollback.md)
+- [WordPress MCP prompt: build a Gutenberg landing page, then undo it](prompts/gutenberg-landing-page-wordpress-mcp.md)
 
 ## Free vs Pro
 
-The free plugin (this repo) is fully functional: the safety engine, Gutenberg editing, one-click rollback, and snapshot history. Pro adds 133 tools, including Elementor deep editing, the other page builders in [Page builder support](#page-builder-support), and the agent memory tools. Plans and licences are at [wpmcp-pro.com](https://wpmcp-pro.com/).
+The free plugin is complete on its own: the safety engine and undo, Gutenberg editing, site management and the WooCommerce store tools.
+Pro unlocks in the same plugin when you add a licence: unlimited undo history, Elementor deep editing, the other page builders, WooCommerce Subscriptions, Bookings and Memberships, agent project memory and priority support.
+There is nothing else to install. Plans are on the [pricing page](https://wpmcp-pro.com/pricing), and the detail is in [Free vs Pro](docs/reference/free-vs-pro.md).
 
-Snapshot_Store itself has no licence check: `Snapshot_Store::history_limit()` returns the same flat cap (`DEFAULT_HISTORY_LIMIT`, 20) in every build, and the `wpmcp_snapshot_history_limit` filter raises or lowers it for free on any site (any whole number of 1 or more; a non-numeric or out-of-range return falls back to 20, since 0 would let the snapshots table grow without bound). A site that upgrades with a history deeper than the cap keeps it: the existing depth is recorded once as a floor and held until the owner sets the filter or acknowledges the admin notice, and pruning never deletes more than `PRUNE_BATCH_LIMIT` rows per write. The self-hosted Pro build lifts the cap to unlimited through that same filter (`WPMCP\Pro\Snapshot_History`, registered only while the licence is active), and if a licence that was active ends, the depth the site has then is held as the same floor so a lapse never deletes history. Pro is sold through [Freemius](https://freemius.com/) at [wpmcp-pro.com](https://wpmcp-pro.com/) and adds Elementor deep editing, the forms adapter pack, and priority support. The Pro gate (`WPMCP\Pro\Gate`) checks the Freemius licence; without an active licence or trial, or when the SDK is absent, the plugin runs as the free build.
+## Developer docs
 
-Freemius consent is an explicit, default-off opt-in: `anonymous_mode` is `false` (see `WPMCP\Freemius\Bootstrap::config()`), so the SDK ships its stock connect screen with the Skip link intact (`enable_anonymous` is pinned `true` for that reason), and nothing is sent until someone affirmatively opts in. Because the config nests Freemius under the plugin's own top-level `wpmcp` menu, `override_exact` is pinned `true` as well: without it the SDK's activation-mode takeover removes the whole wpmcp menu and its submenus on every admin screen until the opt-in is answered. The activation URL is `admin.php?page=wpmcp`, the History page, so that one screen shows the connect page until the opt-in is answered or skipped; every other wpmcp submenu stays reachable meanwhile.
-
-This applies to the self-hosted zip only. The WordPress.org build carries no licensing SDK at all: `scripts/flavors/wporg/strip.php` removes `src/Freemius` and `scripts/build-wporg-release.sh` composer-removes `freemius/wordpress-sdk`, with build gates that fail if either survives.
-
-Credentials are already wired: `wpmcp.php` defines `WPMCP_FS_ID` and `WPMCP_FS_PUBLIC_KEY`, and the SDK arrives through composer (`freemius/wordpress-sdk`, found by `Bootstrap::locate_sdk()` at `vendor/freemius/wordpress-sdk/start.php`). The connect-screen icon is pinned to `assets/wpmcp-icon.svg`, so `scripts/build-release.sh` stages `assets/` alongside `src/` and fails the build if any `assets/` path referenced from `src/` is missing from the zip.
-
-## Roadmap
-
-- [ ] `preview-change` dry-run diffs before applying
-- [ ] Visual before / after regression on edited pages
-- [ ] Multi-site fleet management
-- [ ] wp.org listing
-
-## Known limitations
-
-Snapshot history keeps the last 20 operations by default; raise it with the `wpmcp_snapshot_history_limit` filter (minimum 1). Pro keeps unlimited history while the licence is active. Pruning works on whole sessions: single writes in the `default` session are pruned one by one to the limit, but a named session (a bulk run such as a background optimize-media run, a product import or a multi-call database cleanup) is kept or dropped whole, never cut. The newest session and the newest session larger than the limit (the last bulk run) are always kept, so the table holds at most the limit plus those two sessions. A session that has been dropped makes `rollback-session` refuse with the reason rather than undo part of it. A post snapshot captures the full post row (including excerpt, parent, slug, dates and menu order), its meta, terms and, for a force-delete, its comments. Deleting media without `MEDIA_TRASH` backs up the attachment's files first, so rollback restores both the record and the file bytes ([#24](https://github.com/wpmcp/wordpress-mcp/issues/24)); a file that cannot be copied at delete time is left out of the backup. Details and mitigations are in the [design spec](docs/superpowers/specs/2026-07-12-wpmcp-mvp-design.md#known-limitations-mvp).
-
-## Development
-
-```bash
-composer install       # install dev dependencies
-composer test:local    # the test gate: lint, drift check, PHPUnit on the default and minimum WordPress and on multisite, coverage floor
-composer lint          # PSR-12 with WordPress-idiomatic naming
-```
-
-The PHPUnit suite does not run on GitHub Actions. It runs locally through `bin/test-local.sh`, and the pre-push hook in `.githooks/` runs it before every push, on the default WordPress, on the `Requires at least` minimum, and on the default WordPress installed as a multisite network (`WP_MULTISITE=1`). Every leg runs even when one fails, and the run ends with a pass/fail summary. The first run of the script turns the hook on for the clone. GitHub keeps only the static gates: lint, the drift check, compliance and Plugin Check. Run `composer check:flavors` for the release-flavor class guard in seconds; the rule behind it is in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-The script needs MariaDB and Subversion, and nothing else to configure:
-
-```bash
-brew install mariadb@10.11 subversion   # keg-only, does not conflict with a mysql install
-bin/test-local.sh                       # default WordPress with the coverage floor, the `Requires at least` WordPress, multisite, live groups
-bin/test-local.sh --all                 # the same on every WordPress in WP_VERSIONS, plus the released MCP Adapter leg
-bin/test-local.sh --plan                # list the legs a run would execute, run nothing
-bin/test-local.sh --multisite           # only the suite on the default WordPress as a multisite network (takes -- --filter too)
-bin/test-local.sh -- --filter SnapshotTest   # a targeted PHPUnit run
-ELEMENTOR_VERSION=latest bin/test-local.sh   # check for drift against the newest Elementor
-WPMCP_TEST_ADAPTER_PLUGIN=/path/to/mcp-adapter/mcp-adapter.php bin/test-local.sh   # against a canonical MCP Adapter build, e.g. its trunk after composer install --no-dev
-bin/test-local.sh --live-forms          # only the Contact Form 7 + Flamingo live group
-bin/test-local.sh --live-blocks         # only the block suites live group (Kadence Blocks, GenerateBlocks, Spectra, Otter Blocks, Stackable, Ultimate Blocks)
-bin/test-local.sh --live-buddypress     # only the BuddyPress live group
-bin/test-local.sh --live-bbpress        # only the bbPress live group
-bin/test-local.sh --live-lms            # only the Tutor LMS and LifterLMS live groups
-bin/test-local.sh --live-crm            # only the FluentCRM and MailPoet live group
-bin/test-local.sh --live-helpdesk       # only the BetterDocs, Fluent Support and Awesome Support live group
-bin/test-local.sh --live-activity-log   # only the WP Activity Log and Simple History live group (both downloaded from WordPress.org)
-bin/test-local.sh --live-action-scheduler   # only the Action Scheduler live group (the standalone plugin, downloaded from WordPress.org; WPMCP_LIVE_ACTION_SCHEDULER=1 is what it sets)
-bin/test-local.sh --live-site-gate      # only the site gate live group (SeedProd, WP Maintenance Mode, Under Construction, Maintenance and CMP, downloaded from WordPress.org)
-bin/test-local.sh --live-email-log      # only the WP Mail Logging, Check and Log Email and Email Log live group (all downloaded from WordPress.org)
-bin/test-local.sh --live-amelia         # only the Amelia Lite live group
-bin/test-local.sh --live-wp-mail-smtp   # only the WP Mail SMTP live group
-bin/test-local.sh --live-fluent-smtp    # only the FluentSMTP live group (downloads the plugin)
-bin/test-local.sh --live-post-smtp      # only the Post SMTP live group (downloads the plugin)
-WPMCP_MEMBERPRESS_SRC=/path/to/memberpress bin/test-local.sh --live-memberpress   # only the MemberPress live group, against a local MemberPress copy
-WPMCP_ELEMENTOR_PRO_SRC=/path/to/elementor-pro bin/test-local.sh --live-elementor-pro   # only the Elementor Pro live group, against a local Elementor Pro copy
-WPMCP_WP_ROCKET_SRC=/path/to/wp-rocket WPMCP_PERFMATTERS_SRC=/path/to/perfmatters WPMCP_FLYING_PRESS_SRC=/path/to/flying-press bin/test-local.sh --live-cache-settings   # only the cache settings live groups, against local copies (any one is enough)
-WPMCP_JET_ELEMENTS_SRC=/path/to/jet-elements bin/test-local.sh --live-jet-elements   # only the JetElements live group, against a local JetElements copy
-WPMCP_WS_FORM_SRC=/path/to/ws-form-pro bin/test-local.sh --live-ws-form   # only the WS Form live group, against a local WS Form PRO copy
-bin/test-local.sh --live-links          # only the live Pretty Links and ThirstyAffiliates group, against the real free plugins
-bin/test-local.sh --live-site-reviews   # only the live Site Reviews group, against the real free plugin
-bin/test-local.sh --live-adapter        # only both suites on the latest MCP Adapter plugin released on WordPress.org (WPMCP_ADAPTER_VERSION pins one)
-bin/test-local.sh --prune               # prune the test cache to its budget now (--prune --all: every install no run is using)
-```
-
-It starts a private MariaDB server under `~/.cache/wpmcp-tests`, installs each WordPress version there once per version of the install scripts and of the test plugins (each unpinned plugin's latest release is looked up on WordPress.org on every run, falling back to the newest cached install offline, and the summary names the plugin versions each leg ran against), and gives every worktree its own database, so worktrees can run side by side. The default run ends with eight live groups, each on its own install: the live forms group (the Contact Form 7 adapter against the real Contact Form 7 and Flamingo), the live blocks group (blocks inserted through the block-suites tools, rendered with the real Kadence Blocks, GenerateBlocks, Spectra, Otter Blocks, Stackable and Ultimate Blocks), the live BuddyPress group (the BuddyPress ops run through the real BuddyPress, its hooks firing, and rolled back), the live bbPress group (topics and replies posted and topics closed, stuck and spammed through the real bbPress, each rolled back to the exact rows, counts and sticky lists it started from) and the live Tutor LMS and LifterLMS groups (a course tree built through the LMS ops, read back through each plugin's own curriculum API, and rolled back) and the live CRM group (FluentCRM contacts and MailPoet subscribers written, imported and rolled back through each plugin's own API without resubscribing anyone, and campaigns drafted, tested and sent through each plugin's own mailer with every email captured, never delivered) and the live Amelia group (services, employees with their hours, customers, appointments and events written and deleted through Amelia Lite's own controllers, with its slot checks and notifications running and customer mail captured, and rolled back). MySQL does not work: the harness makes every table TEMPORARY and MySQL cannot reopen one inside a query, which WooCommerce does. Skip the gate for one push with `WPMCP_SKIP_LOCAL_TESTS=1 git push`.
-
-The cache keeps itself small (it once grew to 73 GB in one night with many worktrees running at once). One run goes at a time across all worktrees (`WPMCP_TEST_MAX_PARALLEL`, default 1), because concurrent gates collide on the shared caches; another says it is waiting and waits up to an hour (`WPMCP_TEST_SLOT_TIMEOUT`, in seconds). A targeted run (`bin/test-local.sh -- --filter Foo`, or any PHPUnit arguments after `--`) takes no slot and never waits behind a gate: its core copy, database and config are its own, and the installs it shares are keyed on their contents and never changed once built. It still passes the free-space check and prunes to the budget below. Installs are pruned least recently used first to at most 6 (`WPMCP_TEST_KEEP_INSTALLS`) and 15 GB (`WPMCP_TEST_MAX_GB`), and any install unused for 6 hours (`WPMCP_TEST_INSTALL_TTL_HOURS`) goes, after every new install and when a run exits, Ctrl-C included; an install a live run is using is never removed. With less than 20 GB free on the cache's volume (`WPMCP_TEST_MIN_FREE_GB`) a run first prunes the cache to the two most recently used installs, and with less than 10 GB (`WPMCP_TEST_HARD_MIN_FREE_GB`) it stops. Nothing is downloaded twice: WordPress core, the WordPress test library and every plugin zip are kept in `~/.cache/wpmcp-tests/downloads` by exact version (see `bin/download-cache.sh`), so rebuilding a pruned install makes no network call. A plugin's latest release is asked of WordPress.org at most once a day (`WPMCP_TEST_LATEST_TTL_HOURS`), and the downloads keep their own budget: unused for 30 days (`WPMCP_TEST_DOWNLOAD_TTL_DAYS`) or beyond 3 GB (`WPMCP_TEST_DOWNLOAD_MAX_GB`), least recently used first.
+Building on WP MCP or wiring it into your own agent? The full tool and protocol reference is in [docs/reference/](docs/reference/README.md). Guides for site owners are at [wpmcp-pro.com/docs](https://wpmcp-pro.com/docs).
 
 ## Contributing
 
-Issues and pull requests are welcome. Please keep the safety invariant intact: no tool may write to the database except through `Safe_Mutation::run()`, and every change ships with a test. See [CONTRIBUTING.md](CONTRIBUTING.md) if present, or open an issue to discuss larger changes first.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md), or open an issue to talk through a larger change first.
 
 ## Security
 
-wpmcp edits live sites and executes agent instructions, so security is a first-class concern: admin actions are capability-checked and nonce-protected, all output is escaped, and all database access is parameterized. If you find a vulnerability, please open a private security advisory rather than a public issue.
-
-On a multisite network the code execution tools (`run-php-snippet`, `activate-php-snippet`, `run-wp-cli` and `dispatch-cli-job`) need a network administrator (`manage_network_options`) on top of their opt-in, because that opt-in is shared by every site and a sub-site administrator holds `manage_options` on their own site. A network that wants its sub-site administrators to run code can grant it explicitly with the `wpmcp_allow_subsite_code_exec` filter, which receives the surface (`php` or `wp-cli`), the user id and the blog id and defaults to `false`. WP-CLI commands run against the caller's own site (`--url` is set to it). A queued CLI job is re-checked against the user who queued it when it runs.
+WP MCP edits live sites on an agent's instructions, so every admin action is capability-checked and nonce-protected, output is escaped and database access is parameterized. Found a vulnerability? Please open a private security advisory rather than a public issue.
 
 ## License
 
-[GPL-2.0-or-later](LICENSE). Study it, fork it, ship it.
+[GPL-2.0-or-later](LICENSE). Study it, fork it, ship it. If it saves you a rollback, [star it on GitHub](https://github.com/wpmcp/wordpress-mcp) so other WordPress builders can find it.
