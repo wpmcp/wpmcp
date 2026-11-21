@@ -34,7 +34,7 @@ Requires WordPress 6.9+ and PHP 8.1+.
 
 ## What the WordPress MCP server does
 
-**A WordPress AI agent with undo.** Every supported write is snapshotted before it runs, checked after, and rolled back on its own if the check fails. Undo one change or a whole agent session from the AI, or with one click on the History screen in wp-admin. The few things that cannot be undone are [listed](docs/reference/safety-model.md#what-cannot-be-undone), and each says so in its response.
+**A WordPress AI agent with undo.** Every supported write is snapshotted before it runs, checked after, and rolled back on its own if the check fails. Undo one change or a whole agent session from the AI, or any single change with one click on the History screen in wp-admin. The free plugin keeps your last 20 undo points; Pro keeps unlimited history while the licence is active. The few things that cannot be undone are [listed](docs/reference/safety-model.md#what-cannot-be-undone), and each says so in its response.
 
 **Build pages in Gutenberg, Elementor and other builders.** The free plugin reads and edits Gutenberg blocks, inserts patterns and converts HTML to blocks, verifying the markup after every edit. Pro adds Elementor MCP editing of the full element tree, plus Bricks, Divi, Beaver Builder, Breakdance, Oxygen, WPBakery, Avada and other builders. [Builder details](docs/reference/page-builders.md).
 
@@ -59,8 +59,8 @@ snapshot (before)  ->  apply the change  ->  verify  ->  ok?
 ```
 
 Snapshots are taken at the WordPress data layer (post content, meta, terms, options, users), so rollback works the same for every page builder.
-Each write returns an operation id: `rollback-operation` undoes one, `rollback-session` unwinds a whole agent run, and the History screen does the same with one click.
-History keeps the last 20 operations by default, and a filter raises it. Read the full list of [what cannot be undone](docs/reference/safety-model.md#what-cannot-be-undone).
+Each write returns an operation id: `rollback-operation` undoes one, `rollback-session` unwinds a whole agent run, and the History screen restores any single operation with one click.
+Free keeps the last 20 operations; Pro keeps every one while the licence is active. Read the full list of [what cannot be undone](docs/reference/safety-model.md#what-cannot-be-undone).
 
 ## Connect your AI client: Claude Code, Claude Desktop, ChatGPT, Cursor
 
@@ -82,7 +82,7 @@ Paste-once blueprints in [prompts/](prompts/), each ending with an undo step:
 ## Free vs Pro
 
 The free plugin is complete on its own: the safety engine and undo, Gutenberg editing, site management and the WooCommerce store tools.
-Pro unlocks in the same plugin when you add a licence: Elementor deep editing, the other page builders, WooCommerce Subscriptions, Bookings and Memberships, agent project memory and priority support.
+Pro unlocks in the same plugin when you add a licence: unlimited undo history, Elementor deep editing, the other page builders, WooCommerce Subscriptions, Bookings and Memberships, agent project memory and priority support.
 There is nothing else to install. Plans are on the [pricing page](https://wpmcp-pro.com/pricing), and the detail is in [Free vs Pro](docs/reference/free-vs-pro.md).
 
 ## Developer docs
